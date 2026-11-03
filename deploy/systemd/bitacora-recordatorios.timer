@@ -1,0 +1,10 @@
+[Unit]
+Description=Bitácora MCI · recordatorios
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 08:00:00 America/Mexico_City
+Persistent=true
+Unit=bitacora-job@recordatorios.service
+
+[Install]
+WantedBy=timers.target

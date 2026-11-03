@@ -1,0 +1,52 @@
+{% extends "base.html" %}{% from "_ui.html" import icon with context %}
+{% block title %}Excepciones{% endblock %}
+{% block content %}
+<div class="top"><div class="col" style="gap:4px"><h1>Excepciones al cumplimiento</h1>
+  <span class="muted">Una excepción aprobada saca del cálculo un incumplimiento justificado o ajusta una meta, sin borrar el dato original. Queda registrado quién la pidió, quién la aprobó y por qué.</span></div>
+  <button class="btn yellow" data-open="nueva-exc">{{ icon('plus') }}Solicitar excepción</button></div>
+<section class="card pad">
+  <div class="tbl"><table><thead><tr><th>Estado</th><th>Aplica a</th><th>Periodo</th><th>Categoría</th><th>Efecto</th><th>Justificación</th><th>Solicitó</th><th>Socio</th><th></th></tr></thead><tbody>
+  {% for e in lista %}<tr>
+    <td><span class="tag {{ 'o' if e.estado=='solicitada' else 'g' if e.estado=='aprobada' else 'n' }}">{{ e.estado }}</span></td>
+    <td>{{ etiquetas[e.id] }}</td><td class="small">{{ fmt_fecha(e.periodo_desde) }} – {{ fmt_fecha(e.periodo_hasta) }}</td>
+    <td>{{ categorias.get(e.categoria, e.categoria) }}</td>
+    <td>{{ 'Excluir del cálculo' if e.efecto=='excluir' else 'Meta ajustada a ' ~ e.meta_ajustada }}</td>
+    <td class="small">{{ e.justificacion }}{% if e.comentario_resolucion %}<div class="muted">Resolución: {{ e.comentario_resolucion }}</div>{% endif %}</td>
+    <td class="small">{{ e.solicitante.nombre }}<div class="muted">{{ fmt_fecha(e.creado) }}</div></td>
+    <td>{{ 'Visible' if e.visible_socio else 'Interna' }}</td>
+    <td>{% if u.es_direccion and e.estado=='solicitada' %}<button class="btn sm dark" data-open="res-{{ e.id }}">Resolver</button>{% endif %}</td></tr>
+  {% else %}<tr><td colspan="9" class="muted">Sin excepciones registradas.</td></tr>{% endfor %}</tbody></table></div>
+</section>
+{% endblock %}
+{% block modals %}
+<div class="overlay" id="nueva-exc"><form class="modal" method="post" action="/excepciones">
+  <div class="mh"><h2>Solicitar excepción</h2><button class="btn ghost" type="button" data-close style="width:42px;padding:0">{{ icon('x') }}</button></div>
+  <div class="sec" style="border-top:0">
+    <div class="field"><label for="x-o">Aplica a</label><select class="input" id="x-o" name="objetivo" required>
+      <optgroup label="Un compromiso">{% for c in comps %}<option value="compromiso:{{ c.id }}" {{ 'selected' if pre=='compromiso:%d' % c.id }}>CMP-{{ '%04d' % c.id }} · {{ c.responsable.nombre }} · {{ c.texto[:70] }}</option>{% endfor %}</optgroup>
+      <optgroup label="Una persona (todos sus compromisos del periodo)">{% for x in usuarios %}<option value="persona:{{ x.id }}">{{ x.nombre }}</option>{% endfor %}</optgroup>
+      <optgroup label="Una medida predictiva">{% for p in preds %}<option value="predictiva:{{ p.id }}">{{ p.nombre }}</option>{% endfor %}</optgroup>
+      <optgroup label="Una MCI">{% for m in mcis %}<option value="mci:{{ m.id }}">{{ m.nombre }}</option>{% endfor %}</optgroup>
+    </select></div>
+    <div class="grid4">
+      <div class="field"><label for="x-d">Desde</label><input class="input" type="date" id="x-d" name="periodo_desde" value="{{ hoy.isoformat() }}" required></div>
+      <div class="field"><label for="x-h">Hasta</label><input class="input" type="date" id="x-h" name="periodo_hasta" value="{{ hoy.isoformat() }}" required></div>
+      <div class="field"><label for="x-c">Categoría</label><select class="input" id="x-c" name="categoria">{% for k, t in categorias.items() %}<option value="{{ k }}">{{ t }}</option>{% endfor %}</select></div>
+      <div class="field"><label for="x-e">Efecto</label><select class="input" id="x-e" name="efecto"><option value="excluir">Excluir del cálculo</option><option value="meta_ajustada">Ajustar la meta</option></select></div>
+    </div>
+    <div class="grid2" style="grid-template-columns:1fr 3fr">
+      <div class="field"><label for="x-m">Meta ajustada (si aplica)</label><input class="input" type="number" step="any" id="x-m" name="meta_ajustada"></div>
+      <div class="field"><label for="x-j">Justificación</label><textarea class="input" id="x-j" name="justificacion" required placeholder="Hechos concretos: qué pasó, desde cuándo, evidencia"></textarea></div>
+    </div>
+    <label class="check"><input type="checkbox" name="visible_socio" value="true">Mostrarla al socio en el corte ejecutivo</label>
+  </div>
+  <div class="mf"><button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn yellow">Enviar a Dirección</button></div></form></div>
+{% for e in lista if e.estado=='solicitada' and u.es_direccion %}
+<div class="overlay" id="res-{{ e.id }}"><form class="modal sm" method="post" action="/excepciones/{{ e.id }}/resolver">
+  <div class="mh"><h2>Resolver excepción</h2><button class="btn ghost" type="button" data-close style="width:42px;padding:0">{{ icon('x') }}</button></div>
+  <div class="sec" style="border-top:0"><div class="small"><b>{{ etiquetas[e.id] }}</b><br>{{ e.justificacion }}</div>
+    <div class="field"><label for="rc-{{ e.id }}">Comentario</label><textarea class="input" id="rc-{{ e.id }}" name="comentario"></textarea></div>
+    <label class="check"><input type="checkbox" name="visible_socio" value="true" {{ 'checked' if e.visible_socio }}>Visible para el socio</label></div>
+  <div class="mf"><button class="btn soft" name="decision" value="rechazar">Rechazar</button><button class="btn yellow" name="decision" value="aprobar">{{ icon('ok') }}Aprobar</button></div></form></div>
+{% endfor %}
+{% endblock %}

@@ -1,0 +1,28 @@
+{% extends "base.html" %}{% from "_ui.html" import icon, semaforo with context %}
+{% block title %}Junta semanal S{{ num_semana(sem) }}{% endblock %}
+{% block content %}
+<div class="top noprint"><h1>Presentación semanal</h1>
+  <form class="row" method="get"><select class="input" name="semana" onchange="this.form.submit()" style="width:180px">{% for s in semanas %}<option value="{{ s }}" {{ 'selected' if s==sem }}>Semana {{ num_semana(s) }} · {{ s[:4] }}</option>{% endfor %}</select>
+  <button class="btn dark" type="button" onclick="window.print()">{{ icon('print') }}Imprimir / PDF</button></form></div>
+
+<div class="slide">
+  <div class="head"><div><span class="muted small">OneCore · Junta 4DX</span><h1>Semana {{ num_semana(sem) }}</h1></div><img src="/static/logo.svg" width="40" alt=""></div>
+  <div class="tbl"><table><thead><tr><th>Área</th><th>Cumplimiento</th><th class="num">Cumplidos</th><th class="num">No cumplidos</th><th class="num">Exceptuados</th><th class="num">Abiertos</th></tr></thead><tbody>
+  {% for a in areas %}<tr><td><b>{{ a.area.nombre }}</b></td><td>{{ semaforo(a.cumpl.pct) }}</td><td class="num">{{ a.cumpl.cumplidos }}</td><td class="num">{{ a.cumpl.no_cumplidos }}</td><td class="num">{{ a.cumpl.exceptuados }}</td>
+    <td class="num">{{ a.comps|selectattr('estado','equalto','abierto')|list|length }}</td></tr>
+  {% else %}<tr><td colspan="6" class="muted">No hay compromisos registrados en esta semana.</td></tr>{% endfor %}</tbody></table></div>
+</div>
+
+{% for a in areas %}
+<div class="slide">
+  <div class="head"><div><span class="muted small">Semana {{ num_semana(sem) }} · compromisos y remediaciones</span><h1>{{ a.area.nombre }}</h1></div>{{ semaforo(a.cumpl.pct) }}</div>
+  <div class="tbl"><table><thead><tr><th>Responsable</th><th>Compromiso</th><th>Resultado</th><th>Causa</th><th>Remediación</th><th>Nueva fecha</th></tr></thead><tbody>
+  {% for c in a.comps %}{% set r = c.remediacion %}<tr>
+    <td>{{ c.responsable.nombre }}</td><td>{{ c.texto }}</td>
+    <td>{% if a.exc[c.id] %}<span class="tag n">Exceptuado</span>{% elif c.estado=='cumplido' %}<span class="tag g">Cumplido</span>{% elif c.estado=='no_cumplido' %}<span class="tag r">No cumplido</span>{% elif c.estado=='cancelado' %}<span class="tag n">Cancelado</span>{% else %}<span class="tag b">Abierto {{ c.avance }}%</span>{% endif %}</td>
+    <td class="small">{{ r.causa if r else '' }}</td>
+    <td class="small">{% if r %}{{ r.accion }}{% elif c.estado=='no_cumplido' %}<b style="color:var(--r-fg)">Sin remediación</b>{% endif %}</td>
+    <td>{{ fmt_fecha(r.nueva_fecha) if r else '' }}</td></tr>{% endfor %}</tbody></table></div>
+</div>
+{% endfor %}
+{% endblock %}

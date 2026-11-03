@@ -1,0 +1,45 @@
+{% from "_ui.html" import icon with context %}<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block title %}Bitácora MCI{% endblock %} · OneCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="/static/css/app.css?v=1">
+<link rel="icon" href="/static/logo.svg">
+</head>
+<body>
+<div class="app">
+  <nav class="rail" aria-label="Menú principal">
+    <img src="/static/logo.svg" class="logo" alt="OneCore">
+    <a href="/" class="{{ 'on' if nav=='inicio' }}">{{ icon('home') }}Inicio</a>
+    <a href="/compromisos" class="{{ 'on' if nav=='compromisos' }}">{{ icon('check') }}Compromisos</a>
+    <a href="/ideas" class="{{ 'on' if nav=='ideas' }}">{{ icon('idea') }}Ideas</a>
+    <a href="/estrategias" class="{{ 'on' if nav=='estrategias' }}">{{ icon('target') }}Estrategias</a>
+    {% if u and u.es_lider %}
+    <a href="/pm" class="{{ 'on' if nav=='pm' }}">{{ icon('spark') }}PM virtual</a>
+    <a href="/semanal" class="{{ 'on' if nav=='semanal' }}">{{ icon('screen') }}Semanal</a>
+    <a href="/excepciones" class="{{ 'on' if nav=='excepciones' }}">{{ icon('shield') }}Excepciones</a>
+    {% endif %}
+    <a href="/indicadores" class="{{ 'on' if nav=='indicadores' }}">{{ icon('chart') }}Indicadores</a>
+    <a href="/reportes" class="{{ 'on' if nav=='reportes' }}">{{ icon('down') }}Reportes</a>
+    {% if u and u.es_direccion %}
+    <a href="/socio" class="{{ 'on' if nav=='socio' }}">{{ icon('briefcase') }}Socio</a>
+    {% endif %}
+    <span class="sp"></span>
+    {% if u and u.es_direccion %}
+    <a href="/admin/usuarios" class="{{ 'on' if nav=='admin' }}">{{ icon('sliders') }}Configurar</a>
+    {% endif %}
+    <a href="/perfil">{{ icon('users') }}Perfil</a>
+    <form method="post" action="/logout" style="margin:0"><button type="submit">{{ icon('logout') }}Salir</button></form>
+  </nav>
+  <main class="main">
+    {% for f in flashes %}<div class="flash {{ f.k }}">{{ icon('ok' if f.k=='ok' else 'alert', 18) }}{{ f.t }}</div>{% endfor %}
+    {% block content %}{% endblock %}
+  </main>
+</div>
+{% block modals %}{% endblock %}
+<script src="/static/js/app.js?v=1"></script>
+</body>
+</html>

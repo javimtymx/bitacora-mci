@@ -1,0 +1,64 @@
+{% extends "base.html" %}{% from "_ui.html" import icon, ai_badge, semaforo, estado_comp with context %}
+{% block title %}{{ est.nombre }}{% endblock %}
+{% block content %}
+<div class="top"><div class="col" style="gap:4px"><span class="muted small"><a href="/estrategias">Estrategias</a> · {{ est.area.nombre }}{% if est.mci %} · MCI: {{ est.mci.nombre }}{% endif %}</span><h1 style="font-size:22px">{{ est.nombre }}</h1></div>
+  <div class="row"><span class="tag {{ {'activa':'g','propuesta':'b','pausada':'o','descartada':'n','exitosa':'g'}[est.estado] }}">{{ est.estado }}</span>
+  {% if u.es_lider %}<button class="btn soft" data-open="cambiar">Cambiar estado</button><button class="btn soft" data-open="ajustar">Ajustar</button>
+  <form method="post" action="/estrategias/{{ est.id }}/analizar"><button class="btn aibtn">{{ icon('spark') }}¿Está funcionando?</button></form>{% endif %}</div></div>
+
+<div class="grid4">
+  <div class="kpi"><span class="lbl">Compromisos ligados</span><b>{{ st.compromisos }}</b></div>
+  <div class="kpi"><span class="lbl">Cumplimiento</span><b>{{ semaforo(st.pct) }}</b><span class="muted small">{{ st.cumplidos }} cumplidos · {{ st.no_cumplidos }} no · {{ st.exceptuados }} exceptuados</span></div>
+  <div class="kpi"><span class="lbl">Remediaciones</span><b>{{ st.remediaciones_cumplidas }} / {{ st.remediaciones_cumplidas + st.remediaciones_fallidas }}</b><span class="muted small">cumplidas / cerradas</span></div>
+  <div class="kpi"><span class="lbl">Responsable</span><b style="font-size:18px">{{ est.responsable.nombre if est.responsable else '—' }}</b><span class="muted small">desde {{ fmt_fecha(est.inicio) }}</span></div>
+</div>
+
+{% if evals %}{% set ev = evals[0] %}
+<section class="card pad">
+  <div class="row between"><h2>Evaluación del PM virtual</h2><div class="row">{{ ai_badge() }}<span class="muted small">{{ fmt_fecha(ev.creado) }}</span></div></div>
+  <div class="row"><span class="tag {{ 'g' if ev.resultado.veredicto in ('mantener','declarar_exitosa') else 'o' if ev.resultado.veredicto=='ajustar' else 'r' }}">{{ ev.resultado.veredicto.replace('_',' ') }}</span></div>
+  <p style="margin:0;line-height:1.6">{{ ev.resultado.diagnostico }}</p>
+  {% if ev.resultado.evidencia %}<ul class="obs">{% for x in ev.resultado.evidencia %}<li>{{ x }}</li>{% endfor %}</ul>{% endif %}
+  {% if ev.resultado.ajuste_sugerido %}<div class="sug"><span class="lbl">Ajuste sugerido</span><br>{{ ev.resultado.ajuste_sugerido }}</div>{% endif %}
+  {% if ev.resultado.siguiente_paso %}<div class="small"><b>Siguiente paso:</b> {{ ev.resultado.siguiente_paso }}</div>{% endif %}
+</section>{% endif %}
+
+<div class="grid2">
+<section class="card pad"><h2>Planteamiento</h2>
+  <div class="col" style="gap:4px"><span class="lbl">Cómo se ejecuta</span><div>{{ est.descripcion or '—' }}</div></div>
+  <div class="col" style="gap:4px"><span class="lbl">Hipótesis</span><div>{{ est.hipotesis or '—' }}</div></div>
+  {% if st.causas %}<div class="col" style="gap:4px"><span class="lbl">Causas de incumplimiento</span><div class="row">{% for k, v in st.causas.items() %}<span class="pill">{{ k.replace('_',' ') }} · {{ v }}</span>{% endfor %}</div></div>{% endif %}
+  {% if st.por_semana %}<div class="col" style="gap:4px"><span class="lbl">Por semana (cumplidos / no)</span><div class="row">{% for s, v in st.por_semana.items() %}<span class="pill">S{{ num_semana(s) }}: {{ v[0] }}/{{ v[1] }}</span>{% endfor %}</div></div>{% endif %}
+</section>
+<section class="card pad"><h2>Bitácora de la estrategia</h2>
+  <form method="post" action="/estrategias/{{ est.id }}/nota" class="row"><input class="input" name="texto" required placeholder="Agregar nota o aprendizaje" style="flex:1"><button class="btn soft">Agregar</button></form>
+  <div class="timeline">{% for e in est.eventos|reverse %}<div class="ev"><b>{{ e.tipo.replace('_',' ') }}</b>{% if e.estado_nuevo and e.tipo=='cambio_estado' %} · {{ e.estado_anterior }} → {{ e.estado_nuevo }}{% endif %}
+    <span class="muted small"> · {{ fmt_fecha(e.creado) }}{% if e.usuario %} · {{ e.usuario.nombre }}{% endif %}</span><div class="small">{{ e.motivo }}</div>{% if e.evidencia %}<div class="muted small">{{ e.evidencia }}</div>{% endif %}</div>{% endfor %}</div>
+</section>
+</div>
+
+<section class="card pad"><h2>Compromisos ligados</h2>
+  <div class="tbl"><table><thead><tr><th>Sem.</th><th>Responsable</th><th>Compromiso</th><th>Estado</th><th></th></tr></thead><tbody>
+  {% for c in st.lista|reverse %}<tr><td>{{ num_semana(c.semana) }}</td><td>{{ c.responsable.nombre }}</td><td>{{ c.texto }}</td><td><span class="tag {{ 'g' if c.estado=='cumplido' else 'r' if c.estado=='no_cumplido' else 'b' }}">{{ c.estado.replace('_',' ') }}</span></td><td><a class="lnk" href="/compromisos/{{ c.id }}">Abrir</a></td></tr>
+  {% else %}<tr><td colspan="5" class="muted">Aún no hay compromisos ligados. Al capturar un compromiso, elige esta estrategia.</td></tr>{% endfor %}</tbody></table></div>
+</section>
+{% endblock %}
+{% block modals %}{% if u.es_lider %}
+<div class="overlay" id="cambiar"><form class="modal sm" method="post" action="/estrategias/{{ est.id }}/estado">
+  <div class="mh"><h2>Cambiar estado</h2><button class="btn ghost" type="button" data-close style="width:42px;padding:0">{{ icon('x') }}</button></div>
+  <div class="sec" style="border-top:0">
+    <div class="field"><label for="c-e">Nuevo estado</label><select class="input" id="c-e" name="estado">{% for e in estados if e != est.estado %}<option>{{ e }}</option>{% endfor %}</select></div>
+    <div class="field"><label for="c-m">Motivo (obligatorio)</label><textarea class="input" id="c-m" name="motivo" required placeholder="Qué aprendimos y por qué se decide"></textarea></div>
+    <div class="field"><label for="c-v">Evidencia (datos, junta, documento)</label><input class="input" id="c-v" name="evidencia"></div>
+  </div>
+  <div class="mf"><button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn yellow">Guardar</button></div></form></div>
+<div class="overlay" id="ajustar"><form class="modal sm" method="post" action="/estrategias/{{ est.id }}/ajuste">
+  <div class="mh"><h2>Ajustar cómo se ejecuta</h2><button class="btn ghost" type="button" data-close style="width:42px;padding:0">{{ icon('x') }}</button></div>
+  <div class="sec" style="border-top:0">
+    <div class="field"><label for="a-d">Nueva forma de ejecutarla</label><textarea class="input" id="a-d" name="descripcion" required>{{ est.descripcion }}</textarea></div>
+    <div class="field"><label for="a-r">Responsable</label><select class="input" id="a-r" name="responsable_id"><option value="">Sin cambio</option>{% for x in usuarios %}<option value="{{ x.id }}">{{ x.nombre }}</option>{% endfor %}</select></div>
+    <div class="field"><label for="a-m">Motivo del ajuste</label><textarea class="input" id="a-m" name="motivo" required></textarea></div>
+    <span class="muted small">La descripción anterior queda guardada en la bitácora.</span>
+  </div>
+  <div class="mf"><button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn yellow">Guardar ajuste</button></div></form></div>
+{% endif %}{% endblock %}

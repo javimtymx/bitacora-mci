@@ -1,0 +1,34 @@
+{% extends "base.html" %}{% from "_ui.html" import icon, semaforo with context %}
+{% block title %}Estrategias{% endblock %}
+{% block content %}
+<div class="top"><div class="col" style="gap:4px"><h1>Estrategias (palancas)</h1><span class="muted">Cada cambio de estado queda en la bitácora con su motivo; el histórico no se pierde al cambiar de estrategia.</span></div>
+  {% if u.es_lider %}<button class="btn yellow" data-open="nueva-est">{{ icon('plus') }}Nueva estrategia</button>{% endif %}</div>
+<section class="card pad">
+  <div class="tabs">{% for k, t in [('vigentes','Vigentes'),('activa','Activas'),('exitosa','Exitosas'),('descartada','Descartadas'),('todas','Todas')] %}<a href="?estado={{ k }}" class="{{ 'on' if estado==k }}">{{ t }}</a>{% endfor %}</div>
+  <div class="tbl"><table><thead><tr><th>Estrategia</th><th>Área</th><th>Responsable</th><th>Estado</th><th class="num">Compromisos</th><th>Cumplimiento</th><th>Desde</th><th></th></tr></thead><tbody>
+  {% for e in lista %}{% set st = stats[e.id] %}<tr>
+    <td><b>{{ e.nombre }}</b>{% if e.mci %}<div class="muted small">MCI: {{ e.mci.nombre }}</div>{% endif %}</td><td>{{ e.area.nombre }}</td>
+    <td>{{ e.responsable.nombre if e.responsable else '—' }}</td>
+    <td><span class="tag {{ {'activa':'g','propuesta':'b','pausada':'o','descartada':'n','exitosa':'g'}[e.estado] }}">{{ e.estado }}</span></td>
+    <td class="num">{{ st.compromisos }}</td><td>{{ semaforo(st.pct) }}</td><td>{{ fmt_fecha(e.inicio) }}</td>
+    <td><a class="lnk" href="/estrategias/{{ e.id }}">{{ icon('eye') }}Abrir</a></td></tr>
+  {% else %}<tr><td colspan="8" class="muted">Sin estrategias en esta vista.</td></tr>{% endfor %}</tbody></table></div>
+</section>
+{% endblock %}
+{% block modals %}{% if u.es_lider %}
+<div class="overlay" id="nueva-est"><form class="modal" method="post" action="/estrategias">
+  <div class="mh"><h2>Nueva estrategia</h2><button class="btn ghost" type="button" data-close style="width:42px;padding:0">{{ icon('x') }}</button></div>
+  <div class="sec" style="border-top:0">
+    <div class="grid3">
+      <div class="field" style="grid-column:span 2"><label for="e-n">Nombre</label><input class="input" id="e-n" name="nombre" required maxlength="200"></div>
+      <div class="field"><label for="e-a">Área</label><select class="input" id="e-a" name="area_id">{% for a in areas %}<option value="{{ a.id }}" {{ 'selected' if a.id==u.area_id }}>{{ a.nombre }}</option>{% endfor %}</select></div>
+      <div class="field"><label for="e-m">MCI que mueve</label><select class="input" id="e-m" name="mci_id"><option value="">—</option>{% for m in mcis %}<option value="{{ m.id }}">{{ m.area.nombre }} · {{ m.nombre }}</option>{% endfor %}</select></div>
+      <div class="field"><label for="e-r">Responsable</label><select class="input" id="e-r" name="responsable_id"><option value="">—</option>{% for x in usuarios %}<option value="{{ x.id }}">{{ x.nombre }}</option>{% endfor %}</select></div>
+      <div class="field"><label for="e-s">Seguimiento</label><select class="input" id="e-s" name="seguimiento"><option value="semanal">Semanal (correo los lunes)</option><option value="ninguno">Sin correo automático</option></select></div>
+    </div>
+    <div class="field"><label for="e-d">Cómo se ejecuta</label><textarea class="input" id="e-d" name="descripcion"></textarea></div>
+    <div class="field"><label for="e-h">Hipótesis: por qué debería mover la meta</label><textarea class="input" id="e-h" name="hipotesis" placeholder="Si hacemos X, esperamos Y en Z semanas"></textarea></div>
+    <label class="check"><input type="checkbox" name="activar" value="true">Ya se acordó en junta: activarla desde hoy</label>
+  </div>
+  <div class="mf"><button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn yellow">Guardar</button></div>
+</form></div>{% endif %}{% endblock %}

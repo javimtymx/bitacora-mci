@@ -1,0 +1,10 @@
+[Unit]
+Description=Bitácora MCI · informe diario del PM virtual
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 07:30:00 America/Mexico_City
+Persistent=true
+Unit=bitacora-job@informe-diario.service
+
+[Install]
+WantedBy=timers.target

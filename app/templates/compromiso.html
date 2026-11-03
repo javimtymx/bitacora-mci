@@ -1,0 +1,117 @@
+{% extends "base.html" %}{% from "_ui.html" import icon, ai_badge, estado_comp, avance with context %}
+{% block title %}CMP-{{ '%04d' % c.id }}{% endblock %}
+{% block content %}
+<div class="top">
+  <div class="col" style="gap:4px"><span class="muted small"><a href="/compromisos">Compromisos</a> · CMP-{{ '%04d' % c.id }} · semana {{ num_semana(c.semana) }}</span>
+    <h1 style="font-size:22px;max-width:900px">{{ c.texto }}</h1></div>
+  <div class="row">{{ estado_comp(c, seg) }}</div>
+</div>
+
+<div class="grid2" style="grid-template-columns:2fr 1fr">
+<div class="col" style="gap:20px">
+  <section class="card pad">
+    <div class="grid4">
+      <div class="col" style="gap:2px"><span class="lbl">Responsable</span><b>{{ c.responsable.nombre }}</b></div>
+      <div class="col" style="gap:2px"><span class="lbl">Área</span><b>{{ c.area.nombre }}</b></div>
+      <div class="col" style="gap:2px"><span class="lbl">Medida predictiva</span><b>{{ c.predictiva.nombre if c.predictiva else '—' }}</b>
+        {% if c.predictiva_version %}<span class="muted small">versión {{ c.predictiva_version.version }}</span>{% endif %}</div>
+      <div class="col" style="gap:2px"><span class="lbl">Fecha límite</span><b>{{ fmt_dia(c.fecha_limite) }}</b></div>
+    </div>
+    {% if c.estrategia %}<div class="small">Estrategia: <a href="/estrategias/{{ c.estrategia.id }}">{{ c.estrategia.nombre }}</a></div>{% endif %}
+    <div class="row">{{ avance(c.avance) }}<span class="muted small">Registrado por {{ c.autor.nombre }} el {{ fmt_fecha(c.creado) }}</span></div>
+    {% if puede and c.estado == 'abierto' %}
+    <div class="row" style="border-top:1px solid var(--line);padding-top:14px">
+      <form method="post" action="/compromisos/{{ c.id }}/avance" class="row">
+        <input class="input" type="number" name="avance" min="0" max="100" step="5" value="{{ c.avance }}" style="width:100px" aria-label="Avance %">
+        <input class="input" name="nota" placeholder="Nota breve (opcional)" style="width:260px">
+        <button class="btn soft" type="submit">Guardar avance</button></form>
+      <form method="post" action="/compromisos/{{ c.id }}/cumplido"><button class="btn dark" type="submit">{{ icon('ok') }}Cumplido</button></form>
+      <button class="btn red" type="button" data-open="remediar">No se cumplió</button>
+    </div>
+    {% elif puede and c.estado == 'no_cumplido' and (not c.remediacion or c.remediacion.estado != 'abierta') %}
+    <div class="row"><button class="btn yellow" type="button" data-open="remediar">{{ icon('plus') }}Registrar remediación</button></div>
+    {% endif %}
+  </section>
+
+  {% for r in c.remediaciones|reverse %}
+  <section class="card pad">
+    <div class="row between"><h3>Remediación {{ loop.revindex }}</h3>
+      <span class="tag {{ 'b' if r.estado=='abierta' else 'g' if r.estado=='cumplida' else 'n' if r.estado=='cancelada' else 'r' }}">{{ r.estado }}</span></div>
+    <div class="grid2">
+      <div class="col" style="gap:4px"><span class="lbl">Causa · {{ r.causa_categoria.replace('_',' ') }}</span><span>{{ r.causa }}</span></div>
+      <div class="col" style="gap:4px"><span class="lbl">Acción · nueva fecha {{ fmt_dia(r.nueva_fecha) }}</span><span>{{ r.accion }}</span></div>
+    </div>
+    {% if r.resultado %}<div class="small muted">Resultado: {{ r.resultado }}</div>{% endif %}
+    {% if puede and r.estado == 'abierta' %}
+    <form method="post" action="/remediaciones/{{ r.id }}/cerrar" class="row" style="border-top:1px solid var(--line);padding-top:12px">
+      <input class="input" name="comentario" placeholder="Comentario de cierre" style="flex:1;min-width:220px">
+      <button class="btn dark sm" name="resultado" value="cumplida">{{ icon('ok') }}Remediación cumplida</button>
+      <button class="btn soft sm" name="resultado" value="no_cumplida">Tampoco se cumplió</button>
+    </form>{% endif %}
+  </section>
+  {% endfor %}
+
+  {% if c.notas %}
+  <section class="card pad"><h3>Bitácora de avance</h3>
+    <div class="timeline">{% for n in c.notas|reverse %}<div class="ev"><b>{{ n.avance }}%</b> · {{ n.usuario.nombre }} · <span class="muted small">{{ fmt_fecha(n.creado) }}</span>{% if n.texto %}<div>{{ n.texto }}</div>{% endif %}</div>{% endfor %}</div>
+  </section>{% endif %}
+</div>
+
+<div class="col" style="gap:20px">
+  <section class="card pad">
+    <div class="row between"><h3>Revisiones del PM virtual</h3>{{ ai_badge() }}</div>
+    {% for r in revs %}<div class="col" style="gap:4px;border-bottom:1px solid var(--line);padding-bottom:10px">
+      <div class="row"><span class="tag {{ 'g' if r.veredicto=='ok' else 'o' if r.veredicto=='mejorar' else 'r' }}">{{ r.veredicto.replace('_',' ') }}</span><span class="muted small">{{ r.tipo }} · {{ fmt_fecha(r.creado) }}</span></div>
+      {% if r.aceptada is not none %}<span class="small">{{ 'Se aceptó la revisión' if r.aceptada else 'Se guardó sin la sugerencia: ' ~ (r.motivo_rechazo or '') }}</span>{% endif %}
+      {% if r.resultado.recomendacion_historica %}<span class="small muted">{{ r.resultado.recomendacion_historica }}</span>{% endif %}
+    </div>{% else %}<span class="muted small">Sin revisiones registradas.</span>{% endfor %}
+  </section>
+  <section class="card pad"><h3>Seguimiento automático</h3>
+    {% for a in acciones %}<div class="col" style="gap:2px;border-bottom:1px solid var(--line);padding-bottom:8px">
+      <div class="row"><span class="tag {{ 'g' if a.estado=='ejecutada' else 'b' if a.estado=='aprobada' else 'o' if a.estado=='propuesta' else 'r' if a.estado=='fallida' else 'n' }}">{{ a.estado }}</span><b class="small">{{ a.titulo }}</b></div>
+      <span class="muted small">{{ a.tipo }} · {{ fmt_dia(a.programada_para) }}{% if a.informe_id %} · <a href="/informes/{{ a.informe_id }}">ver documento</a>{% endif %}</span>
+    </div>{% else %}<span class="muted small">Sin actividades programadas.</span>{% endfor %}
+  </section>
+  {% if u.es_lider %}<a class="btn soft" href="/excepciones?compromiso={{ c.id }}">{{ icon('shield') }}Solicitar excepción</a>{% endif %}
+</div>
+</div>
+{% endblock %}
+
+{% block modals %}
+{% if puede %}
+<div class="overlay" id="remediar">
+<form class="modal" method="post" action="/compromisos/{{ c.id }}/remediacion" data-ia="/api/ia/remediacion/{{ c.id }}" data-ia-tipo="remediacion" role="dialog" aria-modal="true" aria-labelledby="t-rem">
+  <input type="hidden" name="revision_id" value="">
+  <div class="mh"><div class="row"><h2 id="t-rem">Remediación</h2><span class="muted" style="font-weight:600">CMP-{{ '%04d' % c.id }} · {{ c.responsable.nombre }}</span></div>
+    <button class="btn ghost" type="button" data-close aria-label="Cerrar" style="width:42px;padding:0">{{ icon('x') }}</button></div>
+  <div style="padding:18px 24px 4px"><div class="cint"><span class="ic">{{ icon('spark') }}</span>
+    <span style="flex:1">El PM virtual revisa la causa y tu promesa contra el histórico del área, te dice qué ha funcionado ante causas parecidas y propone el seguimiento (recordatorios, avisos o un informe).</span></div></div>
+  <div class="sec" style="border-top:0">
+    <div class="small"><b>Compromiso:</b> {{ c.texto }}</div>
+    <div class="grid2">
+      <div class="field"><label for="r-causa">¿Por qué no se cumplió? (causa concreta)</label>
+        <textarea class="input" id="r-causa" name="causa" required maxlength="1500" data-revisable placeholder="Ej. El cliente pospuso la junta porque su gerente de comercio exterior estuvo en auditoría del SAT"></textarea></div>
+      <div class="field"><label for="r-accion">¿Qué harás para recuperarlo?</label>
+        <textarea class="input" id="r-accion" name="accion" required maxlength="1500" data-revisable placeholder="Acción concreta que ataque la causa"></textarea></div>
+    </div>
+    <div class="field" style="max-width:260px"><label for="r-fecha">Nueva fecha (máximo {{ dias_max }} días)</label>
+      <input class="input" type="date" id="r-fecha" name="nueva_fecha" min="{{ hoy.isoformat() }}" required data-revisable></div>
+  </div>
+  <div class="sec alt hidden" data-ia-resultado>
+    <div class="row between"><div class="sech"><span class="secic">{{ icon('spark') }}</span>Revisión del PM virtual</div>{{ ai_badge() }}</div>
+    <div class="grid2"><div class="col" data-ia-izq></div><div class="col" data-ia-der></div></div>
+    <div class="field" data-ia-motivo><label for="r-motivo">Si guardas sin la sugerencia, explica por qué</label>
+      <input class="input" id="r-motivo" name="motivo" maxlength="1000"></div>
+  </div>
+  <div class="flash error hidden" data-ia-error style="margin:0 24px"></div>
+  <div class="mf">
+    <button class="btn ghost" type="button" data-close>Cancelar</button>
+    <button class="btn aibtn" type="button" data-btn-revisar>{{ icon('spark') }}Revisar con IA</button>
+    <span class="row hidden" data-ia-acciones>
+      <button class="btn soft" type="submit" name="decision" value="propio" data-btn-propio>Guardar como está</button>
+      <button class="btn yellow" type="submit" name="decision" value="sugerencia" data-btn-sug>{{ icon('ok') }}Usar sugerencia y guardar</button>
+    </span>
+  </div>
+</form></div>
+{% endif %}
+{% endblock %}

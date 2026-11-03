@@ -1,0 +1,59 @@
+{% extends "base.html" %}{% from "_ui.html" import icon with context %}{% set tab='catalogo' %}
+{% block title %}Catálogo estratégico{% endblock %}
+{% block content %}
+<div class="top"><h1>Configuración</h1><div class="row"><button class="btn soft" data-open="n-area">Nueva área</button><button class="btn yellow" data-open="n-mci">{{ icon('plus') }}Nueva MCI</button></div></div>
+{% include "_admin_tabs.html" %}
+<span class="muted">Las metas no se editan: un cambio crea una versión nueva con vigencia y motivo. Los compromisos quedan ligados a la versión con la que se midieron.</span>
+{% for m in mcis %}{% set v = vigente(m.versiones) %}
+<section class="card pad">
+  <div class="row between"><div class="col" style="gap:2px"><span class="muted small">{{ m.area.nombre }} · {{ m.clave }}{% if m.dueno %} · dueño: {{ m.dueno.nombre }}{% endif %}</span><h2>{{ m.nombre }}</h2></div>
+    <div class="row"><button class="btn sm soft" data-open="v-mci-{{ m.id }}">Nueva versión de la meta</button><button class="btn sm soft" data-open="n-pred-{{ m.id }}">{{ icon('plus') }}Medida predictiva</button></div></div>
+  {% if v %}<div class="small">v{{ v.version }} · {{ v.descripcion }} · meta <b>{{ v.meta if v.meta is not none else '—' }} {{ v.unidad }}</b> ({{ v.periodicidad }}) · vigente desde {{ fmt_fecha(v.vigente_desde) }}</div>{% endif %}
+  {% if m.versiones|length > 1 %}<details class="small"><summary>Historial de la meta ({{ m.versiones|length }} versiones)</summary>
+    <ul>{% for x in m.versiones|reverse %}<li>v{{ x.version }} · {{ x.meta }} {{ x.unidad }} · {{ fmt_fecha(x.vigente_desde) }} – {{ fmt_fecha(x.vigente_hasta) }} · {{ x.motivo_cambio }}</li>{% endfor %}</ul></details>{% endif %}
+  <div class="tbl"><table><thead><tr><th>Medida predictiva</th><th>Versión vigente</th><th>Meta semanal</th><th>Fuente</th><th>Desde</th><th></th></tr></thead><tbody>
+  {% for p in m.predictivas %}{% set pv = vigente(p.versiones) %}<tr class="{{ '' if p.activo else 'hl' }}">
+    <td><b>{{ p.nombre }}</b>{% if not p.activo %} <span class="tag n">retirada</span>{% endif %}<div class="muted small">{{ pv.descripcion if pv }}</div></td>
+    <td>v{{ pv.version if pv }}</td><td>{{ pv.meta_semanal if pv and pv.meta_semanal is not none else '—' }} {{ pv.unidad if pv }}</td><td>{{ pv.fuente if pv }}</td><td>{{ fmt_fecha(pv.vigente_desde) if pv }}</td>
+    <td><div class="row" style="gap:6px;flex-wrap:nowrap"><button class="btn sm soft" data-open="v-pred-{{ p.id }}">Nueva versión</button>
+      <form method="post" action="/admin/predictivas/{{ p.id }}/activo"><input type="hidden" name="motivo" value="{{ 'Reactivada' if not p.activo else 'Retirada del catálogo' }}"><button class="btn sm ghost">{{ 'Reactivar' if not p.activo else 'Retirar' }}</button></form></div></td></tr>
+  {% endfor %}</tbody></table></div>
+</section>
+{% else %}<div class="card pad muted">No hay MCI. Corre <code>python -m app.cli seed</code> o crea la primera.</div>{% endfor %}
+{% endblock %}
+{% block modals %}
+{% macro campos_version(pref, mci=True) %}
+  <div class="field"><label>Descripción</label><textarea class="input" name="descripcion" required></textarea></div>
+  <div class="grid4">
+    <div class="field"><label>{{ 'Meta' if mci else 'Meta semanal' }}</label><input class="input" type="number" step="any" name="{{ 'meta' if mci else 'meta_semanal' }}"></div>
+    <div class="field"><label>Unidad</label><input class="input" name="unidad" placeholder="%, MXN, citas"></div>
+    <div class="field"><label>Sentido</label><select class="input" name="sentido"><option value="mayor">Más es mejor</option><option value="menor">Menos es mejor</option></select></div>
+    {% if mci %}<div class="field"><label>Periodicidad</label><select class="input" name="periodicidad"><option>mensual</option><option>trimestral</option><option>anual</option></select></div>
+    {% else %}<div class="field"><label>Fuente</label><select class="input" name="fuente"><option value="captura">Captura</option><option value="cfdi">CFDI</option><option value="compromisos">Compromisos</option></select></div>{% endif %}
+  </div>
+  <div class="field" style="max-width:220px"><label>Vigente desde</label><input class="input" type="date" name="vigente_desde" value="{{ hoy.isoformat() }}" required></div>
+{% endmacro %}
+<div class="overlay" id="n-area"><form class="modal sm" method="post" action="/admin/areas"><div class="mh"><h2>Nueva área</h2><button class="btn ghost" type="button" data-close style="width:42px;padding:0">{{ icon('x') }}</button></div>
+  <div class="sec" style="border-top:0"><div class="field"><label>Nombre</label><input class="input" name="nombre" required></div><div class="field"><label>Clave</label><input class="input" name="clave" required pattern="[a-z0-9_-]+"></div></div>
+  <div class="mf"><button class="btn yellow">Crear</button></div></form></div>
+<div class="overlay" id="n-mci"><form class="modal" method="post" action="/admin/mci"><div class="mh"><h2>Nueva MCI</h2><button class="btn ghost" type="button" data-close style="width:42px;padding:0">{{ icon('x') }}</button></div>
+  <div class="sec" style="border-top:0"><div class="grid4">
+    <div class="field"><label>Área</label><select class="input" name="area_id">{% for a in areas %}<option value="{{ a.id }}">{{ a.nombre }}</option>{% endfor %}</select></div>
+    <div class="field"><label>Clave</label><input class="input" name="clave" required></div>
+    <div class="field" style="grid-column:span 2"><label>Nombre</label><input class="input" name="nombre" required></div></div>
+    <div class="field"><label>Dueño</label><select class="input" name="dueno_id"><option value="">—</option>{% for x in usuarios %}<option value="{{ x.id }}">{{ x.nombre }}</option>{% endfor %}</select></div>
+    {{ campos_version('n') }}</div>
+  <div class="mf"><button class="btn yellow">Crear</button></div></form></div>
+{% for m in mcis %}
+<div class="overlay" id="v-mci-{{ m.id }}"><form class="modal" method="post" action="/admin/mci/{{ m.id }}/version"><div class="mh"><h2>Nueva versión · {{ m.nombre }}</h2><button class="btn ghost" type="button" data-close style="width:42px;padding:0">{{ icon('x') }}</button></div>
+  <div class="sec" style="border-top:0">{{ campos_version('v') }}<div class="field"><label>Motivo del cambio</label><textarea class="input" name="motivo" required placeholder="Por qué cambia la meta: resultado de la palanca, cambio de mercado, acuerdo con el socio…"></textarea></div></div>
+  <div class="mf"><button class="btn yellow">Registrar versión</button></div></form></div>
+<div class="overlay" id="n-pred-{{ m.id }}"><form class="modal" method="post" action="/admin/predictivas"><input type="hidden" name="mci_id" value="{{ m.id }}"><div class="mh"><h2>Nueva medida predictiva · {{ m.nombre }}</h2><button class="btn ghost" type="button" data-close style="width:42px;padding:0">{{ icon('x') }}</button></div>
+  <div class="sec" style="border-top:0"><div class="grid2"><div class="field"><label>Clave</label><input class="input" name="clave" required></div><div class="field"><label>Nombre</label><input class="input" name="nombre" required></div></div>{{ campos_version('p', false) }}</div>
+  <div class="mf"><button class="btn yellow">Crear</button></div></form></div>
+{% for p in m.predictivas %}
+<div class="overlay" id="v-pred-{{ p.id }}"><form class="modal" method="post" action="/admin/predictivas/{{ p.id }}/version"><div class="mh"><h2>Nueva versión · {{ p.nombre }}</h2><button class="btn ghost" type="button" data-close style="width:42px;padding:0">{{ icon('x') }}</button></div>
+  <div class="sec" style="border-top:0">{{ campos_version('vp', false) }}<div class="field"><label>Motivo del cambio</label><textarea class="input" name="motivo" required></textarea></div></div>
+  <div class="mf"><button class="btn yellow">Registrar versión</button></div></form></div>
+{% endfor %}{% endfor %}
+{% endblock %}

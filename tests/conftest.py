@@ -1,0 +1,76 @@
+import os
+import sys
+from pathlib import Path
+
+import pytest
+
+DB = Path(__file__).parent / "test.sqlite3"
+os.environ["DATABASE_URL"] = f"sqlite:///{DB}"
+os.environ["ANTHROPIC_API_KEY"] = "fake"
+os.environ["SMTP_DRY_RUN"] = "true"
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from fastapi.testclient import TestClient  # noqa: E402
+
+from app import cli  # noqa: E402
+from app.db import Base, SessionLocal, engine  # noqa: E402
+from app.main import app  # noqa: E402
+from app.models import Usuario  # noqa: E402
+from app.services import ia  # noqa: E402
+from app.web.base import hash_password  # noqa: E402
+
+
+class FakeIA:
+    disponible = True
+
+    def __init__(self):
+        self.respuestas = []
+        self.prompts = []
+
+    def pedir_json(self, prompt, rapido=False, max_tokens=1500):
+        self.prompts.append(prompt)
+        r = self.respuestas.pop(0) if self.respuestas else {"veredicto": "ok", "observaciones": []}
+        return r, {"modelo": "fake", "tin": 10, "tout": 5}
+
+
+@pytest.fixture()
+def fake():
+    f = FakeIA()
+    ia.set_cliente(f)
+    yield f
+    ia.set_cliente(None)
+
+
+@pytest.fixture()
+def db():
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+    cli.crear_admin("jmartinez@onecore.mx", "Javier Martínez", "clave-segura-123")
+    cli.seed()
+    s = SessionLocal()
+    for u in s.query(Usuario).all():
+        u.password_hash = hash_password("clave-segura-123")
+    s.commit()
+    yield s
+    s.close()
+
+
+def login(client, email):
+    r = client.post("/login", data={"email": email, "password": "clave-segura-123"}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/"
+    return client
+
+
+@pytest.fixture()
+def admin(db):
+    return login(TestClient(app), "jmartinez@onecore.mx")
+
+
+@pytest.fixture()
+def manuel(db):
+    return login(TestClient(app), "mcoronado@onecore.mx")
+
+
+@pytest.fixture()
+def mario(db):
+    return login(TestClient(app), "mpineda@onecore.mx")

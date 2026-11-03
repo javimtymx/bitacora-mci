@@ -1,0 +1,10 @@
+{% extends "base.html" %}{% from "_ui.html" import icon with context %}
+{% block title %}Vista del socio{% endblock %}
+{% block content %}
+<div class="top"><div class="col" style="gap:4px"><h1>Cortes para el socio</h1>
+  <span class="muted">Consolidado por área con los mismos datos de la operación. No muestra personas ni compromisos individuales; las metas ajustadas y excepciones que marques como visibles aparecen etiquetadas. Al publicar, el corte queda congelado.</span></div>
+  <form method="post" action="/socio" class="row"><input class="input" type="month" name="periodo" value="{{ periodo_def }}" style="width:180px"><button class="btn yellow">{{ icon('plus') }}Preparar corte</button></form></div>
+<section class="card pad"><div class="tbl"><table><thead><tr><th>Periodo</th><th>Título</th><th>Estado</th><th>Publicado</th><th></th></tr></thead><tbody>
+{% for p in pubs %}<tr><td>{{ p.periodo }}</td><td>{{ p.titulo }}</td><td><span class="tag {{ 'g' if p.estado=='publicada' else 'o' }}">{{ p.estado }}</span></td><td>{{ fmt_fecha(p.publicada_en) }}</td><td><a class="lnk" href="/socio/{{ p.id }}">Abrir</a></td></tr>
+{% else %}<tr><td colspan="5" class="muted">Sin cortes.</td></tr>{% endfor %}</tbody></table></div></section>
+{% endblock %}

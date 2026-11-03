@@ -1,0 +1,84 @@
+{% extends "base.html" %}{% from "_ui.html" import icon, ai_badge, pct with context %}
+{% block title %}PM virtual{% endblock %}
+{% block content %}
+<div class="top"><div class="row"><h1>PM virtual</h1>{{ ai_badge() }}</div>
+  <div class="row">
+    <form method="post" action="/pm/recordatorios"><button class="btn soft">{{ icon('mail') }}Preparar recordatorios</button></form>
+    <form method="post" action="/acciones/ejecutar"><button class="btn soft">{{ icon('refresh') }}Ejecutar programadas</button></form>
+    <form method="post" action="/pm/informe"><button class="btn aibtn">{{ icon('spark') }}Generar informe</button></form>
+  </div></div>
+
+<section class="card pad">
+  <div class="row between"><h2>Informe del día</h2>{% if informe %}<span class="muted small">{{ fmt_dia(informe.creado) }} · {{ informe.datos.alertas }} alertas{% if informe.datos.modelo %} · {{ informe.datos.modelo }}{% endif %}</span>{% endif %}</div>
+  {% if informe %}
+    <p style="margin:0;font-size:15px;line-height:1.6">{{ informe.datos.resumen }}</p>
+    {% if informe.datos.acciones %}<div class="tbl"><table><thead><tr><th>Prioridad</th><th>Área</th><th>Persona</th><th>Acción sugerida</th></tr></thead><tbody>
+      {% for a in informe.datos.acciones %}<tr><td><span class="tag {{ 'r' if a.prioridad=='alta' else 'o' if a.prioridad=='media' else 'n' }}">{{ a.prioridad }}</span></td>
+      <td>{{ a.area }}</td><td>{{ nombres.get(a.usuario_id, '—') }}</td><td>{{ a.accion }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
+    {% if informe.datos.riesgos %}<div class="col"><span class="lbl">Riesgos</span><ul class="obs">{% for r in informe.datos.riesgos %}<li>{{ r }}</li>{% endfor %}</ul></div>{% endif %}
+  {% else %}<span class="muted">Aún no hay informe. Se genera cada mañana; también puedes generarlo ahora.</span>{% endif %}
+</section>
+
+<section class="card pad">
+  <div class="row between"><h2>Acciones por aprobar y programadas</h2><span class="muted small">Aceptación de las revisiones de la IA: {{ pct(acept[2]) }} ({{ acept[0] }}/{{ acept[1] }})</span></div>
+  <div class="tbl"><table><thead><tr><th>Estado</th><th>Tipo</th><th>Acción</th><th>Para</th><th>Cuándo</th><th></th></tr></thead><tbody>
+  {% for a in pendientes %}<tr>
+    <td><span class="tag {{ 'o' if a.estado=='propuesta' else 'b' if a.estado=='aprobada' else 'r' }}">{{ a.estado }}</span></td>
+    <td>{{ a.tipo }}</td>
+    <td><b>{{ a.titulo }}</b>{% if a.asunto %}<div class="muted small">Asunto: {{ a.asunto }}</div>{% endif %}{% if a.error %}<div class="small" style="color:var(--r-fg)">{{ a.error[:160] }}</div>{% endif %}
+      {% if a.entidad_tipo=='compromiso' %}<a class="lnk" href="/compromisos/{{ a.entidad_id }}">Ver compromiso</a>{% endif %}</td>
+    <td class="small">{% for d in a.destinatarios %}{{ nombres.get(d, '') }}{{ ', ' if not loop.last }}{% endfor %}</td>
+    <td>{{ fmt_dia(a.programada_para) }}</td>
+    <td><div class="row" style="flex-wrap:nowrap;gap:6px">
+      {% if a.estado in ('propuesta','fallida') %}<button class="btn sm dark" type="button" data-open="acc-{{ a.id }}">Revisar</button>{% endif %}
+      <form method="post" action="/acciones/{{ a.id }}/rechazar"><button class="btn sm soft">Descartar</button></form></div></td></tr>
+  {% else %}<tr><td colspan="6" class="muted">No hay acciones pendientes.</td></tr>{% endfor %}</tbody></table></div>
+</section>
+
+<div class="grid2">
+<section class="card pad"><h2>Personas</h2>
+  <div class="tbl"><table><thead><tr><th></th><th>Persona</th><th class="num">Sem.</th><th class="num">Cumpl. 4 sem</th><th class="num">Vencidos</th><th class="num">Días sin captura</th></tr></thead><tbody>
+  {% for e in personas %}<tr><td><span class="dot {{ e.estado }}" title="{{ e.estado }}"></span></td><td>{{ e.usuario.nombre }}<div class="muted small">{{ e.usuario.area.nombre if e.usuario.area }}</div></td>
+    <td class="num">{{ e.semana }}</td><td class="num">{{ pct(e.cumpl.pct) }}</td><td class="num">{{ e.vencidos + e.sin_remediar }}</td>
+    <td class="num">{{ e.dias_sin_captura if e.dias_sin_captura is not none else 'nunca' }}</td></tr>{% endfor %}</tbody></table></div>
+</section>
+<section class="card pad"><h2>Alertas</h2>
+  <div class="col">{% for a in alertas[:30] %}<div class="row" style="flex-wrap:nowrap;align-items:flex-start">
+    <span class="tag {{ 'r' if a.severidad==3 else 'o' if a.severidad==2 else 'n' }}">{{ 'Urgente' if a.severidad==3 else 'Atender' if a.severidad==2 else 'Revisar' }}</span>
+    <span class="small"><b>{{ a.usuario.nombre if a.usuario else a.area_nombre }}</b> · {{ a.texto }}
+      {% if a.compromiso_id %}<a href="/compromisos/{{ a.compromiso_id }}">abrir</a>{% elif a.estrategia_id %}<a href="/estrategias/{{ a.estrategia_id }}">abrir</a>{% endif %}</span></div>
+  {% else %}<span class="muted">Sin alertas. Buen ritmo.</span>{% endfor %}</div>
+</section>
+</div>
+
+<div class="grid2">
+<section class="card pad"><h2>Pedir un documento al PM virtual</h2>
+  <form method="post" action="/acciones/nueva" class="col">
+    <input type="hidden" name="tipo" value="informe">
+    <div class="field"><label for="d-tit">Título</label><input class="input" id="d-tit" name="titulo" required placeholder="Ej. Plan de rescate de la cuenta con renovación en diciembre"></div>
+    <div class="field"><label for="d-ins">Qué debe contener</label><textarea class="input" id="d-ins" name="instrucciones" required placeholder="Secciones, datos que debe considerar, a quién va dirigido"></textarea></div>
+    <div class="field"><label for="d-comp">Compromiso relacionado (folio, opcional)</label><input class="input" id="d-comp" type="number" name="compromiso_id" style="max-width:160px"></div>
+    <button class="btn aibtn" style="align-self:flex-start">{{ icon('doc') }}Redactar</button>
+  </form></section>
+<section class="card pad"><h2>Documentos recientes</h2>
+  {% for i in informes %}<a class="lnk" href="/informes/{{ i.id }}">{{ icon('doc') }}{{ i.titulo }}</a><span class="muted small" style="margin-top:-8px">{{ fmt_fecha(i.creado) }} · {{ i.tipo }}</span>
+  {% else %}<span class="muted">Aún no hay documentos.</span>{% endfor %}</section>
+</div>
+{% endblock %}
+{% block modals %}
+{% for a in pendientes if a.estado in ('propuesta','fallida') %}
+<div class="overlay" id="acc-{{ a.id }}"><form class="modal sm" method="post" action="/acciones/{{ a.id }}/aprobar">
+  <div class="mh"><h2>{{ a.titulo }}</h2><button class="btn ghost" type="button" data-close style="width:42px;padding:0">{{ icon('x') }}</button></div>
+  <div class="sec" style="border-top:0">
+    <div class="small muted">{{ a.tipo }} · origen: {{ a.origen.replace('_',' ') }} · para: {% for d in a.destinatarios %}{{ nombres.get(d,'') }}{{ ', ' if not loop.last }}{% endfor %}</div>
+    {% if a.tipo == 'informe' %}<div class="field"><label>Instrucciones del documento</label><div class="sug" style="font-weight:500">{{ a.instrucciones or a.cuerpo }}</div></div>
+    {% else %}
+    <div class="field"><label for="as-{{ a.id }}">Asunto</label><input class="input" id="as-{{ a.id }}" name="asunto" value="{{ a.asunto }}"></div>
+    <div class="field"><label for="cu-{{ a.id }}">Mensaje</label><textarea class="input" id="cu-{{ a.id }}" name="cuerpo" style="min-height:180px">{{ a.cuerpo }}</textarea></div>
+    {% endif %}
+    <label class="check"><input type="checkbox" name="ejecutar_ya" value="true">Enviar ahora en lugar de esperar a {{ fmt_dia(a.programada_para) }}</label>
+  </div>
+  <div class="mf"><button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn yellow">{{ icon('ok') }}Aprobar</button></div>
+</form></div>
+{% endfor %}
+{% endblock %}

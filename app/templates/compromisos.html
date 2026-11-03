@@ -1,0 +1,28 @@
+{% extends "base.html" %}{% from "_ui.html" import icon, estado_comp, avance with context %}
+{% block title %}Compromisos{% endblock %}
+{% block content %}
+<div class="top"><h1>Compromisos</h1>
+  <button class="btn yellow" type="button" data-open="nuevo-compromiso">{{ icon('plus') }}Nuevo compromiso</button></div>
+<section class="card pad">
+  <div class="tabs">
+    <a href="?scope=mios&estado={{ estado }}" class="{{ 'on' if scope=='mios' }}">Míos</a>
+    <a href="?scope=area&estado={{ estado }}" class="{{ 'on' if scope=='area' }}">Mi área</a>
+    {% if u.es_direccion %}<a href="?scope=todos&estado={{ estado }}" class="{{ 'on' if scope=='todos' }}">Toda la empresa</a>{% endif %}
+  </div>
+  <div class="row between">
+    <div class="row">
+      <a class="btn sm {{ 'dark' if estado=='abiertos' else 'soft' }}" href="?scope={{ scope }}&estado=abiertos">Pendientes</a>
+      <a class="btn sm {{ 'dark' if estado!='abiertos' else 'soft' }}" href="?scope={{ scope }}&estado=cerrados">Cerrados (4 semanas)</a>
+    </div>
+    <label class="search" style="height:40px;border-radius:8px">{{ icon('search', 18) }}<input type="search" placeholder="Buscar aquí" data-filtra="t-comp"></label>
+  </div>
+  <div class="tbl"><table id="t-comp"><thead><tr><th>Folio</th><th>Sem.</th><th>Estatus</th><th>Área</th><th>Responsable</th><th>Compromiso</th><th>Vence</th><th>Avance</th><th></th></tr></thead>
+  <tbody>{% for c in lista %}
+    <tr class="{{ 'hl' if seg.vencido(c) or seg.sin_remediacion(c) }}"><td>CMP-{{ '%04d' % c.id }}</td><td>{{ num_semana(c.semana) }}</td><td>{{ estado_comp(c, seg) }}</td>
+    <td>{{ c.area.nombre }}</td><td>{{ c.responsable.nombre }}</td><td>{{ c.texto }}</td>
+    <td>{{ fmt_fecha(c.remediacion.nueva_fecha if c.remediacion else c.fecha_limite) }}</td><td>{{ avance(c.avance) }}</td>
+    <td><a class="lnk" href="/compromisos/{{ c.id }}">{{ icon('eye') }}Detalles</a></td></tr>
+  {% else %}<tr><td colspan="9" class="muted">Nada por aquí.</td></tr>{% endfor %}</tbody></table></div>
+</section>
+{% endblock %}
+{% block modals %}{% include "_modal_compromiso.html" %}{% endblock %}

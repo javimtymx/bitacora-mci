@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Perfil{% endblock %}
+{% block content %}
+<div class="top"><h1>{{ u.nombre }}</h1></div>
+<div class="grid2">
+<section class="card pad"><h2>Mis datos</h2>
+  <div class="small">{{ u.email }}<br>Rol: {{ u.rol }} · Área: {{ u.area.nombre if u.area else '—' }}<br>Datos confidenciales: {{ 'sí' if u.puede_confidencial else 'no' }}</div></section>
+<form class="card pad" method="post" action="/perfil/password"><h2>Cambiar contraseña</h2>
+  <div class="field"><label>Actual</label><input class="input" type="password" name="actual" required autocomplete="current-password"></div>
+  <div class="field"><label>Nueva (mínimo 10 caracteres)</label><input class="input" type="password" name="nueva" required minlength="10" autocomplete="new-password"></div>
+  <button class="btn yellow" style="align-self:flex-start">Guardar</button></form>
+</div>
+{% endblock %}

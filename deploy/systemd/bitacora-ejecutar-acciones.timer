@@ -1,0 +1,10 @@
+[Unit]
+Description=Bitácora MCI · ejecutar acciones aprobadas
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+Unit=bitacora-job@ejecutar-acciones.service
+
+[Install]
+WantedBy=timers.target

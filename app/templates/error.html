@@ -1,0 +1,9 @@
+{% extends "base.html" %}{% block title %}{{ titulo }}{% endblock %}
+{% block content %}
+<div class="card pad" style="max-width:640px">
+  <span class="tag r" style="align-self:flex-start">Error {{ codigo }}</span>
+  <h1>{{ titulo }}</h1>
+  {% if detalle %}<p style="margin:0">{{ detalle }}</p>{% endif %}
+  <div class="row"><a class="btn dark" href="javascript:history.back()">Regresar</a><a class="btn soft" href="/">Ir al inicio</a></div>
+</div>
+{% endblock %}

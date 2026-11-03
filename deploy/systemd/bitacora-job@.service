@@ -1,0 +1,11 @@
+[Unit]
+Description=Bitácora MCI · tarea %i
+After=network.target
+
+[Service]
+Type=oneshot
+User=bitacora
+Group=bitacora
+WorkingDirectory=/opt/bitacora-mci
+EnvironmentFile=/opt/bitacora-mci/.env
+ExecStart=/opt/bitacora-mci/.venv/bin/python -m app.jobs %i

@@ -1,0 +1,51 @@
+{% extends "base.html" %}{% from "_ui.html" import icon with context %}{% set tab='usuarios' %}
+{% block title %}Usuarios{% endblock %}
+{% block content %}
+<div class="top"><h1>Configuración</h1><button class="btn yellow" data-open="alta">{{ icon('plus') }}Alta de usuario</button></div>
+{% include "_admin_tabs.html" %}
+<section class="card pad">
+  <div class="row between"><div class="row"><a class="btn sm {{ 'dark' if ver=='activos' else 'soft' }}" href="?ver=activos">Activos</a><a class="btn sm {{ 'dark' if ver!='activos' else 'soft' }}" href="?ver=bajas">Bajas</a></div>
+    <label class="search" style="height:40px;border-radius:8px">{{ icon('search', 18) }}<input type="search" placeholder="Buscar" data-filtra="t-u"></label></div>
+  <div class="tbl"><table id="t-u"><thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th>Área</th><th>Datos confidenciales</th><th>Último acceso</th><th></th></tr></thead><tbody>
+  {% for x in lista %}<tr><td><b>{{ x.nombre }}</b>{% if not x.activo %}<div class="muted small">Baja {{ fmt_fecha(x.baja_en) }}: {{ x.baja_motivo }}</div>{% endif %}</td><td>{{ x.email }}</td>
+    <td><span class="tag {{ 'b' if x.rol=='colaborador' else 'o' if x.rol=='lider' else 'g' }}">{{ x.rol }}</span></td><td>{{ x.area.nombre if x.area else '—' }}</td>
+    <td>{% if x.puede_confidencial %}<span class="tag r">{{ icon('lock', 12) }} Sí</span>{% else %}<span class="muted">No</span>{% endif %}</td>
+    <td>{{ fmt_fecha(x.ultimo_acceso) }}</td>
+    <td>{% if x.activo %}<div class="row" style="gap:6px;flex-wrap:nowrap"><button class="btn sm soft" data-open="ed-{{ x.id }}">Editar</button>{% if x.id != u.id %}<button class="btn sm red" data-open="baja-{{ x.id }}">Baja</button>{% endif %}</div>
+      {% else %}<button class="btn sm soft" data-open="alta" data-fill-al-n="{{ x.nombre }}" data-fill-al-e="{{ x.email }}">Reactivar</button>{% endif %}</td></tr>
+  {% endfor %}</tbody></table></div>
+</section>
+{% endblock %}
+{% block modals %}
+<div class="overlay" id="alta"><form class="modal sm" method="post" action="/admin/usuarios">
+  <div class="mh"><h2>Alta de usuario</h2><button class="btn ghost" type="button" data-close style="width:42px;padding:0">{{ icon('x') }}</button></div>
+  <div class="sec" style="border-top:0">
+    <div class="field"><label for="al-n">Nombre completo</label><input class="input" id="al-n" name="nombre" required></div>
+    <div class="field"><label for="al-e">Correo</label><input class="input" id="al-e" type="email" name="email" required></div>
+    <div class="grid2"><div class="field"><label for="al-r">Rol</label><select class="input" id="al-r" name="rol">{% for r in roles if r != 'admin' or u.rol=='admin' %}<option>{{ r }}</option>{% endfor %}</select></div>
+      <div class="field"><label for="al-a">Área</label><select class="input" id="al-a" name="area_id"><option value="">—</option>{% for a in areas %}<option value="{{ a.id }}">{{ a.nombre }}</option>{% endfor %}</select></div></div>
+    <label class="check"><input type="checkbox" name="puede_confidencial" value="true"><span>Puede ver y descargar datos confidenciales (clientes y montos)</span></label>
+    <label class="check"><input type="checkbox" name="enviar_invitacion" value="true" checked><span>Enviar invitación por correo con contraseña temporal</span></label>
+  </div>
+  <div class="mf"><button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn yellow">Dar de alta</button></div></form></div>
+{% for x in lista if x.activo %}
+<div class="overlay" id="ed-{{ x.id }}"><form class="modal sm" method="post" action="/admin/usuarios/{{ x.id }}">
+  <div class="mh"><h2>{{ x.nombre }}</h2><button class="btn ghost" type="button" data-close style="width:42px;padding:0">{{ icon('x') }}</button></div>
+  <div class="sec" style="border-top:0">
+    <div class="field"><label>Nombre</label><input class="input" name="nombre" value="{{ x.nombre }}" required></div>
+    <div class="grid2"><div class="field"><label>Rol</label><select class="input" name="rol">{% for r in roles if r != 'admin' or u.rol=='admin' or x.rol=='admin' %}<option {{ 'selected' if r==x.rol }}>{{ r }}</option>{% endfor %}</select></div>
+      <div class="field"><label>Área</label><select class="input" name="area_id"><option value="">—</option>{% for a in areas %}<option value="{{ a.id }}" {{ 'selected' if a.id==x.area_id }}>{{ a.nombre }}</option>{% endfor %}</select></div></div>
+    <label class="check"><input type="checkbox" name="puede_confidencial" value="true" {{ 'checked' if x.puede_confidencial }}>Datos confidenciales</label>
+    <label class="check"><input type="checkbox" name="recibe_correos" value="true" {{ 'checked' if x.recibe_correos }}>Recibe correos del PM virtual</label>
+  </div>
+  <div class="mf"><button class="btn soft" formaction="/admin/usuarios/{{ x.id }}/password" formnovalidate>Nueva contraseña</button><span style="flex:1"></span><button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn yellow">Guardar</button></div></form></div>
+<div class="overlay" id="baja-{{ x.id }}"><form class="modal sm" method="post" action="/admin/usuarios/{{ x.id }}/baja">
+  <div class="mh"><h2>Baja de {{ x.nombre }}</h2><button class="btn ghost" type="button" data-close style="width:42px;padding:0">{{ icon('x') }}</button></div>
+  <div class="sec" style="border-top:0">
+    <span class="small">El usuario pierde el acceso. Su histórico de compromisos, remediaciones e ideas se conserva para los indicadores.</span>
+    <div class="field"><label>Motivo</label><input class="input" name="motivo" required></div>
+    <div class="field"><label>Reasignar sus compromisos abiertos y estrategias a</label><select class="input" name="reasignar_a"><option value="">Nadie (se cancelan)</option>{% for y in activos if y.id != x.id %}<option value="{{ y.id }}">{{ y.nombre }}</option>{% endfor %}</select></div>
+  </div>
+  <div class="mf"><button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn red">Dar de baja</button></div></form></div>
+{% endfor %}
+{% endblock %}

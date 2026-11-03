@@ -1,0 +1,29 @@
+{% extends "base.html" %}{% from "_ui.html" import icon, semaforo, pct with context %}
+{% block title %}Indicadores{% endblock %}
+{% block content %}
+<div class="top"><h1>Indicadores</h1>
+  {% if u.es_direccion %}<form method="post" action="/admin/cfdi/sincronizar"><button class="btn soft">{{ icon('refresh') }}Sincronizar ventas desde CFDI</button></form>{% endif %}</div>
+
+<section class="card pad">
+  <div class="row between"><h2>Ventas facturadas (CFDI)</h2>
+    <span class="muted small">{% if sincronizado %}Actualizado {{ fmt_fecha(sincronizado) }}{% else %}Sin sincronizar{% endif %}{% if not u.puede_confidencial %} · montos ocultos; se muestra la variación{% endif %}</span></div>
+  {% if serie %}
+  <div class="tbl"><table><thead><tr><th>Mes</th>{% if u.puede_confidencial %}<th class="num">Total MXN</th>{% endif %}<th class="num">Variación vs mes anterior</th><th class="num">Clientes facturados</th><th class="num">Clientes nuevos</th><th class="num">Facturas</th></tr></thead><tbody>
+  {% for s in serie|reverse %}<tr><td>{{ s.periodo }}</td>{% if u.puede_confidencial %}<td class="num">${{ '{:,.0f}'.format(s.total) }}</td>{% endif %}
+    <td class="num">{% if s.var is none %}—{% else %}<span style="color:{{ 'var(--g-fg)' if s.var >= 0 else 'var(--r-fg)' }};font-weight:700">{{ '%+.1f' % s.var }}%</span>{% endif %}</td>
+    <td class="num">{{ s.clientes }}</td><td class="num">{{ s.nuevos }}</td><td class="num">{{ s.facturas }}</td></tr>{% endfor %}</tbody></table></div>
+  {% else %}<span class="muted">Aún no hay datos de ventas. Configura la consulta de CFDI y sincroniza.</span>{% endif %}
+</section>
+
+<div class="grid2">
+<section class="card pad"><h2>Cumplimiento de compromisos · 4 semanas</h2>
+  <div class="tbl"><table><thead><tr><th>Área</th><th>Cumplimiento</th><th class="num">Cumplidos</th><th class="num">No cumplidos</th><th class="num">Exceptuados</th></tr></thead><tbody>
+  {% for a in areas %}<tr><td>{{ a.area.nombre }}</td><td>{{ semaforo(a.cumpl.pct) }}</td><td class="num">{{ a.cumpl.cumplidos }}</td><td class="num">{{ a.cumpl.no_cumplidos }}</td><td class="num">{{ a.cumpl.exceptuados }}</td></tr>{% endfor %}</tbody></table></div>
+  <span class="muted small">Los exceptuados son incumplimientos con excepción aprobada; no cuentan en el porcentaje.</span>
+</section>
+<section class="card pad"><h2>Adopción del PM virtual · 30 días</h2>
+  <div class="kpi"><span class="lbl">Revisiones aceptadas</span><b>{{ pct(acept[2]) }}</b><span class="muted small">{{ acept[0] }} de {{ acept[1] }} revisiones con decisión</span></div>
+  <span class="muted small">Si la aceptación es baja, revisa los motivos de rechazo: o la IA está mal calibrada o el equipo no está escribiendo compromisos verificables.</span>
+</section>
+</div>
+{% endblock %}

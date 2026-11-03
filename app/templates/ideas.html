@@ -1,0 +1,66 @@
+{% extends "base.html" %}{% from "_ui.html" import icon, ai_badge, avance with context %}
+{% block title %}Ideas{% endblock %}
+{% block content %}
+<div class="top"><h1>Ideas de innovación</h1>
+  <button class="btn yellow" type="button" data-open="nueva-idea">{{ icon('plus') }}Nueva idea</button></div>
+<div class="grid4">
+  <div class="kpi"><span class="lbl">Ganancia rápida</span><b>{{ matriz['Ganancia rápida'] }}</b><span class="muted small">alto impacto · bajo esfuerzo</span></div>
+  <div class="kpi"><span class="lbl">Proyecto</span><b>{{ matriz['Proyecto'] }}</b><span class="muted small">alto impacto · alto esfuerzo</span></div>
+  <div class="kpi"><span class="lbl">Relleno</span><b>{{ matriz['Relleno'] }}</b><span class="muted small">bajo impacto · bajo esfuerzo</span></div>
+  <div class="kpi"><span class="lbl">Implementadas este mes</span><b>{{ implementadas }}</b><span class="muted small">meta: 1 por persona al mes</span></div>
+</div>
+<section class="card pad">
+  <div class="tabs">
+    <a href="?filtro=activas" class="{{ 'on' if filtro=='activas' }}">Activas</a>
+    <a href="?filtro=mias" class="{{ 'on' if filtro=='mias' }}">Mías</a>
+    <a href="?filtro=todas" class="{{ 'on' if filtro=='todas' }}">Todas</a>
+  </div>
+  <div class="tbl"><table><thead><tr><th>Idea</th><th>Autor</th><th>Origen</th><th>I/E</th><th>Cuadrante</th><th>Calidad</th><th>Estado</th><th>Avance</th><th></th></tr></thead><tbody>
+  {% for i in lista %}<tr>
+    <td><b>{{ i.titulo }}</b><div class="muted small">{{ i.problema[:140] }}</div></td>
+    <td>{{ i.autor.nombre }}<div class="muted small">{{ i.area.nombre }}</div></td><td>{{ i.origen.replace('_',' ') }}</td>
+    <td>{{ i.impacto or '—' }}/{{ i.esfuerzo or '—' }}</td><td>{{ i.cuadrante or '—' }}</td>
+    <td>{% if i.fortaleza %}<span class="tag {{ 'g' if i.fortaleza=='fuerte' else 'o' if i.fortaleza=='media' else 'r' }}">{{ i.fortaleza }}</span>{% endif %}{% if i.duplicado_de %} <span class="tag n">posible duplicado</span>{% endif %}</td>
+    <td>{% if u.es_lider %}<form method="post" action="/ideas/{{ i.id }}/estado"><select class="input" name="estado" onchange="this.form.submit()" style="min-height:34px">
+        {% for e in ['propuesta','validada','en_curso','implementada','descartada'] %}<option {{ 'selected' if e==i.estado }}>{{ e }}</option>{% endfor %}</select></form>
+      {% else %}<span class="tag b">{{ i.estado.replace('_',' ') }}</span>{% endif %}</td>
+    <td>{% if i.autor_id == u.id or u.es_lider %}<form method="post" action="/ideas/{{ i.id }}/avance" class="row" style="gap:6px;flex-wrap:nowrap"><input class="input" type="number" name="avance" min="0" max="100" step="10" value="{{ i.avance }}" style="width:76px;min-height:34px"><button class="btn sm soft">OK</button></form>{% else %}{{ avance(i.avance) }}{% endif %}</td>
+    <td></td></tr>
+  {% else %}<tr><td colspan="9" class="muted">Sin ideas registradas.</td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
+{% endblock %}
+{% block modals %}
+<div class="overlay" id="nueva-idea">
+<form class="modal" method="post" action="/ideas" data-ia="/api/ia/idea" data-ia-tipo="idea" role="dialog" aria-modal="true" aria-labelledby="t-id">
+  <input type="hidden" name="revision_id" value="">
+  <div class="mh"><h2 id="t-id">Nueva idea</h2><button class="btn ghost" type="button" data-close aria-label="Cerrar" style="width:42px;padding:0">{{ icon('x') }}</button></div>
+  <div style="padding:18px 24px 4px"><div class="cint"><span class="ic">{{ icon('spark') }}</span>
+    <span style="flex:1">El PM virtual califica impacto y esfuerzo, revisa si ya existe y te hace preguntas para fortalecerla antes de llevarla al consejo.</span></div></div>
+  <div class="sec" style="border-top:0">
+    <div class="grid3">
+      <div class="field" style="grid-column:span 2"><label for="i-tit">Título</label><input class="input" id="i-tit" name="titulo" required maxlength="200" data-revisable></div>
+      <div class="field"><label for="i-area">Área</label><select class="input" id="i-area" name="area_id" data-revisable>{% for a in areas %}<option value="{{ a.id }}" {{ 'selected' if a.id==u.area_id }}>{{ a.nombre }}</option>{% endfor %}</select></div>
+    </div>
+    <div class="field"><label for="i-orig">Origen</label><select class="input" id="i-orig" name="origen" data-revisable>
+      <option value="objecion_cliente">Objeción o pregunta de cliente</option><option value="cambio_ley">Cambio de ley o regla (SAT, ANAM, RGCE)</option>
+      <option value="queja">Queja o incidente</option><option value="operacion">Mejora de operación interna</option><option value="otro">Otro</option></select></div>
+    <div class="grid2">
+      <div class="field"><label for="i-prob">Problema que resuelve</label><textarea class="input" id="i-prob" name="problema" required data-revisable></textarea></div>
+      <div class="field"><label for="i-ben">Beneficio esperado (medible)</label><textarea class="input" id="i-ben" name="beneficio" data-revisable></textarea></div>
+    </div>
+  </div>
+  <div class="sec alt hidden" data-ia-resultado>
+    <div class="row between"><div class="sech"><span class="secic">{{ icon('spark') }}</span>Evaluación del PM virtual</div>{{ ai_badge() }}</div>
+    <div class="grid2"><div class="col" data-ia-izq></div><div class="col" data-ia-der></div></div>
+    <div class="field" data-ia-motivo><label for="i-mot">Si la registras así, explica por qué</label><input class="input" id="i-mot" name="motivo" maxlength="1000"></div>
+  </div>
+  <div class="flash error hidden" data-ia-error style="margin:0 24px"></div>
+  <div class="mf"><button class="btn ghost" type="button" data-close>Cancelar</button>
+    <button class="btn aibtn" type="button" data-btn-revisar>{{ icon('spark') }}Evaluar con IA</button>
+    <span class="row hidden" data-ia-acciones>
+      <button class="btn yellow" type="submit" name="decision" value="propio" data-btn-propio>Registrar idea</button>
+      <button class="btn soft hidden" type="submit" name="decision" value="sugerencia" data-btn-sug>Usar sugerencia</button>
+    </span></div>
+</form></div>
+{% endblock %}

@@ -1,0 +1,46 @@
+{% extends "base.html" %}{% from "_ui.html" import icon, estado_comp, avance with context %}
+{% block title %}Inicio{% endblock %}
+{% block content %}
+<div class="top"><h1>Hola, {{ u.nombre.split()[0] }}</h1>
+  <span class="muted" style="font-weight:600">{{ fmt_dia(hoy) }} · semana {{ num_semana(sem) }}</span></div>
+
+<div class="card" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;padding:14px 16px">
+  <div class="row">
+    <div class="stat"><span class="ico" style="background:#D7F5D6;color:#1D6B2A">{{ icon('ok') }}</span><span style="font-weight:600">Compromisos semana {{ num_semana(sem) }}</span><b>{{ n_semana }}</b></div>
+    <div class="stat"><span class="ico" style="background:#FDE1DF;color:#B3261E">{{ icon('alert') }}</span><span style="font-weight:600">Vencidos</span><b>{{ n_vencidos }}</b></div>
+    <div class="stat"><span class="ico" style="background:#FFE9C2;color:#7A4600">{{ icon('clock') }}</span><span style="font-weight:600">Sin compromiso</span><b>{{ n_sin_captura }}</b></div>
+    <div class="stat"><span class="ico" style="background:var(--mint);color:var(--teal)">{{ icon('idea') }}</span><span style="font-weight:600">Ideas del mes</span><b>{{ ideas_mes }}</b></div>
+  </div>
+  <div class="row">
+    <a class="btn soft" href="/ideas#nueva-idea">{{ icon('idea') }}Nueva idea</a>
+    <button class="btn yellow" type="button" data-open="nuevo-compromiso">{{ icon('plus') }}Nuevo compromiso</button>
+  </div>
+</div>
+
+{% if pm %}
+<div class="cint"><span class="ic">{{ icon('spark') }}</span>
+  <span style="flex:1 1 420px">PM virtual · {{ fmt_dia(pm.creado) }} — {{ (pm.datos.resumen or pm.contenido)[:260] }}</span>
+  {% if u.es_lider %}<a href="/pm">Ver informe</a>{% endif %}
+  <button class="x" type="button" aria-label="Cerrar aviso">{{ icon('x', 18) }}</button></div>
+{% endif %}
+
+{% if mis_alertas %}
+<section class="card pad"><h2>Lo que necesita tu atención</h2>
+  <div class="col">{% for a in mis_alertas %}
+    <div class="row"><span class="tag {{ 'r' if a.severidad==3 else 'o' if a.severidad==2 else 'n' }}">{{ 'Urgente' if a.severidad==3 else 'Atender' if a.severidad==2 else 'Revisar' }}</span>
+    <span>{{ a.texto }}</span>{% if a.compromiso_id %}<a class="lnk" href="/compromisos/{{ a.compromiso_id }}">Abrir</a>{% endif %}</div>
+  {% endfor %}</div></section>
+{% endif %}
+
+<section class="card pad">
+  <div class="row between"><h2>Compromisos recientes</h2><span class="pill">{{ 'Toda la empresa' if u.es_direccion else (u.area.nombre if u.area else 'Mis compromisos') }}</span></div>
+  <div class="row"><label class="search" style="height:40px;border-radius:8px">{{ icon('search', 18) }}<input type="search" placeholder="Buscar por persona, compromiso o área" data-filtra="t-rec"></label></div>
+  <div class="tbl"><table id="t-rec"><thead><tr><th>Folio</th><th>Estatus</th><th>Área</th><th>Responsable</th><th>Compromiso</th><th>Vence</th><th>Avance</th><th></th></tr></thead>
+  <tbody>{% for c in recientes %}
+    <tr class="{{ 'hl' if seg.vencido(c) }}"><td>CMP-{{ '%04d' % c.id }}</td><td>{{ estado_comp(c, seg) }}</td><td>{{ c.area.nombre }}</td><td>{{ c.responsable.nombre }}</td>
+    <td>{{ c.texto }}</td><td>{{ fmt_fecha(c.remediacion.nueva_fecha if c.remediacion else c.fecha_limite) }}</td><td>{{ avance(c.avance) }}</td>
+    <td><a class="lnk" href="/compromisos/{{ c.id }}">{{ icon('eye') }}Detalles</a></td></tr>
+  {% else %}<tr><td colspan="8" class="muted">Aún no hay compromisos. Registra el primero de la semana.</td></tr>{% endfor %}</tbody></table></div>
+</section>
+{% endblock %}
+{% block modals %}{% include "_modal_compromiso.html" %}{% endblock %}

@@ -1,0 +1,25 @@
+{% extends "base.html" %}{% from "_ui.html" import icon with context %}{% set tab='parametros' %}
+{% block title %}Parámetros{% endblock %}
+{% block content %}
+<div class="top"><h1>Configuración</h1></div>
+{% include "_admin_tabs.html" %}
+<form class="card pad" method="post" action="/admin/parametros">
+  <span class="muted">Cada cambio queda en el historial con su motivo, para explicar después por qué un semáforo o una automatización se comportó como lo hizo en cierta fecha.</span>
+  {% for cat, titulo in [('semaforo','Semáforo'),('seguimiento','Seguimiento'),('ia','Revisión con IA'),('automatizacion','Automatizaciones del PM virtual')] %}
+  <h3 style="margin-top:8px">{{ titulo }}</h3>
+  <div class="col">{% for p in params if p.categoria == cat %}
+    {% if p.default is sameas true or p.default is sameas false %}
+      <label class="check"><input type="checkbox" name="{{ p.clave }}" value="true" {{ 'checked' if p.valor }}><span>{{ p.descripcion }}</span></label>
+    {% else %}
+      <div class="row" style="flex-wrap:nowrap"><input class="input" type="number" name="{{ p.clave }}" value="{{ p.valor }}" style="width:110px"><span>{{ p.descripcion }} <span class="muted small">(predeterminado {{ p.default }})</span></span></div>
+    {% endif %}
+  {% endfor %}</div>{% endfor %}
+  <div class="row" style="border-top:1px solid var(--line);padding-top:14px">
+    <input class="input" name="motivo" required placeholder="Motivo del cambio" style="flex:1;min-width:260px"><button class="btn yellow">Guardar cambios</button></div>
+</form>
+<section class="card pad"><h2>Historial</h2>
+  <div class="tbl"><table><thead><tr><th>Fecha</th><th>Parámetro</th><th>Antes</th><th>Después</th><th>Motivo</th><th>Quién</th></tr></thead><tbody>
+  {% for h in hist %}<tr><td>{{ fmt_fecha(h.creado) }}</td><td>{{ h.clave }}</td><td>{{ h.valor_anterior.v if h.valor_anterior else '—' }}</td><td>{{ h.valor_nuevo.v }}</td><td>{{ h.motivo }}</td><td>{{ nombres.get(h.usuario_id, '') }}</td></tr>
+  {% else %}<tr><td colspan="6" class="muted">Sin cambios todavía; se usan los valores predeterminados.</td></tr>{% endfor %}</tbody></table></div>
+</section>
+{% endblock %}

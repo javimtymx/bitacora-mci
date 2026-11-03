@@ -1,0 +1,27 @@
+{% extends "base.html" %}{% from "_ui.html" import icon with context %}
+{% block title %}Reportes{% endblock %}
+{% block content %}
+<div class="top"><h1>Reportes</h1></div>
+<div class="grid2">
+<section class="card pad"><h2>Compromisos y remediaciones</h2>
+  <span class="muted small">{{ 'Toda la empresa' if u.es_direccion else 'Tu área' if u.es_lider else 'Tus compromisos' }}: estado, causa, remediación, versión de la medida y excepciones.</span>
+  <form class="row" method="get" action="/reportes/compromisos.xlsx">
+    <div class="field"><label>Desde</label><input class="input" type="date" name="desde"></div>
+    <div class="field"><label>Hasta</label><input class="input" type="date" name="hasta"></div>
+    <button class="btn dark" style="align-self:flex-end">{{ icon('down') }}Excel</button></form></section>
+<section class="card pad"><h2>Ideas de innovación</h2><span class="muted small">Todas las ideas con calificación de impacto, esfuerzo y estado.</span>
+  <a class="btn dark" style="align-self:flex-start" href="/reportes/ideas.xlsx">{{ icon('down') }}Excel</a></section>
+{% if u.es_lider %}
+<section class="card pad"><h2>Participación y cumplimiento por persona</h2><span class="muted small">Cumplimiento a 4 semanas, vencidos, días sin captura e ideas. Útil para el 1:1.</span>
+  <a class="btn dark" style="align-self:flex-start" href="/reportes/participacion.xlsx">{{ icon('down') }}Excel</a></section>
+<section class="card pad"><h2>Presentación semanal</h2><span class="muted small">Por área: cumplidos, no cumplidos, remediación y nueva fecha. Se imprime o guarda en PDF.</span>
+  <a class="btn dark" style="align-self:flex-start" href="/semanal">{{ icon('screen') }}Abrir</a></section>
+{% endif %}
+{% if u.puede_confidencial %}
+<section class="card pad" style="border-color:var(--r-bd)"><div class="row"><h2>Ventas por cliente</h2><span class="tag r">{{ icon('lock', 12) }} Confidencial</span></div>
+  <span class="muted small">Clientes y montos facturados desde CFDI. Cada descarga queda registrada.</span>
+  <form class="row" method="get" action="/reportes/ventas_clientes.xlsx"><select class="input" name="meses" style="width:160px"><option value="3">3 meses</option><option value="12" selected>12 meses</option><option value="24">24 meses</option></select>
+    <button class="btn red">{{ icon('down') }}Excel</button></form></section>
+{% endif %}
+</div>
+{% endblock %}

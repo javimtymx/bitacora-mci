@@ -1,0 +1,14 @@
+{% extends "base.html" %}{% from "_ui.html" import icon, ai_badge with context %}
+{% block title %}{{ inf.titulo }}{% endblock %}
+{% block content %}
+<div class="top"><div class="col" style="gap:4px"><span class="muted small">{{ inf.tipo.replace('_',' ') }} · {{ fmt_fecha(inf.creado) }} · {{ 'editado' if inf.origen=='editado' else 'redactado por el PM virtual' }}</span><h1 style="font-size:22px">{{ inf.titulo }}</h1></div>
+  <div class="row noprint">{{ ai_badge() }}<button class="btn soft" onclick="window.print()">{{ icon('print') }}Imprimir</button>
+  {% if u.es_lider %}<button class="btn dark" data-open="editar">Editar</button>{% endif %}</div></div>
+<article class="card pad md" style="max-width:900px">{{ md(inf.contenido) }}</article>
+{% endblock %}
+{% block modals %}{% if u.es_lider %}
+<div class="overlay" id="editar"><form class="modal" method="post">
+  <div class="mh"><h2>Editar documento</h2><button class="btn ghost" type="button" data-close style="width:42px;padding:0">{{ icon('x') }}</button></div>
+  <div class="sec" style="border-top:0"><textarea class="input" name="contenido" style="min-height:460px;font-family:ui-monospace,monospace;font-size:13px">{{ inf.contenido }}</textarea></div>
+  <div class="mf"><button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn yellow">Guardar</button></div></form></div>
+{% endif %}{% endblock %}

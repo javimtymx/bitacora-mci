@@ -1,0 +1,23 @@
+{% extends "base.html" %}{% from "_ui.html" import icon, semaforo with context %}
+{% block title %}{{ p.titulo }}{% endblock %}
+{% block content %}{% set d = p.contenido %}
+<div class="top noprint"><div class="col" style="gap:4px"><span class="muted small"><a href="/socio">Cortes</a> · {{ p.estado }}</span><h1>{{ p.titulo }}</h1></div>
+  <button class="btn dark" onclick="window.print()">{{ icon('print') }}Imprimir / PDF</button></div>
+<div class="slide" style="min-height:auto">
+  <div class="head"><div><span class="muted small">OneCore · corte ejecutivo</span><h1>{{ d.periodo }}</h1></div><img src="/static/logo.svg" width="40" alt=""></div>
+  {% if d.ventas.total is not none %}<div class="grid4">
+    <div class="kpi"><span class="lbl">Venta facturada</span><b>${{ '{:,.0f}'.format(d.ventas.total) }}</b>{% if d.ventas.var is not none %}<span class="small">{{ '%+.1f' % d.ventas.var }}% vs mes anterior</span>{% endif %}</div>
+    <div class="kpi"><span class="lbl">Clientes facturados</span><b>{{ d.ventas.clientes }}</b></div>
+    <div class="kpi"><span class="lbl">Clientes nuevos</span><b>{{ d.ventas.nuevos }}</b></div></div>{% endif %}
+  <div class="tbl"><table><thead><tr><th>Área</th><th>Cumplimiento de compromisos</th><th class="num">Remediaciones</th><th class="num">Remediaciones cumplidas</th></tr></thead><tbody>
+  {% for a in d.areas %}<tr><td><b>{{ a.area }}</b></td><td>{{ semaforo(a.pct) }}{% if a.exceptuados %} <span class="muted small">({{ a.exceptuados }} con excepción aprobada)</span>{% endif %}</td><td class="num">{{ a.remediaciones }}</td><td class="num">{{ a.remediaciones_cumplidas }}</td></tr>{% endfor %}</tbody></table></div>
+  {% if d.excepciones %}<div class="col"><span class="lbl">Ajustes aprobados del periodo</span><ul class="obs">{% for e in d.excepciones %}<li><b>{{ e.categoria.replace('_',' ') }}</b>: {{ e.justificacion }}{% if e.meta_ajustada %} (meta ajustada a {{ e.meta_ajustada }}){% endif %}</li>{% endfor %}</ul></div>{% endif %}
+  {% if p.narrativa %}<div class="md">{{ md(p.narrativa) }}</div>{% endif %}
+</div>
+{% if p.estado != 'publicada' %}
+<form class="card pad noprint" method="post"><h2>Narrativa de Dirección</h2>
+  <span class="muted small">Contexto, decisiones y siguientes pasos por pilar. Explica, no maquilla: los números de arriba vienen directo de la operación.</span>
+  <textarea class="input" name="narrativa" style="min-height:220px">{{ p.narrativa }}</textarea>
+  <div class="row"><button class="btn soft" name="accion" value="guardar">Guardar borrador</button><button class="btn yellow" name="accion" value="publicar">Publicar y congelar</button></div></form>
+{% endif %}
+{% endblock %}
