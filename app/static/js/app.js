@@ -82,7 +82,7 @@
     let s = "";
     if (d.sugerencia) s += `<span class="lbl">Sugerencia</span><div class="sug">${esc(d.sugerencia)}</div>`;
     if ((d.plan || []).length) {
-      s += `<span class="lbl">Seguimiento que propone el PM virtual</span>`;
+      s += `<span class="lbl">Seguimiento que propone Guard<span class="gia">IA</span> OneCore</span>`;
       d.plan.forEach((p, i) => {
         s += `<label class="check small"><input type="checkbox" name="plan_sel" value="${i}" checked><span><b>${esc(p.titulo)}</b> · ${esc(p.tipo)} ${esc(PARA[p.para] || "")} en ${esc(p.dias)} día(s)</span></label>`;
       });
@@ -113,7 +113,7 @@
       if (!$(".stale-aviso", box)) {
         const a = document.createElement("div");
         a.className = "stale-aviso";
-        a.innerHTML = `<b>Modificaste los datos.</b> Esta revisión corresponde a la versión anterior; úsala como guía y pide que el PM virtual revise de nuevo para poder guardar.`;
+        a.innerHTML = `<b>Modificaste los datos.</b> Esta revisión corresponde a la versión anterior; úsala como guía y pide que Guard<span class="gia">IA</span> OneCore la revise de nuevo para poder guardar.`;
         box.prepend(a);
       }
       $$("input[name=plan_sel]", box).forEach((c) => { c.disabled = true; });
@@ -122,7 +122,7 @@
       btn.innerHTML = btn.dataset.txtNuevo || btn.innerHTML;
       btn.classList.remove("hidden");
     };
-    if (!btn.dataset.txtNuevo) btn.dataset.txtNuevo = btn.innerHTML.replace(/Revisar con IA|Evaluar con IA/, "Revisar de nuevo con IA");
+    if (!btn.dataset.txtNuevo) btn.dataset.txtNuevo = btn.innerHTML.replace(/(Revisar|Evaluar) con /, "Revisar de nuevo con ");
     $$("[data-revisable]", form).forEach((el) => {
       el.addEventListener("input", marcarDesactualizada);
       el.addEventListener("change", marcarDesactualizada);
@@ -130,7 +130,7 @@
     btn.addEventListener("click", async () => {
       if (!form.reportValidity()) return;
       const txt = btn.innerHTML;
-      btn.disabled = true; btn.innerHTML = `<span class="spin"></span> El PM virtual está revisando…`;
+      btn.disabled = true; btn.innerHTML = `<span class="spin"></span><span>Guard<span class="gia">IA</span> está revisando…</span>`;
       const err = $("[data-ia-error]", form); err.classList.add("hidden");
       try {
         const r = await fetch(form.dataset.ia, { method: "POST", body: new FormData(form), credentials: "same-origin" });
@@ -149,7 +149,7 @@
       const mot = $("[name=motivo]", form);
       if (dec === "propio" && !$("[data-ia-motivo]", form).classList.contains("hidden") && $("[name=revision_id]", form).value && !mot.value.trim()) {
         e.preventDefault(); mot.focus(); mot.reportValidity?.();
-        $("[data-ia-error]", form).textContent = "Explica por qué guardas sin la sugerencia; ayuda a calibrar al PM virtual.";
+        $("[data-ia-error]", form).textContent = "Explica por qué guardas sin la sugerencia; ayuda a calibrar a GuardIA OneCore.";
         $("[data-ia-error]", form).classList.remove("hidden");
       }
     });
@@ -161,8 +161,8 @@
 (() => {
   const LARGO = /\/(pm\/informe|pm\/recordatorios|acciones\/(nueva|ejecutar)|diagnostico\/generar|consolidar|analizar)$|\/sesiones$/;
   const MENSAJES = {
-    "pm/informe": "El PM virtual está generando el informe…",
-    "acciones/nueva": "El PM virtual está redactando el documento…",
+    "pm/informe": "GuardIA OneCore está generando el informe…",
+    "acciones/nueva": "GuardIA OneCore está redactando el documento…",
     "pm/recordatorios": "Preparando recordatorios…",
     "acciones/ejecutar": "Ejecutando acciones programadas…",
     "diagnostico/generar": "La IA está preparando el diagnóstico del área…",

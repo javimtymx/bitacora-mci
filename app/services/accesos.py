@@ -23,7 +23,7 @@ class Menu:
     rutas: tuple[str, ...]
 
 
-GRUPOS = (("tablero", "Tablero", "home"), ("ejecucion", "Ejecución", "check"), ("ia", "IA", "spark"),
+GRUPOS = (("tablero", "Tablero", "home"), ("ejecucion", "Ejecución", "check"), ("ia", "GuardIA", "ia"),
           ("innovacion", "Innovación", "idea"), ("datos", "Datos", "chart"))
 
 MENUS = (
@@ -35,7 +35,7 @@ MENUS = (
     Menu("excepciones", "ejecucion", "Excepciones", "Solicitudes y aprobaciones", "/excepciones", "lider", ("/excepciones",)),
     Menu("diagnostico", "ia", "Diagnóstico por área", "Recomendaciones semanales", "/diagnostico", "lider",
          ("/diagnostico", "/recomendaciones")),
-    Menu("pm", "ia", "PM virtual", "Pendientes y alertas", "/pm", "lider", ("/pm", "/acciones", "/informes")),
+    Menu("pm", "ia", "GuardIA OneCore", "Informe, alertas y documentos", "/pm", "lider", ("/pm", "/acciones", "/informes")),
     Menu("voz", "ia", "Voz del cliente", "Sesiones 1:1 y objeciones", "/voz-cliente", "lider",
          ("/voz-cliente", "/sesiones", "/hallazgos")),
     Menu("ideas", "innovacion", "Ideas", "Propuestas del equipo", "/ideas", "colaborador", ("/ideas", "/api/ia/idea")),

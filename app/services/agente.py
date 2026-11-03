@@ -1,4 +1,4 @@
-"""PM virtual: tareas programadas.
+"""GuardIA OneCore: tareas programadas.
 
 - informe_diario: alertas + informe de la IA + propuestas de recordatorio.
 - recordatorios: remediaciones que vencen mañana, personas sin compromiso, seguimiento de estrategias.
@@ -102,7 +102,7 @@ def recordatorios(db: Session) -> int:
                                asunto="Registra tu compromiso de la semana",
                                cuerpo=(f"Hola {e.usuario.nombre.split()[0]}:\n\nAún no registras tu compromiso de la semana "
                                        f"{semana_iso(hoy())[-2:]}. Elige una acción concreta que mueva tu medida predictiva "
-                                       f"y regístrala; el PM virtual te ayuda a afinarla."),
+                                       f"y regístrala; GuardIA OneCore te ayuda a afinarla."),
                                entidad_tipo="usuario", entidad_id=e.usuario.id, auto=auto)
                 n += 1
     # 3) seguimiento semanal de estrategias activas (lunes)

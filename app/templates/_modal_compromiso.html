@@ -8,8 +8,8 @@
       <span class="muted" style="font-weight:600">Semana {{ num_semana(sem) }} · vence por omisión el {{ fmt_dia(viernes) }}</span></div>
     <button class="btn ghost" type="button" data-close aria-label="Cerrar" style="width:42px;padding:0">{{ icon('x') }}</button>
   </div>
-  <div style="padding:18px 24px 4px"><div class="cint"><span class="ic">{{ icon('spark') }}</span>
-    <span style="flex:1">{% if rec %}Viene de la recomendación de la IA de la semana {{ num_semana(rec.semana) }}: ajústala a algo que tú puedas cumplir y verificar. {% endif %}El PM virtual revisa tu compromiso antes de guardarlo: que sea verificable, que mueva la medida y que no repita lo que ya no funcionó.</span></div></div>
+  <div style="padding:18px 24px 4px"><div class="cint"><span class="ic">{{ icon('ia') }}</span>
+    <span style="flex:1">{% if rec %}Viene de la recomendación de la IA de la semana {{ num_semana(rec.semana) }}: ajústala a algo que tú puedas cumplir y verificar. {% endif %}{{ guardia }} revisa tu compromiso antes de guardarlo: que sea verificable, que mueva la medida y que no repita lo que ya no funcionó.</span></div></div>
   <div class="sec" style="border-top:0">
     <div class="sech"><span class="secic">{{ icon('check') }}</span>Datos del compromiso</div>
     <div class="grid4">
@@ -33,7 +33,7 @@
         <textarea class="input" id="nc-texto" name="texto" required maxlength="1000" data-revisable placeholder="Ej. Enviar 15 mensajes directos a gerentes de comercio exterior de empresas IMMEX y agendar 1 cita antes del jueves">{{ pref_texto or '' }}</textarea></div>
   </div>
   <div class="sec alt hidden" data-ia-resultado>
-    <div class="row between"><div class="sech"><span class="secic">{{ icon('spark') }}</span>Revisión del PM virtual</div>{{ ai_badge() }}</div>
+    <div class="row between"><div class="sech"><span class="secic">{{ icon('ia') }}</span>Revisión del compromiso</div>{{ ai_badge() }}</div>
     <div class="grid2"><div class="col" data-ia-izq></div>
       <div class="col" data-ia-der></div></div>
     <div class="field" data-ia-motivo><label for="nc-motivo">Si guardas sin la sugerencia, explica por qué</label>
@@ -42,7 +42,7 @@
   <div class="flash error hidden" data-ia-error style="margin:0 24px"></div>
   <div class="mf">
     <button class="btn ghost" type="button" data-close>Cancelar</button>
-    <button class="btn aibtn" type="button" data-btn-revisar>{{ icon('spark') }}Revisar con IA</button>
+    <button class="btn aibtn" type="button" data-btn-revisar>{{ icon('ia') }}<span>Revisar con Guard<span class="gia">IA</span></span></button>
     <span class="row hidden" data-ia-acciones>
       <button class="btn soft" type="submit" name="decision" value="propio" data-btn-propio>Guardar como está</button>
       <button class="btn yellow" type="submit" name="decision" value="sugerencia" data-btn-sug>{{ icon('ok') }}Usar sugerencia y guardar</button>

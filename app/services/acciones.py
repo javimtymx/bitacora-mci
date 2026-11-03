@@ -97,7 +97,7 @@ def ejecutar(db: Session, a: AccionAgente) -> None:
             a.informe_id = inf.id
             if emails:
                 correo.enviar(emails, a.asunto or f"Informe listo: {inf.titulo}",
-                              f"El PM virtual preparó el documento «{inf.titulo}». Revísalo y complétalo donde diga [pendiente].",
+                              f"GuardIA OneCore preparó el documento «{inf.titulo}». Revísalo y complétalo donde diga [pendiente].",
                               f"{s.base_url}/informes/{inf.id}")
         else:
             correo.enviar(emails, a.asunto or a.titulo, a.cuerpo,

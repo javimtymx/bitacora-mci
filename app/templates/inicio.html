@@ -18,8 +18,8 @@
 </div>
 
 {% if pm %}
-<div class="cint"><span class="ic">{{ icon('spark') }}</span>
-  <span style="flex:1 1 420px">PM virtual · {{ fmt_dia(pm.creado) }} — {{ (pm.datos.resumen or pm.contenido)[:260] }}</span>
+<div class="cint"><span class="ic">{{ icon('ia') }}</span>
+  <span style="flex:1 1 420px">{{ guardia }} · {{ fmt_dia(pm.creado) }} — {{ (pm.datos.resumen or pm.contenido)[:260] }}</span>
   {% if u.es_lider %}<a href="/pm">Ver informe</a>{% endif %}
   <button class="x" type="button" aria-label="Cerrar aviso">{{ icon('x', 18) }}</button></div>
 {% endif %}

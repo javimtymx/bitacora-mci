@@ -12,8 +12,8 @@
   <div class="stat"><span class="ico" style="background:#FDE1DF;color:#B3261E">{{ icon('alert') }}</span><span style="font-weight:600">Cuentas con riesgo alto</span><b>{{ r.riesgo_alto }}</b></div>
 </div>
 {% if r.prioridad %}{% set p0 = r.prioridad[0] %}
-<div class="cint"><span class="ic">{{ icon('spark') }}</span><span style="flex:1 1 420px"><b>Dónde reenfocar la energía:</b> «{{ p0.tema }}» ({{ cuadrantes[p0.cuadrante] }}) suma {{ p0.menciones }} menciones de {{ p0.n_clientes }} cliente(s){% if p0.n_riesgo %} y aparece en {{ p0.n_riesgo }} cuenta(s) con riesgo alto{% endif %}. Es la prioridad 1 de la tabla.</span>
-  <a class="btn yellow sm" href="/diagnostico?area=retencion">{{ icon('spark', 16) }}Ver diagnóstico</a></div>{% endif %}
+<div class="cint"><span class="ic">{{ icon('ia') }}</span><span style="flex:1 1 420px"><b>Dónde reenfocar la energía:</b> «{{ p0.tema }}» ({{ cuadrantes[p0.cuadrante] }}) suma {{ p0.menciones }} menciones de {{ p0.n_clientes }} cliente(s){% if p0.n_riesgo %} y aparece en {{ p0.n_riesgo }} cuenta(s) con riesgo alto{% endif %}. Es la prioridad 1 de la tabla.</span>
+  <a class="btn yellow sm" href="/diagnostico?area=retencion">{{ icon('ia', 16) }}Ver diagnóstico</a></div>{% endif %}
 <section class="q4">{% for k, q in r.cuadrantes.items() %}
   <article class="card pad cq-{{ k }}" style="border-top:4px solid var(--c)">
     <div class="row between"><h3 style="font-size:17px">{{ q.nombre }}</h3>{% if q.tendencia %}<span class="tag {{ 'r' if q.tendencia > 0 else 'g' }}">{{ '%+d' % q.tendencia }} vs periodo anterior</span>{% endif %}</div>

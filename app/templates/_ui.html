@@ -30,12 +30,13 @@
  'refresh':'M20 11a8 8 0 1 0-2.3 5.7 M20 4v7h-7',
  'lock':'M6 11h12v10H6z M8 11V7a4 4 0 0 1 8 0v4',
  'briefcase':'M3 7h18v13H3z M9 7V4h6v3 M3 13h18',
+ 'ia':'M8 8h8v8H8z M10 3.5v3 M14 3.5v3 M10 17.5v3 M14 17.5v3 M3.5 10h3 M3.5 14h3 M17.5 10h3 M17.5 14h3 M12 9.8l.7 1.5 1.5.7-1.5.7-.7 1.5-.7-1.5-1.5-.7 1.5-.7z',
  'print':'M6 9V3h12v6 M6 18H4v-7h16v7h-2 M6 14h12v7H6z',
 } -%}
 <svg viewBox="0 0 24 24" {% if w %}width="{{ w }}" height="{{ w }}"{% endif %} fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{ P[n] }}"/></svg>
 {%- endmacro %}
 
-{% macro ai_badge() -%}<span class="ai">{{ icon('cpu') }}AI powered</span>{%- endmacro %}
+{% macro ai_badge() -%}<span class="ai" title="GuardIA OneCore · IA = Inteligencia Artificial">{{ icon('ia') }}Guard<span class="gia">IA</span> OneCore</span>{%- endmacro %}
 
 {% macro estado_comp(c, seg) -%}
 {%- if c.estado == 'cumplido' -%}<span class="tag g">Cumplido</span>

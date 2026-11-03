@@ -1,7 +1,7 @@
 {% extends "base.html" %}{% from "_ui.html" import icon, ai_badge with context %}
 {% block title %}{{ inf.titulo }}{% endblock %}
 {% block content %}
-<div class="top"><div class="col" style="gap:4px"><span class="muted small">{{ inf.tipo.replace('_',' ') }} · {{ fmt_fecha(inf.creado) }} · {{ 'editado' if inf.origen=='editado' else 'redactado por el PM virtual' }}</span><h1 style="font-size:22px">{{ inf.titulo }}</h1></div>
+<div class="top"><div class="col" style="gap:4px"><span class="muted small">{{ inf.tipo.replace('_',' ') }} · {{ fmt_fecha(inf.creado) }} · {{ 'editado' if inf.origen=='editado' else 'redactado por GuardIA OneCore' }}</span><h1 style="font-size:22px">{{ inf.titulo }}</h1></div>
   <div class="row noprint">{{ ai_badge() }}<button class="btn soft" onclick="window.print()">{{ icon('print') }}Imprimir</button>
   {% if u.es_lider %}<button class="btn dark" data-open="editar">Editar</button>{% endif %}</div></div>
 <article class="card pad md" style="max-width:900px">{{ md(inf.contenido) }}</article>

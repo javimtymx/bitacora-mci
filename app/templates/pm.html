@@ -1,11 +1,11 @@
 {% extends "base.html" %}{% from "_ui.html" import icon, ai_badge, pct with context %}
-{% block title %}PM virtual{% endblock %}
+{% block title %}GuardIA OneCore{% endblock %}
 {% block content %}
-<div class="top"><div class="row"><h1>PM virtual</h1>{{ ai_badge() }}</div>
+<div class="top"><div class="row"><h1>{{ guardia }}</h1><span class="tag n">IA · Inteligencia Artificial</span></div>
   <div class="row">
     <form method="post" action="/pm/recordatorios"><button class="btn soft">{{ icon('mail') }}Preparar recordatorios</button></form>
     <form method="post" action="/acciones/ejecutar"><button class="btn soft">{{ icon('refresh') }}Ejecutar programadas</button></form>
-    <form method="post" action="/pm/informe"><button class="btn aibtn">{{ icon('spark') }}Generar informe</button></form>
+    <form method="post" action="/pm/informe"><button class="btn aibtn">{{ icon('ia') }}Generar informe</button></form>
   </div></div>
 
 <section class="card pad">
@@ -52,13 +52,13 @@
 </div>
 
 <div class="grid2">
-<section class="card pad"><h2>Pedir un documento al PM virtual</h2>
+<section class="card pad"><h2>Pedir un documento a {{ guardia }}</h2>
   <form method="post" action="/acciones/nueva" class="col">
     <input type="hidden" name="tipo" value="informe">
     <div class="field"><label for="d-tit">Título</label><input class="input" id="d-tit" name="titulo" required placeholder="Ej. Plan de rescate de la cuenta con renovación en diciembre"></div>
     <div class="field"><label for="d-ins">Qué debe contener</label><textarea class="input" id="d-ins" name="instrucciones" required placeholder="Secciones, datos que debe considerar, a quién va dirigido"></textarea></div>
     <div class="field"><label for="d-comp">Compromiso relacionado (folio, opcional)</label><input class="input" id="d-comp" type="number" name="compromiso_id" style="max-width:160px"></div>
-    <button class="btn aibtn" style="align-self:flex-start">{{ icon('doc') }}Redactar</button>
+    <button class="btn aibtn" style="align-self:flex-start">{{ icon('ia') }}Redactar</button>
   </form></section>
 <section class="card pad"><h2>Documentos recientes</h2>
   {% for i in informes %}<a class="lnk" href="/informes/{{ i.id }}">{{ icon('doc') }}{{ i.titulo }}</a><span class="muted small" style="margin-top:-8px">{{ fmt_fecha(i.creado) }} · {{ i.tipo }}</span>

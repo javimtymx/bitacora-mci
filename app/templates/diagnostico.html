@@ -2,7 +2,7 @@
 {% block title %}Diagnóstico · {{ sel.nombre }}{% endblock %}
 {% block content %}
 <div class="top"><div class="row"><h1>Diagnóstico de la IA</h1>{{ ai_badge() }}</div>
-  {% if puede %}<form method="post" action="/diagnostico/generar"><input type="hidden" name="area" value="{{ sel.clave }}"><button class="btn aibtn">{{ icon('refresh') }}{{ 'Regenerar' if d else 'Generar' }} diagnóstico de {{ sel.nombre }}</button></form>{% endif %}</div>
+  {% if puede %}<form method="post" action="/diagnostico/generar"><input type="hidden" name="area" value="{{ sel.clave }}"><button class="btn aibtn">{{ icon('ia') }}{{ 'Regenerar' if d else 'Generar' }} diagnóstico de {{ sel.nombre }}</button></form>{% endif %}</div>
 <div class="tabs" role="tablist">{% for a in areas %}{% set e = estados[a.id] %}<a href="/diagnostico?area={{ a.clave }}&semana={{ sem }}" class="{{ 'on' if a.id==sel.id }}"><span class="dot {{ 'atender' if e and e.veredicto=='perdiendo' else 'revisar' if e and e.veredicto=='en_riesgo' else 'ok' if e else '' }}" style="{{ '' if e else 'background:#CBD3DA' }}"></span> {{ a.nombre }}</a>{% endfor %}</div>
 
 {% if not d %}

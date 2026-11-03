@@ -11,15 +11,15 @@
 <div class="steps" role="list">{% for k, t in fases %}<span role="listitem" class="{{ 'on' if loop.index0==idx else 'done' if loop.index0 < idx }}">{{ loop.index }} · {{ t }}</span>{% endfor %}</div>
 
 {% if c.estado == 'preparacion' %}
-<section class="card pad"><h2>Consolidar con IA</h2><span class="muted">La IA junta las ideas del equipo (validadas, en curso y propuestas que no sean débiles), los hallazgos de clientes de los últimos 4 meses y las objeciones de ventas, y los agrupa en iniciativas con su evidencia.</span>
-  {% if u.es_lider %}<form method="post" action="/circulo/{{ c.id }}/consolidar"><button class="btn aibtn">{{ icon('spark') }}Consolidar iniciativas</button></form>{% endif %}</section>
+<section class="card pad"><h2>Consolidar con Guard<span class="gia">IA</span></h2><span class="muted">La IA junta las ideas del equipo (validadas, en curso y propuestas que no sean débiles), los hallazgos de clientes de los últimos 4 meses y las objeciones de ventas, y los agrupa en iniciativas con su evidencia.</span>
+  {% if u.es_lider %}<form method="post" action="/circulo/{{ c.id }}/consolidar"><button class="btn aibtn">{{ icon('ia') }}Consolidar iniciativas</button></form>{% endif %}</section>
 {% else %}
 {% if an.fuentes %}<div class="card" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:14px 16px">
   <div class="stat"><span class="ico" style="background:var(--mint);color:var(--teal)">{{ icon('idea') }}</span><span style="font-weight:600">Ideas del equipo</span><b>{{ an.fuentes.ideas }}</b></div>
   <div class="stat"><span class="ico" style="background:var(--mint);color:var(--teal)">{{ icon('users') }}</span><span style="font-weight:600">Hallazgos de clientes</span><b>{{ an.fuentes.hallazgos }}</b></div>
   <div class="stat"><span class="ico" style="background:var(--mint);color:var(--teal)">{{ icon('target') }}</span><span style="font-weight:600">Objeciones</span><b>{{ an.fuentes.objeciones }}</b></div>
-  <div class="stat"><span class="ico" style="background:#FFE9C2;color:#7A4600">{{ icon('spark') }}</span><span style="font-weight:600">Iniciativas</span><b>{{ c.iniciativas|length }}</b></div></div>{% endif %}
-{% if an.lectura %}<div class="cint"><span class="ic">{{ icon('spark') }}</span><span style="flex:1 1 420px"><b>Lectura estratégica de la IA:</b> {{ an.lectura }}</span></div>{% endif %}
+  <div class="stat"><span class="ico" style="background:#FFE9C2;color:#7A4600">{{ icon('ia') }}</span><span style="font-weight:600">Iniciativas</span><b>{{ c.iniciativas|length }}</b></div></div>{% endif %}
+{% if an.lectura %}<div class="cint"><span class="ic">{{ icon('ia') }}</span><span style="flex:1 1 420px"><b>Lectura estratégica de la IA:</b> {{ an.lectura }}</span></div>{% endif %}
 <div class="grid2" style="grid-template-columns:1.3fr 1fr">
 <section class="card pad"><div class="row between"><h2>Mapa de iniciativas</h2><span class="small muted">Tamaño = evidencia</span></div>{{ mapa }}</section>
 <section class="card pad"><div class="row between"><h2>Votación</h2><span class="ai">{{ icon('users', 14) }}{{ votaron|length }} votante(s)</span></div>

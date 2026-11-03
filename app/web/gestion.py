@@ -1,4 +1,4 @@
-"""PM virtual, acciones del agente, informes, estrategias y excepciones."""
+"""GuardIA OneCore, acciones del agente, informes, estrategias y excepciones."""
 from __future__ import annotations
 
 from datetime import date
@@ -30,7 +30,7 @@ from .base import flash, ir, render, requiere_direccion, requiere_lider, usuario
 router = APIRouter()
 
 
-# ---------------------------------------------------------------- PM virtual
+# ---------------------------------------------------------------- GuardIA OneCore
 
 @router.get("/pm")
 def pm(request: Request, db: Session = Depends(get_db), u: Usuario = Depends(requiere_lider)):
@@ -62,7 +62,7 @@ def pm_generar(request: Request, db: Session = Depends(get_db), u: Usuario = Dep
     inf = agente.informe_diario(db)
     inf.generado_por = u.id
     db.commit()
-    flash(request, "El PM virtual generó un informe nuevo.")
+    flash(request, "GuardIA OneCore generó un informe nuevo.")
     return ir("/pm")
 
 

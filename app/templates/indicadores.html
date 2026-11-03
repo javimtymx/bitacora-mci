@@ -21,7 +21,7 @@
   {% for a in areas %}<tr><td>{{ a.area.nombre }}</td><td>{{ semaforo(a.cumpl.pct) }}</td><td class="num">{{ a.cumpl.cumplidos }}</td><td class="num">{{ a.cumpl.no_cumplidos }}</td><td class="num">{{ a.cumpl.exceptuados }}</td></tr>{% endfor %}</tbody></table></div>
   <span class="muted small">Los exceptuados son incumplimientos con excepción aprobada; no cuentan en el porcentaje.</span>
 </section>
-<section class="card pad"><h2>Adopción del PM virtual · 30 días</h2>
+<section class="card pad"><h2>Adopción de {{ guardia }} · 30 días</h2>
   <div class="kpi"><span class="lbl">Revisiones aceptadas</span><b>{{ pct(acept[2]) }}</b><span class="muted small">{{ acept[0] }} de {{ acept[1] }} revisiones con decisión</span></div>
   <span class="muted small">Si la aceptación es baja, revisa los motivos de rechazo: o la IA está mal calibrada o el equipo no está escribiendo compromisos verificables.</span>
 </section>

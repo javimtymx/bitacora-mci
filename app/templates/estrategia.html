@@ -4,7 +4,7 @@
 <div class="top"><div class="col" style="gap:4px"><span class="muted small"><a href="/estrategias">Estrategias</a> · {{ est.area.nombre }}{% if est.mci %} · MCI: {{ est.mci.nombre }}{% endif %}</span><h1 style="font-size:22px">{{ est.nombre }}</h1></div>
   <div class="row"><span class="tag {{ {'activa':'g','propuesta':'b','pausada':'o','descartada':'n','exitosa':'g'}[est.estado] }}">{{ est.estado }}</span>
   {% if u.es_lider %}<button class="btn soft" data-open="cambiar">Cambiar estado</button><button class="btn soft" data-open="ajustar">Ajustar</button>
-  <form method="post" action="/estrategias/{{ est.id }}/analizar"><button class="btn aibtn">{{ icon('spark') }}¿Está funcionando?</button></form>{% endif %}</div></div>
+  <form method="post" action="/estrategias/{{ est.id }}/analizar"><button class="btn aibtn">{{ icon('ia') }}¿Está funcionando?</button></form>{% endif %}</div></div>
 
 <div class="grid4">
   <div class="kpi"><span class="lbl">Compromisos ligados</span><b>{{ st.compromisos }}</b></div>
@@ -15,7 +15,7 @@
 
 {% if evals %}{% set ev = evals[0] %}
 <section class="card pad">
-  <div class="row between"><h2>Evaluación del PM virtual</h2><div class="row">{{ ai_badge() }}<span class="muted small">{{ fmt_fecha(ev.creado) }}</span></div></div>
+  <div class="row between"><h2>Evaluación de la IA</h2><div class="row">{{ ai_badge() }}<span class="muted small">{{ fmt_fecha(ev.creado) }}</span></div></div>
   <div class="row"><span class="tag {{ 'g' if ev.resultado.veredicto in ('mantener','declarar_exitosa') else 'o' if ev.resultado.veredicto=='ajustar' else 'r' }}">{{ ev.resultado.veredicto.replace('_',' ') }}</span></div>
   <p style="margin:0;line-height:1.6">{{ ev.resultado.diagnostico }}</p>
   {% if ev.resultado.evidencia %}<ul class="obs">{% for x in ev.resultado.evidencia %}<li>{{ x }}</li>{% endfor %}</ul>{% endif %}

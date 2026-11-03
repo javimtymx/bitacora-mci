@@ -1,5 +1,5 @@
 [Unit]
-Description=Bitácora MCI · informe diario del PM virtual
+Description=Bitácora MCI · informe diario de GuardIA OneCore
 
 [Timer]
 OnCalendar=Mon..Fri *-*-* 07:30:00 America/Mexico_City

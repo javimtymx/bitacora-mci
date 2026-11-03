@@ -71,7 +71,8 @@ from ..services import accesos  # noqa: E402
 
 TEMPLATES.env.globals.update(fmt_fecha=util.fmt_fecha, fmt_dia=util.fmt_dia, dias_desde=util.dias_desde,
                              num_semana=util.num_semana, md=md, valor=valor, menu_lateral=accesos.menu_lateral,
-                             puede_menu=accesos.puede)
+                             puede_menu=accesos.puede,
+                             guardia=Markup('Guard<span class="gia" title="Inteligencia Artificial">IA</span> OneCore'))
 
 
 def hash_password(pw: str) -> str:

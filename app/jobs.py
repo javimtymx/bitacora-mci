@@ -1,4 +1,4 @@
-"""Tareas programadas del PM virtual (las dispara systemd; ver deploy/).
+"""Tareas programadas de GuardIA OneCore (las dispara systemd; ver deploy/).
 
     python -m app.jobs informe-diario      # 7:30 L-V
     python -m app.jobs recordatorios       # 8:00 L-V

@@ -6,7 +6,7 @@
 <title>{% block title %}Bitácora MCI{% endblock %} · OneCore</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
-<link rel="stylesheet" href="/static/css/app.css?v=6">
+<link rel="stylesheet" href="/static/css/app.css?v=7">
 <link rel="icon" href="/static/logo.svg">
 </head>
 <body>
@@ -17,11 +17,11 @@
     {%- for gk, gt, gi, items in (menu_lateral(u) if u else []) %}
     {%- set ns = namespace(activo=false) %}{% for m in items if m.clave == nav %}{% set ns.activo = true %}{% endfor %}
     <div class="grp{{ ' on' if ns.activo }}">
-      <button type="button" class="gbtn" aria-haspopup="true">{{ icon(gi) }}{{ gt }}</button>
+      <button type="button" class="gbtn" aria-haspopup="true">{{ icon(gi) }}<span>{% if gk == 'ia' %}Guard<span class="gia">IA</span>{% else %}{{ gt }}{% endif %}</span></button>
       <div class="fly" role="menu">
-        <div class="fh">{{ gt }}</div>
+        <div class="fh">{% if gk == 'ia' %}{{ guardia }} · Inteligencia Artificial{% else %}{{ gt }}{% endif %}</div>
         {%- for m in items %}
-        <a href="{{ m.href }}" role="menuitem" class="{{ 'on' if nav==m.clave }}"><b>{{ m.titulo }}</b><small>{{ m.desc }}</small></a>
+        <a href="{{ m.href }}" role="menuitem" class="{{ 'on' if nav==m.clave }}"><b>{% if m.clave == 'pm' %}{{ guardia }}{% else %}{{ m.titulo }}{% endif %}</b><small>{{ m.desc }}</small></a>
         {%- endfor %}
       </div>
     </div>
@@ -48,6 +48,6 @@
   </main>
 </div>
 {% block modals %}{% endblock %}
-<script src="/static/js/app.js?v=3"></script>
+<script src="/static/js/app.js?v=4"></script>
 </body>
 </html>

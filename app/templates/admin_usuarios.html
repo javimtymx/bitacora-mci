@@ -38,7 +38,7 @@
     <div class="grid2"><div class="field"><label>Rol</label><select class="input" name="rol">{% for r in roles if r != 'admin' or u.rol=='admin' or x.rol=='admin' %}<option {{ 'selected' if r==x.rol }}>{{ r }}</option>{% endfor %}</select></div>
       <div class="field"><label>Área</label><select class="input" name="area_id"><option value="">—</option>{% for a in areas %}<option value="{{ a.id }}" {{ 'selected' if a.id==x.area_id }}>{{ a.nombre }}</option>{% endfor %}</select></div></div>
     <label class="check"><input type="checkbox" name="puede_confidencial" value="true" {{ 'checked' if x.puede_confidencial }}>Datos confidenciales</label>
-    <label class="check"><input type="checkbox" name="recibe_correos" value="true" {{ 'checked' if x.recibe_correos }}>Recibe correos del PM virtual</label>
+    <label class="check"><input type="checkbox" name="recibe_correos" value="true" {{ 'checked' if x.recibe_correos }}>Recibe correos de GuardIA OneCore</label>
   </div>
   <div class="sec"><input type="hidden" name="menus_form" value="1">
     <div class="row between"><b>Menús a los que tiene acceso</b><span class="muted small">Lo que desmarques desaparece de su menú y se bloquea su dirección.</span></div>

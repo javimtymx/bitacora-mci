@@ -16,13 +16,13 @@
 </nav>
 
 {% if u.es_lider %}
-<div class="cint"><span class="ic">{{ icon('spark') }}</span>
+<div class="cint"><span class="ic">{{ icon('ia') }}</span>
   {% if diags %}
   <span style="flex:1 1 420px"><b>Diagnóstico de la semana {{ num_semana(sem) }}:</b>
     {% for d in diags %}{{ d.area.nombre }} {{ veredicto_tag(d.veredicto) }}{{ ' · ' if not loop.last }}{% endfor %}
     {% set d0 = (diags|selectattr('veredicto','equalto','perdiendo')|list or diags)[0] %}<br>{{ d0.resultado.titular }}</span>
   {% else %}<span style="flex:1 1 420px">El diagnóstico de la IA se genera cada lunes por área. También puedes pedirlo ahora.</span>{% endif %}
-  <a class="btn yellow sm" href="/diagnostico{{ '?area=' ~ sel.clave if sel }}">{{ icon('spark', 16) }}Ver diagnóstico por área</a>
+  <a class="btn yellow sm" href="/diagnostico{{ '?area=' ~ sel.clave if sel }}">{{ icon('ia', 16) }}Ver diagnóstico por área</a>
 </div>
 {% endif %}
 
@@ -79,7 +79,7 @@
     {% if u.puede_confidencial and vt.actual is not none %}<span class="muted">{{ icon('lock', 12) }} Actual ${{ '{:,.0f}'.format(vt.actual) }}/mes · base ${{ '{:,.0f}'.format(vt.base or 0) }}/mes</span>{% endif %}
   </div>{% endfor %}</section>
 {% endif %}
-<section class="card pad"><div class="row between"><h2>Diagnóstico de la IA</h2>{% if u.es_lider %}<a class="lnk" href="/diagnostico?area={{ sel.clave }}">{{ icon('spark', 15) }}Abrir</a>{% endif %}</div>
+<section class="card pad"><div class="row between"><h2>Diagnóstico de {{ guardia }}</h2>{% if u.es_lider %}<a class="lnk" href="/diagnostico?area={{ sel.clave }}">{{ icon('ia', 15) }}Abrir</a>{% endif %}</div>
   {% if cons.diag %}<div class="row">{{ veredicto_tag(cons.diag.veredicto) }}<span class="muted small">S{{ num_semana(cons.diag.semana) }}</span></div>
     <b style="line-height:1.4">{{ cons.diag.resultado.titular }}</b>
     {% for r in cons.diag.recomendaciones %}<div class="small" style="padding:8px 0;border-top:1px solid var(--line)"><b>{{ r.orden }}.</b> {{ r.texto }}{% if r.tecnica %} <span class="muted">· {{ r.tecnica }}</span>{% endif %}</div>{% endfor %}

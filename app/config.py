@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     smtp_port: int = 587
     smtp_user: str = ""
     smtp_password: str = ""
-    smtp_from: str = "PM virtual OneCore <pm@onecore.mx>"
+    smtp_from: str = "GuardIA OneCore <pm@onecore.mx>"
     smtp_dry_run: bool = True
 
     zona_horaria: str = "America/Mexico_City"

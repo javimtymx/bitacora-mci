@@ -62,6 +62,9 @@ h3{margin:0;font-size:16px;font-weight:800}
 .pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;padding:5px 10px;border-radius:999px;background:var(--mint);color:var(--teal)}
 .ai{display:inline-flex;align-items:center;gap:6px;background:var(--teal);color:#fff;font-size:12px;font-weight:700;padding:5px 11px;border-radius:999px;white-space:nowrap}
 .ai svg{width:14px;height:14px}
+.gia{font-weight:800;color:var(--teal2);letter-spacing:.01em}
+.ai .gia,.cint .gia,.btn.aibtn .gia,.espera .gia{color:var(--yellow)}
+.btn.aibtn svg,.secic svg{width:18px;height:18px}
 .btn.aibtn,.btn.aibtn:hover{background:var(--teal);border-color:var(--teal);color:#fff}
 .cint{display:flex;flex-wrap:wrap;align-items:center;gap:14px;background:var(--teal);color:#fff;border-radius:10px;padding:12px 16px;font-size:14px}
 .cint a:not(.btn){color:#fff;font-weight:700}
@@ -186,3 +189,5 @@ button:disabled{cursor:progress;opacity:.75}
 /* revisión del PM desactualizada tras editar: se ve como guía, sin acciones */
 [data-ia-resultado].stale [data-ia-izq],[data-ia-resultado].stale [data-ia-der]{opacity:.62}
 .stale-aviso{grid-column:1/-1;width:100%;background:#FFF4D6;border:1px solid #F2D27A;color:#5C4300;border-radius:10px;padding:10px 12px;font-size:13px;line-height:1.45;margin-bottom:6px}
+.rail .fly .fh .gia{color:var(--teal2)}
+.rail .gbtn .gia{color:var(--teal2);font-weight:800}

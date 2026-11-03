@@ -17,7 +17,7 @@ def _html(cuerpo: str, enlace: str | None) -> str:
              if enlace else "")
     return (f"<div style='font-family:Arial,sans-serif;font-size:15px;color:#15191E;max-width:600px'>"
             f"<div style='background:#053B3F;color:#fff;padding:12px 16px;border-radius:8px;font-weight:700'>"
-            f"PM virtual · Bitácora MCI OneCore</div><div style='padding:16px 4px'>{parrafos}{boton}</div>"
+            f"Guard<b style='color:#FFE14D'>IA</b> OneCore · Bitácora MCI</div><div style='padding:16px 4px'>{parrafos}{boton}</div>"
             f"<p style='color:#6B7580;font-size:12px'>Mensaje generado por la Bitácora MCI. Responde a tu líder si algo no aplica.</p></div>")
 
 

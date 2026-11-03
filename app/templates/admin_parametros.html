@@ -5,7 +5,7 @@
 {% include "_admin_tabs.html" %}
 <form class="card pad" method="post" action="/admin/parametros">
   <span class="muted">Cada cambio queda en el historial con su motivo, para explicar después por qué un semáforo o una automatización se comportó como lo hizo en cierta fecha.</span>
-  {% for cat, titulo in [('semaforo','Semáforo'),('seguimiento','Seguimiento'),('ia','Revisión con IA'),('evidencia','Evidencia de sesiones con cliente'),('automatizacion','Automatizaciones del PM virtual')] %}
+  {% for cat, titulo in [('semaforo','Semáforo'),('seguimiento','Seguimiento'),('ia','Revisión con GuardIA OneCore'),('evidencia','Evidencia de sesiones con cliente'),('automatizacion','Automatizaciones de GuardIA OneCore')] %}
   <h3 style="margin-top:8px">{{ titulo }}</h3>
   <div class="col">{% for p in params if p.categoria == cat %}
     {% if p.default is sameas true or p.default is sameas false %}

@@ -35,8 +35,8 @@
 <form class="modal" method="post" action="/ideas" data-ia="/api/ia/idea" data-ia-tipo="idea" role="dialog" aria-modal="true" aria-labelledby="t-id">
   <input type="hidden" name="revision_id" value="">
   <div class="mh"><h2 id="t-id">Nueva idea</h2><button class="btn ghost" type="button" data-close aria-label="Cerrar" style="width:42px;padding:0">{{ icon('x') }}</button></div>
-  <div style="padding:18px 24px 4px"><div class="cint"><span class="ic">{{ icon('spark') }}</span>
-    <span style="flex:1">El PM virtual califica impacto y esfuerzo, revisa si ya existe y te hace preguntas para fortalecerla antes de llevarla al consejo.</span></div></div>
+  <div style="padding:18px 24px 4px"><div class="cint"><span class="ic">{{ icon('ia') }}</span>
+    <span style="flex:1">{{ guardia }} califica impacto y esfuerzo, revisa si ya existe y te hace preguntas para fortalecerla antes de llevarla al consejo.</span></div></div>
   <div class="sec" style="border-top:0">
     <div class="grid3">
       <div class="field" style="grid-column:span 2"><label for="i-tit">Título</label><input class="input" id="i-tit" name="titulo" required maxlength="200" data-revisable></div>
@@ -51,13 +51,13 @@
     </div>
   </div>
   <div class="sec alt hidden" data-ia-resultado>
-    <div class="row between"><div class="sech"><span class="secic">{{ icon('spark') }}</span>Evaluación del PM virtual</div>{{ ai_badge() }}</div>
+    <div class="row between"><div class="sech"><span class="secic">{{ icon('ia') }}</span>Evaluación de la idea</div>{{ ai_badge() }}</div>
     <div class="grid2"><div class="col" data-ia-izq></div><div class="col" data-ia-der></div></div>
     <div class="field" data-ia-motivo><label for="i-mot">Si la registras así, explica por qué</label><input class="input" id="i-mot" name="motivo" maxlength="1000"></div>
   </div>
   <div class="flash error hidden" data-ia-error style="margin:0 24px"></div>
   <div class="mf"><button class="btn ghost" type="button" data-close>Cancelar</button>
-    <button class="btn aibtn" type="button" data-btn-revisar>{{ icon('spark') }}Evaluar con IA</button>
+    <button class="btn aibtn" type="button" data-btn-revisar>{{ icon('ia') }}<span>Evaluar con Guard<span class="gia">IA</span></span></button>
     <span class="row hidden" data-ia-acciones>
       <button class="btn yellow" type="submit" name="decision" value="propio" data-btn-propio>Registrar idea</button>
       <button class="btn soft hidden" type="submit" name="decision" value="sugerencia" data-btn-sug>Usar sugerencia</button>
