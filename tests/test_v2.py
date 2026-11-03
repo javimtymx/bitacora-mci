@@ -238,3 +238,56 @@ def test_circulo_consolidar_votar_decidir(admin, manuel, db, fake):
     assert est and est.estado == "activa" and est.mci_id == m.id and est.responsable_id == autor.id
     assert db.get(Idea, i1.id).estado == "en_curso" and db.get(CirculoInnovacion, c.id).estado == "cerrado"
     assert "Ver estrategia creada" in admin.get(f"/circulo/{c.id}").text
+
+
+def test_ventas_automaticas_desde_panel_ayf(admin, mario, db):
+    from datetime import date
+    from app.cli import ventas_auto_cmd
+    from app.models import ClienteEstatus, VentaClienteMes
+    from app.services import ventas_auto
+    # base: ene-mar con 2 recurrentes de 100k c/u y un cliente no recurrente; hoy: un recurrente sube a 150k
+    hoy_ = hoy()
+    mes_act = f"{hoy_.year}-{hoy_.month:02d}"
+    for per in ("2026-01", "2026-02", "2026-03"):
+        db.add(VentaClienteMes(periodo=per, rfc="AAA", nombre="A", total_mxn=100000, facturas=1))
+        db.add(VentaClienteMes(periodo=per, rfc="BBB", nombre="B", total_mxn=100000, facturas=1))
+        db.add(VentaClienteMes(periodo=per, rfc="ZZZ", nombre="Z", total_mxn=50000, facturas=1))
+    db.add(VentaClienteMes(periodo=mes_act, rfc="AAA", nombre="A", total_mxn=150000, facturas=1))
+    db.add(VentaClienteMes(periodo=ventas_auto._mes_anterior(mes_act), rfc="BBB", nombre="B", total_mxn=100000, facturas=1))
+    db.add(VentaClienteMes(periodo=ventas_auto._mes_anterior(mes_act), rfc="ZZZ", nombre="Z", total_mxn=300000, facturas=1))
+    db.add_all([ClienteEstatus(rfc="AAA", recurrente=True), ClienteEstatus(rfc="BBB", recurrente=True),
+                ClienteEstatus(rfc="ZZZ", recurrente=False)])
+    db.commit()
+    ventas_auto_cmd()
+    db.expire_all()
+    rec = _mci(db)
+    v = rec.versiones[-1]
+    v.fecha_meta = date(hoy_.year + 1, 6, 30)
+    db.commit()
+    r = ventas_auto.resumen(db, rec)
+    # MRR: AAA 150k (mes actual) + BBB 100k (mes anterior) = 250k contra base 200k = +25%
+    assert round(r.pct) == 25 and r.base == 200000 and r.actual == 250000
+    assert r.meta_monto == 270000 and r.falta == 20000 and r.necesario_mensual > 0
+    tot = _mci(db, "ventas-facturacion")
+    rt = ventas_auto.resumen(db, tot)
+    assert rt.base == 250000 and round(rt.pct) == 60  # último mes cerrado 400k vs 250k
+    assert db.scalar(select(Medicion).where(Medicion.fuente == "cfdi")) is not None
+    # todos ven % y crecimiento necesario; los montos solo con permiso confidencial
+    t_admin = admin.get("/?area=ventas").text
+    t_mario = mario.get("/?area=ventas").text
+    assert "Necesitas crecer" in t_mario and "250,000" not in t_mario and "Actual $250,000" in t_admin
+    # la captura manual ya no ofrece los indicadores automáticos
+    assert "Crecimiento recurrente" not in admin.get("/indicadores/captura").text
+
+
+def test_vista_consolidada_por_area(admin, db):
+    from app.models import Area, Estrategia
+    ventas = db.scalar(select(Area).where(Area.clave == "ventas"))
+    db.add(Estrategia(area_id=ventas.id, nombre="Webinars a prospectos", estado="activa", mci_id=_mci(db).id))
+    db.commit()
+    t = admin.get("/?area=ventas").text
+    for txt in ("Palancas de Ventas", "Webinars a prospectos", "Medidas predictivas · 8 semanas", "Citas por LinkedIn",
+                "Compromisos de la semana", "Voz del cliente · 6 semanas", "Ideas del área"):
+        assert txt in t, txt
+    t = admin.get("/").text
+    assert "Resumen por área" in t and "Ver área" in t

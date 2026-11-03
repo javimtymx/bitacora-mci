@@ -4,13 +4,14 @@
     python -m app.cli seed             # áreas, MCI, medidas predictivas y líderes de los tableros
     python -m app.cli crear-admin --email jmartinez@onecore.mx --nombre "Javier Martínez"
     python -m app.cli especialistas    # especialistas IA por área y evidencia en medidas de sesión (idempotente)
+    python -m app.cli ventas-auto      # Ventas medido desde Panel AYF: recurrente y facturación total (idempotente)
 """
 from __future__ import annotations
 
 import argparse
 import getpass
 import secrets
-from datetime import date
+from datetime import date, timedelta
 
 from sqlalchemy import select
 
@@ -140,6 +141,45 @@ def especialistas() -> None:
     print(f"Especialistas creados: {n}. Medidas que piden evidencia: {m}.")
 
 
+def ventas_auto_cmd() -> None:
+    from .services import ventas_auto
+    hoy_ = date.today()
+    with SessionLocal() as db:
+        area = db.scalar(select(Area).where(Area.clave == "ventas"))
+        if not area:
+            raise SystemExit("No existe el área de Ventas; corre primero `seed`.")
+        rec = db.scalar(select(Mci).where(Mci.clave == "ventas-base"))
+        if rec:
+            v = catalogo.version_vigente(rec.versiones)
+            if v and v.fuente != "cfdi_recurrente":
+                from .models import Medicion
+                capturado = db.scalar(select(Medicion.id).where(Medicion.tipo == "mci", Medicion.version_id == v.id).limit(1))
+                # sin capturas previas, la nueva medición cubre toda la historia; con capturas, arranca hoy
+                desde = max(hoy_, v.vigente_desde + timedelta(days=1)) if capturado else v.vigente_desde + timedelta(days=1)
+                catalogo.nueva_version_mci(
+                    db, rec, descripcion="Crecimiento de la facturación recurrente (clientes recurrentes activos de Panel AYF) "
+                    "contra la base.", meta=v.meta if v.meta is not None else 35, unidad="%", sentido="mayor",
+                    periodicidad="mensual", vigente_desde=desde,
+                    motivo="Se mide automático desde Panel AYF (recurrente).", usuario_id=None, tipo_meta="acumulado",
+                    linea_base=0, fecha_meta=v.fecha_meta, fuente="cfdi_recurrente")
+                rec.nombre = "Crecimiento recurrente de la base corporativa"
+        tot = db.scalar(select(Mci).where(Mci.clave == "ventas-facturacion"))
+        if not tot:
+            tot = Mci(area_id=area.id, clave="ventas-facturacion", nombre="Crecimiento de la facturación total",
+                      dueno_id=rec.dueno_id if rec else None)
+            db.add(tot)
+            db.flush()
+            catalogo.nueva_version_mci(
+                db, tot, descripcion="Facturación total del último mes cerrado (CFDI de ingreso menos notas de crédito) "
+                "contra la base.", meta=None, unidad="%", sentido="mayor", periodicidad="mensual",
+                vigente_desde=date(hoy_.year, 1, 1), motivo="Alta: medición automática desde Panel AYF.", usuario_id=None,
+                tipo_meta="nivel", fuente="cfdi_total")
+        db.commit()
+        n = ventas_auto.medir(db)
+    print(f"Ventas configurado con fuente Panel AYF. Semanas medidas: {n}. "
+          "Revisa la fecha de la meta recurrente en Configurar → Catálogo.")
+
+
 def crear_admin(email: str, nombre: str, password: str | None) -> None:
     password = password or getpass.getpass("Contraseña (mínimo 10 caracteres): ")
     if len(password) < 10:
@@ -162,6 +202,7 @@ def main() -> None:
     sub.add_parser("init-db")
     sub.add_parser("seed")
     sub.add_parser("especialistas")
+    sub.add_parser("ventas-auto")
     a = sub.add_parser("crear-admin")
     a.add_argument("--email", required=True)
     a.add_argument("--nombre", required=True)
@@ -174,6 +215,8 @@ def main() -> None:
         especialistas()
     elif args.cmd == "especialistas":
         especialistas()
+    elif args.cmd == "ventas-auto":
+        ventas_auto_cmd()
     else:
         crear_admin(args.email, args.nombre, args.password)
 

@@ -12,7 +12,7 @@ from sqlalchemy import create_engine, delete, text
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
-from ..models import VentaClienteMes, VentaMensual, utcnow
+from ..models import ClienteEstatus, VentaClienteMes, VentaMensual, utcnow
 from .util import auditar, hoy
 
 
@@ -84,6 +84,21 @@ def sincronizar(db: Session, meses: int = 24) -> int:
     for (per, rfc), v in por_cli.items():
         db.add(VentaClienteMes(periodo=per, rfc=rfc[:13], nombre=v["nombre"], total_mxn=float(round(v["total"], 2)),
                                facturas=v["facturas"]))
-    auditar(db, "sync_cfdi", "ventas", None, None, actor="agente", filas=len(filas), meses=len(por_mes))
+    n_cli = 0
+    if s.cfdi_clientes_sql:
+        with eng.connect() as cx:
+            cli = [dict(r._mapping) for r in cx.execute(text(s.cfdi_clientes_sql))]
+        db.execute(delete(ClienteEstatus))
+        for c in cli:
+            rfc = str(c.get("rfc") or "").strip().upper()[:13]
+            if not rfc:
+                continue
+            fb = c.get("fecha_baja")
+            db.add(ClienteEstatus(rfc=rfc, recurrente=bool(c.get("es_recurrente")), baja=bool(c.get("es_baja")),
+                                  fecha_baja=_a_fecha(fb) if fb else None))
+            n_cli += 1
+    auditar(db, "sync_cfdi", "ventas", None, None, actor="agente", filas=len(filas), meses=len(por_mes), clientes=n_cli)
     db.commit()
+    from . import ventas_auto
+    ventas_auto.medir(db)
     return len(filas)

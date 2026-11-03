@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
@@ -17,7 +17,7 @@ from ..models import (
     Usuario,
     utcnow,
 )
-from ..services import catalogo, diagnostico, ia, indicadores, parametros, seguimiento
+from ..services import catalogo, diagnostico, ia, indicadores, parametros, seguimiento, ventas_auto
 from ..services.util import auditar, hoy, semana_iso
 from . import graficas
 from .base import flash, ir, render, requiere_direccion, requiere_lider, usuario_actual
@@ -30,7 +30,7 @@ def _areas(db: Session) -> list[Area]:
             if indicadores.mcis_de(db, a.id)]
 
 
-def _tarjeta(db: Session, m: Mci, sem: str) -> dict:
+def _tarjeta(db: Session, m: Mci, sem: str, datos=None) -> dict:
     sr = indicadores.serie_mci(db, m, 8, sem)
     v = sr.version
     dec = indicadores.decimales(m)
@@ -38,7 +38,68 @@ def _tarjeta(db: Session, m: Mci, sem: str) -> dict:
     racha, n = sr.racha
     actual = sr.puntos[-1]
     return {"mci": m, "serie": sr, "v": v, "ult": ult, "racha": racha, "n": n, "dec": dec,
-            "barras": graficas.barras_brecha(sr), "comp_txt": f"{actual.cumplidos} / {actual.compromisos}" if actual.compromisos else "—"}
+            "barras": graficas.barras_brecha(sr), "comp_txt": (f"{actual.cumplidos} / {actual.compromisos + actual.abiertos}"
+                         if actual.compromisos + actual.abiertos else "—"),
+            "ventas": ventas_auto.resumen(db, m, datos) if ventas_auto.es_auto(m) else None}
+
+
+def _consolidado_area(db: Session, area: Area, sem: str, sems8: list[str]) -> dict:
+    """Todo lo del área en una página: palancas, predictivas, compromisos, voz del cliente, ideas y diagnóstico."""
+    from datetime import timedelta as _td
+    from ..models import Estrategia, Hallazgo, Idea, Objecion, Predictiva, SesionCliente
+    ests = list(db.scalars(select(Estrategia).where(Estrategia.area_id == area.id,
+                                                    Estrategia.estado.in_(("activa", "propuesta", "pausada")))
+                           .order_by(Estrategia.estado, Estrategia.nombre)))
+    palancas = [(e, seguimiento.stats_estrategia(db, e)) for e in ests]
+    preds = list(db.scalars(select(Predictiva).join(Mci).where(Mci.area_id == area.id, Predictiva.activo.is_(True))))
+    comps = list(db.scalars(select(Compromiso).where(Compromiso.area_id == area.id, Compromiso.semana.in_(sems8))))
+    matriz = []
+    for p in preds:
+        fila = []
+        for s_ in sems8:
+            cs = [c for c in comps if c.predictiva_id == p.id and c.semana == s_ and c.estado != "cancelado"]
+            fila.append((sum(1 for c in cs if c.estado == "cumplido"), len(cs)))
+        matriz.append((p, fila))
+    comps_sem = sorted((c for c in comps if c.semana == sem), key=lambda c: c.fecha_limite)
+    desde = hoy() - _td(weeks=6)
+    hall = list(db.scalars(select(Hallazgo).join(SesionCliente).where(SesionCliente.area_id == area.id,
+                                                                       SesionCliente.fecha >= desde)))
+    objs = list(db.scalars(select(Objecion).join(SesionCliente).where(SesionCliente.area_id == area.id,
+                                                                       SesionCliente.fecha >= desde)))
+    temas: dict[tuple[str, str], int] = {}
+    for h in hall:
+        temas[(h.cuadrante, h.tema)] = temas.get((h.cuadrante, h.tema), 0) + 1
+    tipos: dict[str, list[int]] = {}
+    for o in objs:
+        t = tipos.setdefault(o.tipo, [0, 0])
+        t[0] += 1
+        t[1] += 1 if o.avanzo else 0
+    n_ses = len({h.sesion_id for h in hall} | {o.sesion_id for o in objs})
+    ideas = list(db.scalars(select(Idea).where(Idea.area_id == area.id, Idea.creado >= utcnow() - _td(days=90))
+                            .order_by(Idea.actualizado.desc())))
+    d = diagnostico.ultimo(db, area.id)
+    return {"palancas": palancas, "matriz": matriz, "comps_sem": comps_sem, "sems8": sems8,
+            "temas": sorted(temas.items(), key=lambda x: -x[1])[:5], "tipos": sorted(tipos.items(), key=lambda x: -x[1][0]),
+            "n_ses": n_ses, "ideas": ideas[:5], "ideas_estado": {k: sum(1 for i in ideas if i.estado == k)
+                                                                   for k in ("propuesta", "validada", "en_curso", "implementada")},
+            "diag": d}
+
+
+def _resumen_areas(db: Session, areas: list[Area], sem: str) -> list[dict]:
+    from ..models import Estrategia
+    sems4 = indicadores.semanas(4, sem)
+    excs = seguimiento.excepciones_aprobadas(db)
+    out = []
+    for a in areas:
+        rachas = [indicadores.serie_mci(db, m, 8, sem).racha[0] for m in indicadores.mcis_de(db, a.id)]
+        comps = list(db.scalars(select(Compromiso).where(Compromiso.area_id == a.id, Compromiso.semana.in_(sems4))))
+        cu = seguimiento.cumplimiento(comps, excs)
+        out.append({"area": a, "ganando": rachas.count("ganando"), "perdiendo": rachas.count("perdiendo"),
+                    "total": len(rachas), "pct": cu.pct,
+                    "palancas": db.scalar(select(func.count(Estrategia.id)).where(Estrategia.area_id == a.id,
+                                                                                  Estrategia.estado == "activa")) or 0,
+                    "diag": diagnostico.ultimo(db, a.id, sem)})
+    return out
 
 
 @router.get("/")
@@ -48,7 +109,8 @@ def tablero(request: Request, area: str = "todas", semana: str | None = None, db
     areas = _areas(db)
     sel = next((a for a in areas if a.clave == area), None)
     mcis = indicadores.mcis_de(db, sel.id if sel else None)
-    tarjetas = [_tarjeta(db, m, sem) for m in mcis]
+    datos = ventas_auto.Datos(db) if any(ventas_auto.es_auto(m) for m in mcis) else None
+    tarjetas = [_tarjeta(db, m, sem, datos) for m in mcis]
     ganando = sum(1 for t in tarjetas if t["racha"] == "ganando")
     perdiendo = sum(1 for t in tarjetas if t["racha"] == "perdiendo")
     sem_ant = indicadores.semanas(2, sem)[0]
@@ -62,7 +124,10 @@ def tablero(request: Request, area: str = "todas", semana: str | None = None, db
     diags = [d for d in (diagnostico.ultimo(db, a.id, sem) for a in areas) if d]
     sin_rem = sum(1 for c in db.scalars(select(Compromiso).where(Compromiso.estado == "no_cumplido"))
                   if seguimiento.sin_remediacion(c) and (not sel or c.area_id == sel.id))
+    cons = _consolidado_area(db, sel, sem, sems8) if sel else None
+    resumen_areas = None if sel else _resumen_areas(db, areas, sem)
     return render(request, "tablero.html", u, "inicio", areas=areas, sel=sel, sem=sem, tarjetas=tarjetas,
+                  cons=cons, resumen_areas=resumen_areas,
                   ganando=ganando, perdiendo=perdiendo, cumplidos_ant=sum(1 for c in cerrados if c.estado == "cumplido"),
                   cerrados_ant=len(cerrados), sem_ant=sem_ant, sin_rem=sin_rem, personas=personas, tiras=tiras,
                   sems8=sems8, diags=diags, semanas=indicadores.semanas(12))
@@ -132,9 +197,9 @@ def _puede_capturar(u: Usuario, m: Mci) -> bool:
 def captura(request: Request, semana: str | None = None, db: Session = Depends(get_db),
             u: Usuario = Depends(usuario_actual)):
     sem = semana or semana_iso(hoy())
-    ms = [m for m in indicadores.mcis_de(db) if _puede_capturar(u, m)]
+    ms = [m for m in indicadores.mcis_de(db) if _puede_capturar(u, m) and not ventas_auto.es_auto(m)]
     if not ms:
-        raise HTTPException(403, "No eres dueño de ningún indicador.")
+        raise HTTPException(403, "No tienes indicadores de captura manual.")
     filas = []
     for m in ms:
         v = catalogo.version_vigente(m.versiones, indicadores.viernes_de(sem))
@@ -158,7 +223,7 @@ async def guardar_captura(request: Request, db: Session = Depends(get_db), u: Us
     n = 0
     for m in indicadores.mcis_de(db):
         raw = str(form.get(f"valor_{m.id}") or "").strip().replace(",", "")
-        if not raw or not _puede_capturar(u, m):
+        if not raw or not _puede_capturar(u, m) or ventas_auto.es_auto(m):
             continue
         try:
             valor = float(raw.rstrip("%"))

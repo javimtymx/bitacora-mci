@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./bitacora.sqlite3"
     cfdi_database_url: str = ""
     cfdi_ventas_sql: str = ""
+    cfdi_clientes_sql: str = ""
 
     secret_key: str = "dev-inseguro-cambia-esto"
     base_url: str = "http://localhost:8000"

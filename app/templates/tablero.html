@@ -33,6 +33,14 @@
   <div class="stat"><span class="ico" style="background:#FFE9C2;color:#7A4600">{{ icon('alert') }}</span><span style="font-weight:600">Sin remediación</span><b>{{ sin_rem }}</b></div>
 </div>
 
+{% if resumen_areas %}
+<section class="card pad"><h2>Resumen por área</h2>
+  <div class="tbl"><table><thead><tr><th>Área</th><th class="num">Indicadores ganando</th><th class="num">Perdiendo</th><th class="num">Palancas activas</th><th class="num">Compromisos 4 sem</th><th>Diagnóstico S{{ num_semana(sem) }}</th><th></th></tr></thead><tbody>
+  {% for r in resumen_areas %}<tr><td><b>{{ r.area.nombre }}</b></td><td class="num" style="color:var(--g-fg);font-weight:700">{{ r.ganando }} / {{ r.total }}</td><td class="num" style="color:{{ 'var(--r-fg)' if r.perdiendo else 'inherit' }};font-weight:700">{{ r.perdiendo }}</td>
+    <td class="num">{{ r.palancas }}</td><td class="num">{{ pct(r.pct) }}</td><td>{% if r.diag %}{{ veredicto_tag(r.diag.veredicto) }}{% else %}<span class="muted small">pendiente</span>{% endif %}</td>
+    <td><a class="lnk" href="/?area={{ r.area.clave }}&semana={{ sem }}">{{ icon('eye', 15) }}Ver área</a></td></tr>{% endfor %}</tbody></table></div>
+</section>{% endif %}
+
 <section class="kgrid" aria-label="Indicadores">
 {% for t in tarjetas %}
   <article class="kcard {{ 'pierde' if t.racha=='perdiendo' }}">
@@ -40,8 +48,18 @@
     <h3 style="line-height:1.3">{{ t.mci.nombre }}</h3>
     <div class="row" style="align-items:baseline;gap:10px">
       <span class="big">{% if t.ult %}{{ valor(t.ult.valor, t.v.unidad if t.v else '', t.dec) }}{% else %}—{% endif %}</span>
-      <span class="muted small">{% if t.v %}meta {{ valor(t.v.meta, t.v.unidad, t.dec) }}{% if t.ult and t.ult.objetivo is not none and t.v.tipo_meta=='acumulado' %} · ritmo {{ valor(t.ult.objetivo, t.v.unidad, 1) }}{% endif %}{% endif %}{% if t.ult and t.ult.semana != sem %} · último dato S{{ num_semana(t.ult.semana) }}{% endif %}</span>
+      <span class="muted small">{% if t.v and t.v.meta is not none %}meta {{ valor(t.v.meta, t.v.unidad, t.dec) }}{% if t.ult and t.ult.objetivo is not none and t.v.tipo_meta=='acumulado' %} · ritmo {{ valor(t.ult.objetivo, t.v.unidad, 1) }}{% endif %}{% endif %}{% if t.ult and t.ult.semana != sem %} · último dato S{{ num_semana(t.ult.semana) }}{% endif %}</span>
     </div>
+    {% set vt = t.ventas %}{% if vt %}
+    <div class="small" style="padding:10px 12px;border-radius:10px;background:#F6F8FA;display:flex;flex-direction:column;gap:4px">
+      <span class="cap">{{ 'Recurrente' if vt.fuente=='cfdi_recurrente' else 'Facturación total' }} · Panel AYF</span>
+      {% if vt.necesario_mensual is not none and vt.falta is not none and vt.falta > 0 %}<span>Necesitas crecer <b>${{ '{:,.0f}'.format(vt.necesario_mensual) }}</b> {{ 'de recurrente ' if vt.fuente=='cfdi_recurrente' }}al mes hasta {{ fmt_fecha(vt.fecha_meta) }}</span>
+      {% elif vt.falta is not none and vt.falta <= 0 %}<span style="color:var(--g-fg);font-weight:700">Meta alcanzada</span>
+      {% elif vt.meta_pct is none %}<span class="muted">Sin meta: se muestra el crecimiento contra la base ({{ vt.periodo_base }}).</span>
+      {% else %}<span class="muted">Registra la fecha de la meta en Catálogo para calcular el crecimiento mensual necesario.</span>{% endif %}
+      {% if vt.brecha_monto is not none %}<span>{{ 'Arriba' if vt.brecha_monto >= 0 else 'Abajo' }} del ritmo de hoy por <b style="color:{{ 'var(--g-fg)' if vt.brecha_monto >= 0 else 'var(--r-fg)' }}">${{ '{:,.0f}'.format(vt.brecha_monto|abs) }}</b> al mes</span>{% endif %}
+      {% if u.puede_confidencial and vt.actual is not none %}<span class="muted">{{ icon('lock', 12) }} Actual ${{ '{:,.0f}'.format(vt.actual) }}/mes · base ${{ '{:,.0f}'.format(vt.base or 0) }}/mes</span>{% endif %}
+    </div>{% endif %}
     <div><div class="cap" style="margin-bottom:2px">Brecha vs objetivo · 8 semanas</div>{{ t.barras }}</div>
     <div class="row between" style="border-top:1px solid #EEF1F4;padding-top:10px;gap:8px">
       <span class="small muted">{{ t.mci.dueno.nombre if t.mci.dueno else '—' }} · compromisos S{{ num_semana(sem) }} <b style="color:var(--ink)">{{ t.comp_txt }}</b></span>
@@ -49,6 +67,45 @@
   </article>
 {% else %}<div class="card pad muted">No hay indicadores en esta vista. Dirección los da de alta en Configurar → Catálogo.</div>{% endfor %}
 </section>
+
+{% if cons %}
+<div class="grid2" style="grid-template-columns:1.4fr 1fr">
+<section class="card pad"><div class="row between"><h2>Palancas de {{ sel.nombre }}</h2>{% if u.es_lider %}<a class="btn sm soft" href="/estrategias#nueva-est">{{ icon('plus', 15) }}Nueva palanca</a>{% endif %}</div>
+  <div class="tbl"><table><thead><tr><th>Palanca</th><th>Estado</th><th class="num">Compromisos</th><th class="num">Cumplimiento</th><th>Responsable</th></tr></thead><tbody>
+  {% for e, st in cons.palancas %}<tr><td><a href="/estrategias/{{ e.id }}"><b>{{ e.nombre }}</b></a>{% if e.mci %}<div class="muted small">{{ e.mci.nombre }}</div>{% endif %}</td>
+    <td><span class="tag {{ 'g' if e.estado=='activa' else 'o' if e.estado=='pausada' else 'b' }}">{{ e.estado }}</span></td><td class="num">{{ st.compromisos }}</td><td class="num">{{ pct(st.pct) }}</td><td class="small">{{ e.responsable.nombre if e.responsable else '—' }}</td></tr>
+  {% else %}<tr><td colspan="5" class="muted">Sin palancas registradas para esta área. Dalas de alta para que los compromisos se liguen a ellas y la IA pueda evaluar si funcionan.</td></tr>{% endfor %}</tbody></table></div></section>
+<section class="card pad"><div class="row between"><h2>Diagnóstico de la IA</h2>{% if u.es_lider %}<a class="lnk" href="/diagnostico?area={{ sel.clave }}">{{ icon('spark', 15) }}Abrir</a>{% endif %}</div>
+  {% if cons.diag %}<div class="row">{{ veredicto_tag(cons.diag.veredicto) }}<span class="muted small">S{{ num_semana(cons.diag.semana) }}</span></div>
+    <b style="line-height:1.4">{{ cons.diag.resultado.titular }}</b>
+    {% for r in cons.diag.recomendaciones %}<div class="small" style="padding:8px 0;border-top:1px solid var(--line)"><b>{{ r.orden }}.</b> {{ r.texto }}{% if r.tecnica %} <span class="muted">· {{ r.tecnica }}</span>{% endif %}</div>{% endfor %}
+  {% else %}<span class="muted small">Aún no hay diagnóstico para esta área.</span>{% endif %}</section>
+</div>
+
+<section class="card pad"><div class="row between"><h2>Medidas predictivas · 8 semanas</h2><span class="small muted">Compromisos cumplidos / registrados por semana</span></div>
+  <div class="tbl"><table><thead><tr><th>Medida predictiva</th>{% for s in cons.sems8 %}<th class="num">S{{ num_semana(s) }}</th>{% endfor %}</tr></thead><tbody>
+  {% for p, fila in cons.matriz %}<tr><td class="small"><b>{{ p.nombre }}</b>{% if p.requiere_evidencia %} <span class="tag n">evidencia</span>{% endif %}</td>
+    {% for h, t in fila %}<td class="num">{% if t %}<span class="tag {{ 'g' if h==t else 'o' if h else 'r' }}">{{ h }}/{{ t }}</span>{% else %}<span class="muted">·</span>{% endif %}</td>{% endfor %}</tr>
+  {% else %}<tr><td class="muted" colspan="9">Sin medidas predictivas.</td></tr>{% endfor %}</tbody></table></div></section>
+
+<div class="grid2">
+<section class="card pad"><div class="row between"><h2>Compromisos de la semana</h2><a class="btn sm yellow" href="/compromisos#nuevo-compromiso">{{ icon('plus', 15) }}Nuevo</a></div>
+  <div class="tbl"><table><tbody>{% for c in cons.comps_sem %}<tr><td><a href="/compromisos/{{ c.id }}">{{ c.texto }}</a><div class="muted small">{{ c.responsable.nombre }} · {{ fmt_dia(c.fecha_limite) }}</div></td>
+    <td>{% if c.estado=='cumplido' %}<span class="tag g">Cumplido</span>{% elif c.estado=='no_cumplido' %}<span class="tag r">No cumplido</span>{% elif c.estado=='cancelado' %}<span class="tag n">Cancelado</span>{% else %}<span class="tag b">{{ c.avance }}%</span>{% endif %}</td></tr>
+  {% else %}<tr><td class="muted">Nadie del área ha registrado compromiso esta semana.</td></tr>{% endfor %}</tbody></table></div></section>
+<section class="card pad"><div class="row between"><h2>Voz del cliente · 6 semanas</h2>{% if u.es_lider %}<a class="lnk" href="/voz-cliente">{{ icon('eye', 15) }}Módulo</a>{% endif %}</div>
+  <span class="small muted" style="margin-top:-8px">{{ cons.n_ses }} sesión(es) analizadas</span>
+  {% for (cu, tema), n in cons.temas %}<div class="row between" style="padding:6px 0;border-bottom:1px solid var(--line);flex-wrap:nowrap"><span class="small"><span class="qtag cq-{{ cu }}" style="font-size:11px;padding:2px 8px">{{ cu }}</span> {{ tema }}</span><b class="small">{{ n }}</b></div>{% endfor %}
+  {% if cons.tipos %}<div class="cap" style="margin-top:6px">Objeciones (veces · avanzó)</div>{% for t, v in cons.tipos %}<div class="row between small" style="padding:4px 0"><span class="tag n">{{ t }}</span><span>{{ v[0] }} · {{ v[1] }}</span></div>{% endfor %}{% endif %}
+  {% if not cons.temas and not cons.tipos %}<span class="small muted">Sin sesiones con cliente cargadas en el periodo.</span>{% endif %}
+  <a class="btn sm soft" href="/sesiones/nueva" style="align-self:flex-start">{{ icon('upload', 15) }}Cargar sesión</a></section>
+</div>
+
+<section class="card pad"><div class="row between"><h2>Ideas del área · 90 días</h2><a class="lnk" href="/ideas">{{ icon('eye', 15) }}Ideas</a></div>
+  <div class="row small" style="gap:8px">{% for k, v in cons.ideas_estado.items() %}<span class="pill">{{ k.replace('_',' ') }} · {{ v }}</span>{% endfor %}</div>
+  {% for i in cons.ideas %}<div class="row between" style="padding:6px 0;border-bottom:1px solid var(--line);flex-wrap:nowrap"><span class="small"><b>{{ i.titulo }}</b> <span class="muted">· {{ i.autor.nombre }}</span></span><span class="small muted">{{ i.cuadrante or '' }} · {{ i.estado.replace('_',' ') }}</span></div>
+  {% else %}<span class="small muted">Sin ideas registradas en el área.</span>{% endfor %}</section>
+{% endif %}
 
 <section class="card pad">
   <div class="row between"><h2>Indicador de cada persona</h2>

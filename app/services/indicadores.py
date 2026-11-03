@@ -50,6 +50,7 @@ class PuntoSemana:
     en_remediacion: int = 0
     solo_texto: int = 0
     exceptuados: int = 0
+    abiertos: int = 0
 
     @property
     def compromisos(self) -> int:
@@ -142,6 +143,8 @@ def serie_mci(db: Session, mci: Mci, n: int = 16, hasta: str | None = None) -> S
                 p.solo_texto += 1
             elif k == "exceptuado":
                 p.exceptuados += 1
+            elif c.estado == "abierto":
+                p.abiertos += 1
         out.puntos.append(p)
     return out
 
@@ -208,5 +211,6 @@ def fmt(v: float | None, dec: int = 1) -> str:
 
 
 def decimales(mci: Mci) -> int:
-    """Decimales para mostrar: hasta 3 (99.968%); los ceros sobrantes se quitan al formatear."""
-    return 3
+    """Decimales para mostrar: hasta 3 (99.968%); 1 en crecimientos calculados de CFDI."""
+    v = catalogo.version_vigente(mci.versiones)
+    return 1 if v and v.fuente in ("cfdi_recurrente", "cfdi_total") else 3

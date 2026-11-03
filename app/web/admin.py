@@ -20,7 +20,7 @@ from ..models import (
     Usuario,
     utcnow,
 )
-from ..services import catalogo, cfdi, correo, parametros
+from ..services import catalogo, cfdi, correo, parametros, ventas_auto
 from ..services.util import auditar
 from ..config import get_settings
 from .base import flash, hash_password, ir, render, requiere_direccion
@@ -181,7 +181,10 @@ async def guardar_parametros(request: Request, db: Session = Depends(get_db), u:
 @router.get("/catalogo")
 def ver_catalogo(request: Request, db: Session = Depends(get_db), u: Usuario = Depends(requiere_direccion)):
     mcis = list(db.scalars(select(Mci).order_by(Mci.area_id, Mci.nombre)))
-    return render(request, "admin_catalogo.html", u, "admin", mcis=mcis, areas=_areas(db),
+    datos = ventas_auto.Datos(db)
+    resumenes = {m.id: ventas_auto.resumen(db, m, datos) for m in mcis}
+    return render(request, "admin_catalogo.html", u, "admin", mcis=mcis, areas=_areas(db), resumenes=resumenes,
+                  fuentes=ventas_auto.FUENTES,
                   usuarios=list(db.scalars(select(Usuario).where(Usuario.activo.is_(True)).order_by(Usuario.nombre))),
                   vigente=catalogo.version_vigente)
 
@@ -202,14 +205,17 @@ def crear_mci(request: Request, area_id: int = Form(...), clave: str = Form(...)
               descripcion: str = Form(...), meta: float | None = Form(None), unidad: str = Form(""),
               sentido: str = Form("mayor"), periodicidad: str = Form("mensual"), vigente_desde: date = Form(...),
               tipo_meta: str = Form("nivel"), linea_base: float | None = Form(None), fecha_meta: date | None = Form(None),
+              fuente: str = Form("captura"), base_desde: str = Form(""), base_hasta: str = Form(""),
               dueno_id: int | None = Form(None), db: Session = Depends(get_db), u: Usuario = Depends(requiere_direccion)):
     m = Mci(area_id=area_id, clave=clave.strip(), nombre=nombre.strip(), dueno_id=dueno_id or None)
     db.add(m)
     db.flush()
     catalogo.nueva_version_mci(db, m, descripcion=descripcion, meta=meta, unidad=unidad, sentido=sentido,
                                periodicidad=periodicidad, vigente_desde=vigente_desde, motivo="Alta", usuario_id=u.id,
-                               tipo_meta=tipo_meta, linea_base=linea_base, fecha_meta=fecha_meta)
+                               tipo_meta=tipo_meta, linea_base=linea_base, fecha_meta=fecha_meta,
+                               fuente=fuente, base_desde=base_desde.strip() or None, base_hasta=base_hasta.strip() or None)
     db.commit()
+    ventas_auto.medir(db)
     flash(request, "MCI creada.")
     return ir("/admin/catalogo")
 
@@ -218,7 +224,9 @@ def crear_mci(request: Request, area_id: int = Form(...), clave: str = Form(...)
 def version_mci(mid: int, request: Request, descripcion: str = Form(...), meta: float | None = Form(None),
                 unidad: str = Form(""), sentido: str = Form("mayor"), periodicidad: str = Form("mensual"),
                 vigente_desde: date = Form(...), motivo: str = Form(...), tipo_meta: str = Form("nivel"),
-                linea_base: float | None = Form(None), fecha_meta: date | None = Form(None), db: Session = Depends(get_db),
+                linea_base: float | None = Form(None), fecha_meta: date | None = Form(None),
+                fuente: str = Form("captura"), base_desde: str = Form(""), base_hasta: str = Form(""),
+                db: Session = Depends(get_db),
                 u: Usuario = Depends(requiere_direccion)):
     m = db.get(Mci, mid)
     if not m or not motivo.strip():
@@ -227,8 +235,10 @@ def version_mci(mid: int, request: Request, descripcion: str = Form(...), meta: 
         raise HTTPException(400, "La nueva versión debe iniciar después de la vigente.")
     catalogo.nueva_version_mci(db, m, descripcion=descripcion, meta=meta, unidad=unidad, sentido=sentido,
                                periodicidad=periodicidad, vigente_desde=vigente_desde, motivo=motivo, usuario_id=u.id,
-                               tipo_meta=tipo_meta, linea_base=linea_base, fecha_meta=fecha_meta)
+                               tipo_meta=tipo_meta, linea_base=linea_base, fecha_meta=fecha_meta,
+                               fuente=fuente, base_desde=base_desde.strip() or None, base_hasta=base_hasta.strip() or None)
     db.commit()
+    ventas_auto.medir(db)
     flash(request, "Nueva versión de la MCI registrada; el histórico conserva la meta anterior.")
     return ir("/admin/catalogo")
 

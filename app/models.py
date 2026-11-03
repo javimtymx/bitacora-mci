@@ -111,6 +111,10 @@ class MciVersion(Base):
     tipo_meta: Mapped[str] = mapped_column(String(12), default="nivel")
     linea_base: Mapped[float | None] = mapped_column(Numeric(18, 4))
     fecha_meta: Mapped[date | None] = mapped_column(Date)
+    # captura | cfdi_recurrente | cfdi_total. Las fuentes CFDI se miden solas como % de crecimiento contra la base.
+    fuente: Mapped[str] = mapped_column(String(20), default="captura")
+    base_desde: Mapped[str | None] = mapped_column(String(7))  # AAAA-MM; vacío = primeros 3 meses con datos
+    base_hasta: Mapped[str | None] = mapped_column(String(7))
     vigente_desde: Mapped[date] = mapped_column(Date)
     vigente_hasta: Mapped[date | None] = mapped_column(Date)
     motivo_cambio: Mapped[str | None] = mapped_column(Text)
@@ -439,6 +443,16 @@ class VentaMensual(Base):
     clientes: Mapped[int] = mapped_column(Integer, default=0)
     clientes_nuevos: Mapped[int] = mapped_column(Integer, default=0)
     total_nuevos_mxn: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
+    sincronizado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class ClienteEstatus(Base):
+    """Estatus del cliente en Panel AYF (saas_estatus_cliente): recurrente y baja."""
+    __tablename__ = "clientes_estatus"
+    rfc: Mapped[str] = mapped_column(String(13), primary_key=True)
+    recurrente: Mapped[bool] = mapped_column(Boolean, default=False)
+    baja: Mapped[bool] = mapped_column(Boolean, default=False)
+    fecha_baja: Mapped[date | None] = mapped_column(Date)
     sincronizado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 

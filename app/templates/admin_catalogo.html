@@ -9,6 +9,7 @@
   <div class="row between"><div class="col" style="gap:2px"><span class="muted small">{{ m.area.nombre }} · {{ m.clave }}{% if m.dueno %} · dueño: {{ m.dueno.nombre }}{% endif %}</span><h2>{{ m.nombre }}</h2></div>
     <div class="row"><button class="btn sm soft" data-open="v-mci-{{ m.id }}">Nueva versión de la meta</button><button class="btn sm soft" data-open="n-pred-{{ m.id }}">{{ icon('plus') }}Medida predictiva</button></div></div>
   {% if v %}<div class="small">v{{ v.version }} · {{ v.descripcion }} · meta <b>{{ valor(v.meta, v.unidad, 3) }}</b> ({{ v.periodicidad }}) · {{ 'acumulado de ' ~ (v.linea_base if v.linea_base is not none else '—') ~ ' al ' ~ fmt_fecha(v.fecha_meta) if v.tipo_meta=='acumulado' else 'nivel semanal' }} · vigente desde {{ fmt_fecha(v.vigente_desde) }}</div>
+  {% set rs = resumenes.get(m.id) %}{% if rs %}<div class="small"><span class="tag b">{{ fuentes[rs.fuente] }}</span> Base {{ rs.periodo_base }}{% if u.puede_confidencial and rs.base %} · promedio ${{ '{:,.0f}'.format(rs.base) }}/mes · actual ${{ '{:,.0f}'.format(rs.actual or 0) }}{% endif %} · se mide solo cada día después de sincronizar CFDI</div>{% endif %}
   {% if v.tipo_meta=='acumulado' and (v.linea_base is none or not v.fecha_meta) %}<div class="flash error small">Para calcular el ritmo, esta meta acumulada necesita línea base y fecha. Registra una nueva versión con esos datos.</div>{% endif %}{% endif %}
   {% if m.versiones|length > 1 %}<details class="small"><summary>Historial de la meta ({{ m.versiones|length }} versiones)</summary>
     <ul>{% for x in m.versiones|reverse %}<li>v{{ x.version }} · {{ x.meta }} {{ x.unidad }} · {{ fmt_fecha(x.vigente_desde) }} – {{ fmt_fecha(x.vigente_hasta) }} · {{ x.motivo_cambio }}</li>{% endfor %}</ul></details>{% endif %}
@@ -24,19 +25,24 @@
 {% else %}<div class="card pad muted">No hay MCI. Corre <code>python -m app.cli seed</code> o crea la primera.</div>{% endfor %}
 {% endblock %}
 {% block modals %}
-{% macro campos_version(pref, mci=True) %}
-  <div class="field"><label>Descripción</label><textarea class="input" name="descripcion" required></textarea></div>
+{% macro campos_version(pref, mci=True, v=None) %}
+  <div class="field"><label>Descripción</label><textarea class="input" name="descripcion" required>{{ v.descripcion if v else '' }}</textarea></div>
   <div class="grid4">
-    <div class="field"><label>{{ 'Meta' if mci else 'Meta semanal' }}</label><input class="input" type="number" step="any" name="{{ 'meta' if mci else 'meta_semanal' }}"></div>
-    <div class="field"><label>Unidad</label><input class="input" name="unidad" placeholder="%, MXN, citas"></div>
-    <div class="field"><label>Sentido</label><select class="input" name="sentido"><option value="mayor">Más es mejor</option><option value="menor">Menos es mejor</option></select></div>
-    {% if mci %}<div class="field"><label>Periodicidad</label><select class="input" name="periodicidad"><option>mensual</option><option>trimestral</option><option>anual</option></select></div>
+    <div class="field"><label>{{ 'Meta' if mci else 'Meta semanal' }}</label><input class="input" type="number" step="any" name="{{ 'meta' if mci else 'meta_semanal' }}" value="{{ (v.meta if mci else v.meta_semanal)|float if v and (v.meta if mci else v.meta_semanal) is not none else '' }}"></div>
+    <div class="field"><label>Unidad</label><input class="input" name="unidad" placeholder="%, MXN, citas" value="{{ v.unidad if v else '' }}"></div>
+    <div class="field"><label>Sentido</label><select class="input" name="sentido"><option value="mayor">Más es mejor</option><option value="menor" {{ 'selected' if v and v.sentido=='menor' }}>Menos es mejor</option></select></div>
+    {% if mci %}<div class="field"><label>Periodicidad</label><select class="input" name="periodicidad">{% for x in ['mensual','trimestral','anual'] %}<option {{ 'selected' if v and v.periodicidad==x }}>{{ x }}</option>{% endfor %}</select></div>
   </div>
   <div class="grid4">
-    <div class="field"><label>Cómo se mide cada semana</label><select class="input" name="tipo_meta"><option value="nivel">Nivel: se compara directo con la meta</option><option value="acumulado">Acumulado: avance hacia la meta con ritmo</option></select></div>
-    <div class="field"><label>Línea base (acumulado)</label><input class="input" type="number" step="any" name="linea_base"></div>
-    <div class="field"><label>Fecha de la meta (acumulado)</label><input class="input" type="date" name="fecha_meta"></div>
-    {% else %}<div class="field"><label>Fuente</label><select class="input" name="fuente"><option value="captura">Captura</option><option value="cfdi">CFDI</option><option value="compromisos">Compromisos</option></select></div>{% endif %}
+    <div class="field"><label>Cómo se mide cada semana</label><select class="input" name="tipo_meta"><option value="nivel">Nivel: se compara directo con la meta</option><option value="acumulado" {{ 'selected' if v and v.tipo_meta=='acumulado' }}>Acumulado: avance hacia la meta con ritmo</option></select></div>
+    <div class="field"><label>Línea base (acumulado)</label><input class="input" type="number" step="any" name="linea_base" value="{{ v.linea_base|float if v and v.linea_base is not none else '' }}"></div>
+    <div class="field"><label>Fecha de la meta (acumulado)</label><input class="input" type="date" name="fecha_meta" value="{{ v.fecha_meta.isoformat() if v and v.fecha_meta else '' }}"></div>
+  </div>
+  <div class="grid4">
+    <div class="field"><label>Fuente del valor semanal</label><select class="input" name="fuente">{% for k, t in fuentes.items() %}<option value="{{ k }}" {{ 'selected' if v and v.fuente==k }}>{{ t }}</option>{% endfor %}</select></div>
+    <div class="field"><label>Base desde (AAAA-MM, solo CFDI)</label><input class="input" name="base_desde" pattern="\d{4}-\d{2}" placeholder="vacío = primeros 3 meses" value="{{ v.base_desde or '' if v else '' }}"></div>
+    <div class="field"><label>Base hasta (AAAA-MM)</label><input class="input" name="base_hasta" pattern="\d{4}-\d{2}" value="{{ v.base_hasta or '' if v else '' }}"></div>
+    {% else %}<div class="field"><label>Fuente</label><select class="input" name="fuente"><option value="captura">Captura</option><option value="cfdi" {{ 'selected' if v and v.fuente=='cfdi' }}>CFDI</option><option value="compromisos" {{ 'selected' if v and v.fuente=='compromisos' }}>Compromisos</option></select></div>{% endif %}
   </div>
   <div class="field" style="max-width:220px"><label>Vigente desde</label><input class="input" type="date" name="vigente_desde" value="{{ hoy.isoformat() }}" required></div>
 {% endmacro %}
@@ -53,14 +59,14 @@
   <div class="mf"><button class="btn yellow">Crear</button></div></form></div>
 {% for m in mcis %}
 <div class="overlay" id="v-mci-{{ m.id }}"><form class="modal" method="post" action="/admin/mci/{{ m.id }}/version"><div class="mh"><h2>Nueva versión · {{ m.nombre }}</h2><button class="btn ghost" type="button" data-close style="width:42px;padding:0">{{ icon('x') }}</button></div>
-  <div class="sec" style="border-top:0">{{ campos_version('v') }}<div class="field"><label>Motivo del cambio</label><textarea class="input" name="motivo" required placeholder="Por qué cambia la meta: resultado de la palanca, cambio de mercado, acuerdo con el socio…"></textarea></div></div>
+  <div class="sec" style="border-top:0">{{ campos_version('v', true, vigente(m.versiones)) }}<div class="field"><label>Motivo del cambio</label><textarea class="input" name="motivo" required placeholder="Por qué cambia la meta: resultado de la palanca, cambio de mercado, acuerdo con el socio…"></textarea></div></div>
   <div class="mf"><button class="btn yellow">Registrar versión</button></div></form></div>
 <div class="overlay" id="n-pred-{{ m.id }}"><form class="modal" method="post" action="/admin/predictivas"><input type="hidden" name="mci_id" value="{{ m.id }}"><div class="mh"><h2>Nueva medida predictiva · {{ m.nombre }}</h2><button class="btn ghost" type="button" data-close style="width:42px;padding:0">{{ icon('x') }}</button></div>
   <div class="sec" style="border-top:0"><div class="grid2"><div class="field"><label>Clave</label><input class="input" name="clave" required></div><div class="field"><label>Nombre</label><input class="input" name="nombre" required></div></div>{{ campos_version('p', false) }}</div>
   <div class="mf"><button class="btn yellow">Crear</button></div></form></div>
 {% for p in m.predictivas %}
 <div class="overlay" id="v-pred-{{ p.id }}"><form class="modal" method="post" action="/admin/predictivas/{{ p.id }}/version"><div class="mh"><h2>Nueva versión · {{ p.nombre }}</h2><button class="btn ghost" type="button" data-close style="width:42px;padding:0">{{ icon('x') }}</button></div>
-  <div class="sec" style="border-top:0">{{ campos_version('vp', false) }}<div class="field"><label>Motivo del cambio</label><textarea class="input" name="motivo" required></textarea></div></div>
+  <div class="sec" style="border-top:0">{{ campos_version('vp', false, vigente(p.versiones)) }}<div class="field"><label>Motivo del cambio</label><textarea class="input" name="motivo" required></textarea></div></div>
   <div class="mf"><button class="btn yellow">Registrar versión</button></div></form></div>
 {% endfor %}{% endfor %}
 {% endblock %}
