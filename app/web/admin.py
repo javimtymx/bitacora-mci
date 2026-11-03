@@ -23,6 +23,7 @@ from ..models import (
 from ..services import catalogo, cfdi, correo, parametros, ventas_auto
 from ..services.util import auditar
 from ..config import get_settings
+from ..services import accesos
 from .base import flash, hash_password, ir, render, requiere_direccion, OptInt, OptFloat, OptDate
 
 router = APIRouter(prefix="/admin")
@@ -38,7 +39,8 @@ def _areas(db: Session) -> list[Area]:
 def usuarios(request: Request, ver: str = "activos", db: Session = Depends(get_db), u: Usuario = Depends(requiere_direccion)):
     q = select(Usuario).where(Usuario.activo.is_(ver == "activos"))
     return render(request, "admin_usuarios.html", u, "admin", lista=list(db.scalars(q.order_by(Usuario.nombre))),
-                  areas=_areas(db), roles=ROLES, ver=ver,
+                  areas=_areas(db), roles=ROLES, ver=ver, menus=accesos.MENUS, grupos=dict((g, t) for g, t, _ in accesos.GRUPOS),
+                  por_rol=accesos.por_rol,
                   activos=list(db.scalars(select(Usuario).where(Usuario.activo.is_(True)).order_by(Usuario.nombre))))
 
 
@@ -83,8 +85,8 @@ def alta_usuario(request: Request, nombre: str = Form(...), email: str = Form(..
 @router.post("/usuarios/{uid}")
 def editar_usuario(uid: int, request: Request, nombre: str = Form(...), rol: str = Form(...),
                    area_id: OptInt = Form(None), puede_confidencial: bool = Form(False),
-                   recibe_correos: bool = Form(False), db: Session = Depends(get_db),
-                   u: Usuario = Depends(requiere_direccion)):
+                   recibe_correos: bool = Form(False), menus: list[str] = Form([]), menus_form: str = Form(""),
+                   db: Session = Depends(get_db), u: Usuario = Depends(requiere_direccion)):
     x = db.get(Usuario, uid)
     if not x or rol not in ROLES:
         raise HTTPException(400)
@@ -93,6 +95,10 @@ def editar_usuario(uid: int, request: Request, nombre: str = Form(...), rol: str
     cambios = {"rol": (x.rol, rol), "confidencial": (x.puede_confidencial, puede_confidencial)}
     x.nombre, x.rol, x.area_id = nombre.strip(), rol, area_id or None
     x.puede_confidencial, x.recibe_correos = puede_confidencial, recibe_correos
+    if menus_form:
+        bloq = sorted(m.clave for m in accesos.MENUS if accesos.por_rol(rol, m) and m.clave not in menus)
+        cambios["menus_bloqueados"] = (sorted(x.menus_bloqueados or []), bloq)
+        x.menus_bloqueados = bloq or None
     auditar(db, "editar", "usuario", x.id, u.id, **{k: list(v) for k, v in cambios.items() if v[0] != v[1]})
     db.commit()
     flash(request, "Usuario actualizado.")

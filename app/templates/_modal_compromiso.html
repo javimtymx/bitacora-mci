@@ -29,15 +29,8 @@
       <div class="field"><label for="nc-fecha">Fecha límite</label>
         <input class="input" type="date" id="nc-fecha" name="fecha_limite" value="{{ viernes.isoformat() }}" min="{{ hoy.isoformat() }}" data-revisable required></div>
     </div>
-    <div class="grid2" style="grid-template-columns:3fr 1fr">
-      <div class="field"><label for="nc-texto">Compromiso (qué harás, cuánto y para cuándo)</label>
+    <div class="field"><label for="nc-texto">Compromiso (qué harás, cuánto y para cuándo) · debe mover la medida predictiva elegida</label>
         <textarea class="input" id="nc-texto" name="texto" required maxlength="1000" data-revisable placeholder="Ej. Enviar 15 mensajes directos a gerentes de comercio exterior de empresas IMMEX y agendar 1 cita antes del jueves">{{ pref_texto or '' }}</textarea></div>
-      <div class="field"><label for="nc-est">Estrategia ligada (opcional)</label>
-        <select class="input" id="nc-est" name="estrategia_id" data-revisable>
-          <option value="">Ninguna</option>
-          {% for e in estrategias %}<option value="{{ e.id }}">{{ e.area.nombre }} · {{ e.nombre }}</option>{% endfor %}
-        </select></div>
-    </div>
   </div>
   <div class="sec alt hidden" data-ia-resultado>
     <div class="row between"><div class="sech"><span class="secic">{{ icon('spark') }}</span>Revisión del PM virtual</div>{{ ai_badge() }}</div>

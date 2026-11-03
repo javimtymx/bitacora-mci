@@ -6,10 +6,12 @@
 <section class="card pad">
   <div class="row between"><div class="row"><a class="btn sm {{ 'dark' if ver=='activos' else 'soft' }}" href="?ver=activos">Activos</a><a class="btn sm {{ 'dark' if ver!='activos' else 'soft' }}" href="?ver=bajas">Bajas</a></div>
     <label class="search" style="height:40px;border-radius:8px">{{ icon('search', 18) }}<input type="search" placeholder="Buscar" data-filtra="t-u"></label></div>
-  <div class="tbl"><table id="t-u"><thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th>Área</th><th>Datos confidenciales</th><th>Último acceso</th><th></th></tr></thead><tbody>
+  <div class="tbl"><table id="t-u"><thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th>Área</th><th>Datos confidenciales</th><th>Menús</th><th>Último acceso</th><th></th></tr></thead><tbody>
   {% for x in lista %}<tr><td><b>{{ x.nombre }}</b>{% if not x.activo %}<div class="muted small">Baja {{ fmt_fecha(x.baja_en) }}: {{ x.baja_motivo }}</div>{% endif %}</td><td>{{ x.email }}</td>
     <td><span class="tag {{ 'b' if x.rol=='colaborador' else 'o' if x.rol=='lider' else 'g' }}">{{ x.rol }}</span></td><td>{{ x.area.nombre if x.area else '—' }}</td>
     <td>{% if x.puede_confidencial %}<span class="tag r">{{ icon('lock', 12) }} Sí</span>{% else %}<span class="muted">No</span>{% endif %}</td>
+    {% set ns = namespace(t=0, v=0) %}{% for m in menus if x.rol=='admin' or por_rol(x.rol, m) %}{% set ns.t = ns.t + 1 %}{% if puede_menu(x, m.clave) %}{% set ns.v = ns.v + 1 %}{% endif %}{% endfor %}
+    <td>{% if ns.v == ns.t %}<span class="muted small">Todos ({{ ns.t }})</span>{% else %}<span class="tag o">{{ ns.v }} de {{ ns.t }}</span>{% endif %}</td>
     <td>{{ fmt_fecha(x.ultimo_acceso) }}</td>
     <td>{% if x.activo %}<div class="row" style="gap:6px;flex-wrap:nowrap"><button class="btn sm soft" data-open="ed-{{ x.id }}">Editar</button>{% if x.id != u.id %}<button class="btn sm red" data-open="baja-{{ x.id }}">Baja</button>{% endif %}</div>
       {% else %}<button class="btn sm soft" data-open="alta" data-fill-al-n="{{ x.nombre }}" data-fill-al-e="{{ x.email }}">Reactivar</button>{% endif %}</td></tr>
@@ -37,6 +39,15 @@
       <div class="field"><label>Área</label><select class="input" name="area_id"><option value="">—</option>{% for a in areas %}<option value="{{ a.id }}" {{ 'selected' if a.id==x.area_id }}>{{ a.nombre }}</option>{% endfor %}</select></div></div>
     <label class="check"><input type="checkbox" name="puede_confidencial" value="true" {{ 'checked' if x.puede_confidencial }}>Datos confidenciales</label>
     <label class="check"><input type="checkbox" name="recibe_correos" value="true" {{ 'checked' if x.recibe_correos }}>Recibe correos del PM virtual</label>
+  </div>
+  <div class="sec"><input type="hidden" name="menus_form" value="1">
+    <div class="row between"><b>Menús a los que tiene acceso</b><span class="muted small">Lo que desmarques desaparece de su menú y se bloquea su dirección.</span></div>
+    {% if x.rol == 'admin' %}<span class="small muted">Los administradores ven todos los menús.</span>
+    {% else %}{% for g, gt in grupos.items() %}{% set its = [] %}{% for m in menus if m.grupo == g and por_rol(x.rol, m) %}{% set _ = its.append(m) %}{% endfor %}
+    {% if its %}<div class="cap" style="margin-top:4px">{{ gt }}</div>
+    <div class="grid2" style="gap:2px 14px">{% for m in its %}<label class="check"><input type="checkbox" name="menus" value="{{ m.clave }}" {{ 'checked' if puede_menu(x, m.clave) }}><span>{{ m.titulo }}</span></label>{% endfor %}</div>{% endif %}
+    {% endfor %}
+    <span class="small muted">Si cambias el rol, guarda primero y vuelve a abrir para ver los menús del nuevo rol.</span>{% endif %}
   </div>
   <div class="mf"><button class="btn soft" formaction="/admin/usuarios/{{ x.id }}/password" formnovalidate>Nueva contraseña</button><span style="flex:1"></span><button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn yellow">Guardar</button></div></form></div>
 <div class="overlay" id="baja-{{ x.id }}"><form class="modal sm" method="post" action="/admin/usuarios/{{ x.id }}/baja">

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
@@ -44,22 +44,13 @@ def _tarjeta(db: Session, m: Mci, sem: str, datos=None) -> dict:
 
 
 def _consolidado_area(db: Session, area: Area, sem: str, sems8: list[str]) -> dict:
-    """Todo lo del área en una página: palancas, predictivas, compromisos, voz del cliente, ideas y diagnóstico."""
+    """Todo lo del área en una página: medidas predictivas (las palancas), compromisos, voz del cliente, ideas y diagnóstico."""
     from datetime import timedelta as _td
-    from ..models import Estrategia, Hallazgo, Idea, Objecion, Predictiva, SesionCliente
-    ests = list(db.scalars(select(Estrategia).where(Estrategia.area_id == area.id,
-                                                    Estrategia.estado.in_(("activa", "propuesta", "pausada")))
-                           .order_by(Estrategia.estado, Estrategia.nombre)))
-    palancas = [(e, seguimiento.stats_estrategia(db, e)) for e in ests]
-    preds = list(db.scalars(select(Predictiva).join(Mci).where(Mci.area_id == area.id, Predictiva.activo.is_(True))))
+    from ..models import Hallazgo, Idea, Objecion, Predictiva, SesionCliente
+    preds = list(db.scalars(select(Predictiva).join(Mci).where(Mci.area_id == area.id, Mci.activo.is_(True),
+                                                             Predictiva.activo.is_(True)).order_by(Mci.id, Predictiva.id)))
     comps = list(db.scalars(select(Compromiso).where(Compromiso.area_id == area.id, Compromiso.semana.in_(sems8))))
-    matriz = []
-    for p in preds:
-        fila = []
-        for s_ in sems8:
-            cs = [c for c in comps if c.predictiva_id == p.id and c.semana == s_ and c.estado != "cancelado"]
-            fila.append((sum(1 for c in cs if c.estado == "cumplido"), len(cs)))
-        matriz.append((p, fila))
+    matriz = indicadores.matriz_predictivas(db, preds, sems8, comps)
     comps_sem = sorted((c for c in comps if c.semana == sem), key=lambda c: c.fecha_limite)
     desde = hoy() - _td(weeks=6)
     hall = list(db.scalars(select(Hallazgo).join(SesionCliente).where(SesionCliente.area_id == area.id,
@@ -78,15 +69,30 @@ def _consolidado_area(db: Session, area: Area, sem: str, sems8: list[str]) -> di
     ideas = list(db.scalars(select(Idea).where(Idea.area_id == area.id, Idea.creado >= utcnow() - _td(days=90))
                             .order_by(Idea.actualizado.desc())))
     d = diagnostico.ultimo(db, area.id)
-    return {"palancas": palancas, "matriz": matriz, "comps_sem": comps_sem, "sems8": sems8,
+    return {"ayf": _panel_ayf(db, area), "matriz": matriz, "comps_sem": comps_sem, "sems8": sems8,
             "temas": sorted(temas.items(), key=lambda x: -x[1])[:5], "tipos": sorted(tipos.items(), key=lambda x: -x[1][0]),
             "n_ses": n_ses, "ideas": ideas[:5], "ideas_estado": {k: sum(1 for i in ideas if i.estado == k)
                                                                    for k in ("propuesta", "validada", "en_curso", "implementada")},
             "diag": d}
 
 
+def _panel_ayf(db: Session, area: Area) -> list:
+    """Recuadro informativo de Ventas con lo que sale de Panel AYF (no es MCI: no lleva compromisos ni racha)."""
+    if area.clave != "ventas":
+        return []
+    out = []
+    datos = None
+    for clave in ("ventas-base", "ventas-facturacion"):
+        m = db.scalar(select(Mci).where(Mci.clave == clave))
+        if m and ventas_auto.es_auto(m):
+            datos = datos or ventas_auto.Datos(db)
+            r = ventas_auto.resumen(db, m, datos)
+            if r:
+                out.append(r)
+    return out
+
+
 def _resumen_areas(db: Session, areas: list[Area], sem: str) -> list[dict]:
-    from ..models import Estrategia
     sems4 = indicadores.semanas(4, sem)
     excs = seguimiento.excepciones_aprobadas(db)
     out = []
@@ -96,8 +102,6 @@ def _resumen_areas(db: Session, areas: list[Area], sem: str) -> list[dict]:
         cu = seguimiento.cumplimiento(comps, excs)
         out.append({"area": a, "ganando": rachas.count("ganando"), "perdiendo": rachas.count("perdiendo"),
                     "total": len(rachas), "pct": cu.pct,
-                    "palancas": db.scalar(select(func.count(Estrategia.id)).where(Estrategia.area_id == a.id,
-                                                                                  Estrategia.estado == "activa")) or 0,
                     "diag": diagnostico.ultimo(db, a.id, sem)})
     return out
 
@@ -197,8 +201,9 @@ def _puede_capturar(u: Usuario, m: Mci) -> bool:
 def captura(request: Request, semana: str | None = None, db: Session = Depends(get_db),
             u: Usuario = Depends(usuario_actual)):
     sem = semana or semana_iso(hoy())
-    ms = [m for m in indicadores.mcis_de(db) if _puede_capturar(u, m) and not ventas_auto.es_auto(m)]
-    if not ms:
+    todas = [m for m in indicadores.mcis_de(db) if _puede_capturar(u, m)]
+    ms = [m for m in todas if not ventas_auto.es_auto(m)]
+    if not todas:
         raise HTTPException(403, "No tienes indicadores de captura manual.")
     filas = []
     for m in ms:
@@ -208,7 +213,10 @@ def captura(request: Request, semana: str | None = None, db: Session = Depends(g
         sr = indicadores.serie_mci(db, m, 4, sem)
         filas.append({"m": m, "v": v, "med": med, "prev": [p.valor for p in sr.puntos[:-1]],
                       "obj": sr.puntos[-1].objetivo, "dec": indicadores.decimales(m)})
-    return render(request, "captura_mediciones.html", u, "indicadores", filas=filas, sem=sem,
+    preds = [p for m in todas for p in m.predictivas if p.activo]
+    sems4 = indicadores.semanas(4, sem)
+    pfilas = [{"p": p, "v": v, "fila": fila} for p, v, fila in indicadores.matriz_predictivas(db, preds, sems4, [])]
+    return render(request, "captura_mediciones.html", u, "indicadores", filas=filas, pfilas=pfilas, sem=sem,
                   semanas=indicadores.semanas(8))
 
 
@@ -240,10 +248,30 @@ async def guardar_captura(request: Request, db: Session = Depends(get_db), u: Us
         else:
             db.add(Medicion(tipo="mci", version_id=v.id, periodo=sem, valor=valor, nota=nota, capturado_por=u.id))
         n += 1
+    for m in indicadores.mcis_de(db):
+        if not _puede_capturar(u, m):
+            continue
+        for p in m.predictivas:
+            raw = str(form.get(f"pred_{p.id}") or "").strip().replace(",", "")
+            if not raw or not p.versiones:
+                continue
+            try:
+                valor = float(raw.rstrip("%"))
+            except ValueError:
+                continue
+            v = catalogo.version_vigente(p.versiones, dia)
+            med = db.scalar(select(Medicion).where(Medicion.tipo == "predictiva",
+                                                   Medicion.version_id.in_([x.id for x in p.versiones]),
+                                                   Medicion.periodo == sem))
+            if med:
+                med.valor, med.version_id, med.capturado_por = valor, v.id, u.id
+            else:
+                db.add(Medicion(tipo="predictiva", version_id=v.id, periodo=sem, valor=valor, capturado_por=u.id))
+            n += 1
     if n:
         auditar(db, "captura", "mediciones", None, u.id, semana=sem, n=n)
     db.commit()
-    flash(request, f"{n} indicador(es) guardados para la semana {sem[-2:]}." if n else "No se capturó ningún valor.")
+    flash(request, f"{n} valor(es) guardados para la semana {sem[-2:]}." if n else "No se capturó ningún valor.")
     return ir(f"/indicadores/captura?semana={sem}")
 
 

@@ -5,6 +5,7 @@
     python -m app.cli crear-admin --email jmartinez@onecore.mx --nombre "Javier Martínez"
     python -m app.cli especialistas    # especialistas IA por área y evidencia en medidas de sesión (idempotente)
     python -m app.cli ventas-auto      # Ventas medido desde Panel AYF: recurrente y facturación total (idempotente)
+    python -m app.cli ventas-frentes   # Ventas por frentes: CrossSelling y Nuevos clientes; Panel AYF informativo
 """
 from __future__ import annotations
 
@@ -180,6 +181,67 @@ def ventas_auto_cmd() -> None:
           "Revisa la fecha de la meta recurrente en Configurar → Catálogo.")
 
 
+# Ventas como en la presentación: dos frentes con captura manual; Panel AYF queda como dato informativo.
+FRENTES = [
+    ("ventas-crossselling", "CrossSelling · clientes actuales cotizados",
+     "Cotizar módulos adicionales a 16 clientes actuales al mes (4 por semana).", [
+         ("Análisis 1:1 de riesgo con IA", 4, "análisis"),
+         ("Webinar mensual para clientes", 1, "hito"),
+         ("Publicación de nuevos módulos", 1, "publicación")]),
+    ("ventas-nuevos", "Nuevos clientes · prospectos cotizados",
+     "Cotizar a 16 prospectos nuevos al mes (4 por semana).", [
+         ("Webinar para prospectos", 1, "hito"),
+         ("Objeciones documentadas con respuesta", 3, "objeciones"),
+         ("Citas por LinkedIn o networking", 1, "cita")]),
+]
+
+
+def ventas_frentes() -> None:
+    hoy_ = date.today()
+    desde = date(hoy_.year, 1, 1)
+    with SessionLocal() as db:
+        area = db.scalar(select(Area).where(Area.clave == "ventas"))
+        if not area:
+            raise SystemExit("No existe el área de Ventas; corre primero `seed`.")
+        base = db.scalar(select(Mci).where(Mci.clave == "ventas-base"))
+        dueno_id = base.dueno_id if base else None
+        creadas, movidas = 0, 0
+        for clave, nombre, desc, preds in FRENTES:
+            m = db.scalar(select(Mci).where(Mci.clave == clave))
+            if not m:
+                m = Mci(area_id=area.id, clave=clave, nombre=nombre, dueno_id=dueno_id)
+                db.add(m)
+                db.flush()
+                catalogo.nueva_version_mci(db, m, descripcion=desc, meta=4, unidad="cotizaciones", sentido="mayor",
+                                           periodicidad="semanal", vigente_desde=desde, motivo="Frentes de Ventas: "
+                                           "CrossSelling y Nuevos clientes.", usuario_id=None, tipo_meta="nivel")
+                creadas += 1
+            for pnombre, meta_sem, unidad in preds:
+                p = db.scalar(select(Predictiva).join(Mci).where(Mci.area_id == area.id, Predictiva.nombre == pnombre))
+                if not p:
+                    p = Predictiva(mci_id=m.id, clave=f"{clave}-{_slug(pnombre)}"[:60], nombre=pnombre)
+                    db.add(p)
+                    db.flush()
+                    p.versiones = []
+                if p.mci_id != m.id:
+                    p.mci_id = m.id
+                    movidas += 1
+                v = catalogo.version_vigente(p.versiones) if p.versiones else None
+                if v is None or v.meta_semanal is None:
+                    catalogo.nueva_version_predictiva(db, p, descripcion=pnombre, meta_semanal=meta_sem, unidad=unidad,
+                                                      sentido="mayor", fuente="captura",
+                                                      vigente_desde=max(desde, v.vigente_desde) if v else desde,
+                                                      motivo="Meta semanal de la presentación de Ventas.", usuario_id=None)
+        # Panel AYF: se sigue calculando, pero ya no es MCI (sin compromisos ni racha); se ve como recuadro informativo.
+        for clave in ("ventas-base", "ventas-facturacion"):
+            x = db.scalar(select(Mci).where(Mci.clave == clave))
+            if x:
+                x.activo = False
+        db.commit()
+    print(f"Ventas por frentes listo. MCI nuevas: {creadas}. Predictivas reasignadas: {movidas}. "
+          "Panel AYF queda como información en el tablero de Ventas.")
+
+
 def crear_admin(email: str, nombre: str, password: str | None) -> None:
     password = password or getpass.getpass("Contraseña (mínimo 10 caracteres): ")
     if len(password) < 10:
@@ -203,6 +265,7 @@ def main() -> None:
     sub.add_parser("seed")
     sub.add_parser("especialistas")
     sub.add_parser("ventas-auto")
+    sub.add_parser("ventas-frentes")
     a = sub.add_parser("crear-admin")
     a.add_argument("--email", required=True)
     a.add_argument("--nombre", required=True)
@@ -217,6 +280,8 @@ def main() -> None:
         especialistas()
     elif args.cmd == "ventas-auto":
         ventas_auto_cmd()
+    elif args.cmd == "ventas-frentes":
+        ventas_frentes()
     else:
         crear_admin(args.email, args.nombre, args.password)
 

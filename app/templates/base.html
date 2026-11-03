@@ -13,38 +13,15 @@
 <div class="app">
   <nav class="rail" aria-label="Menú principal">
     <img src="/static/logo.svg" class="logo" alt="OneCore">
-    {%- set lider = u and u.es_lider %}{% set dir = u and u.es_direccion %}
-    {%- set GRUPOS = [
-      ('tablero', 'Tablero', 'home', true, [
-        ('inicio', '/', 'Tablero semanal', 'Indicadores de todos y por área', true),
-        ('mi-semana', '/mi-semana', 'Mi semana', 'Mis compromisos de esta semana', true)]),
-      ('ejecucion', 'Ejecución', 'check', true, [
-        ('compromisos', '/compromisos', 'Compromisos', 'Seguimiento y remediaciones', true),
-        ('estrategias', '/estrategias', 'Estrategias', 'Palancas activas por MCI', true),
-        ('semanal', '/semanal', 'Junta semanal', 'Vista para presentar', lider),
-        ('excepciones', '/excepciones', 'Excepciones', 'Solicitudes y aprobaciones', lider)]),
-      ('ia', 'IA', 'spark', lider, [
-        ('diagnostico', '/diagnostico', 'Diagnóstico por área', 'Recomendaciones semanales', lider),
-        ('pm', '/pm', 'PM virtual', 'Pendientes y alertas', lider),
-        ('voz', '/voz-cliente', 'Voz del cliente', 'Sesiones 1:1 y objeciones', lider)]),
-      ('innovacion', 'Innovación', 'idea', true, [
-        ('ideas', '/ideas', 'Ideas', 'Propuestas del equipo', true),
-        ('circulo', '/circulo', 'Círculo de innovación', 'Iniciativas y votación', true)]),
-      ('datos', 'Datos', 'chart', true, [
-        ('indicadores', '/indicadores', 'Indicadores', 'Kárdex y captura semanal', true),
-        ('reportes', '/reportes', 'Reportes', 'Descargas en Excel', true),
-        ('socio', '/socio', 'Vista socio', 'Resumen ejecutivo', dir)]),
-    ] %}
-    {%- for gk, gt, gi, gvis, items in GRUPOS if gvis %}
-    {%- set ns = namespace(vis=[], activo=false) %}
-    {%- for it in items if it[4] %}{% set ns.vis = ns.vis + [it] %}{% if it[0] == nav %}{% set ns.activo = true %}{% endif %}{% endfor %}
-    {%- set vis, activo = ns.vis, ns.activo %}
-    <div class="grp{{ ' on' if activo }}">
+    {%- set dir = u and u.es_direccion %}
+    {%- for gk, gt, gi, items in (menu_lateral(u) if u else []) %}
+    {%- set ns = namespace(activo=false) %}{% for m in items if m.clave == nav %}{% set ns.activo = true %}{% endfor %}
+    <div class="grp{{ ' on' if ns.activo }}">
       <button type="button" class="gbtn" aria-haspopup="true">{{ icon(gi) }}{{ gt }}</button>
       <div class="fly" role="menu">
         <div class="fh">{{ gt }}</div>
-        {%- for k, href, t, d, ok in vis %}
-        <a href="{{ href }}" role="menuitem" class="{{ 'on' if nav==k }}"><b>{{ t }}</b><small>{{ d }}</small></a>
+        {%- for m in items %}
+        <a href="{{ m.href }}" role="menuitem" class="{{ 'on' if nav==m.clave }}"><b>{{ m.titulo }}</b><small>{{ m.desc }}</small></a>
         {%- endfor %}
       </div>
     </div>

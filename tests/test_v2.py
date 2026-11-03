@@ -277,17 +277,37 @@ def test_ventas_automaticas_desde_panel_ayf(admin, mario, db):
     t_mario = mario.get("/?area=ventas").text
     assert "Necesitas crecer" in t_mario and "250,000" not in t_mario and "Actual $250,000" in t_admin
     # la captura manual ya no ofrece los indicadores automáticos
-    assert "Crecimiento recurrente" not in admin.get("/indicadores/captura").text
+    assert f'name="valor_{_mci(db).id}"' not in admin.get("/indicadores/captura").text  # automático: no se captura
 
 
 def test_vista_consolidada_por_area(admin, db):
-    from app.models import Area, Estrategia
-    ventas = db.scalar(select(Area).where(Area.clave == "ventas"))
-    db.add(Estrategia(area_id=ventas.id, nombre="Webinars a prospectos", estado="activa", mci_id=_mci(db).id))
-    db.commit()
     t = admin.get("/?area=ventas").text
-    for txt in ("Palancas de Ventas", "Webinars a prospectos", "Medidas predictivas · 8 semanas", "Citas por LinkedIn",
+    assert "Palancas de Ventas" not in t  # palancas = medidas predictivas
+    for txt in ("Medidas predictivas · 8 semanas", "Meta / sem", "Citas por LinkedIn",
                 "Compromisos de la semana", "Voz del cliente · 6 semanas", "Ideas del área"):
         assert txt in t, txt
     t = admin.get("/").text
     assert "Resumen por área" in t and "Ver área" in t
+
+
+def test_ventas_por_frentes_con_panel_ayf_informativo(admin, mario, db):
+    from app.cli import ventas_auto_cmd, ventas_frentes
+    from app.models import ClienteEstatus, VentaClienteMes
+    from app.services import ventas_auto
+    mes = f"{hoy().year}-{hoy().month:02d}"
+    db.add_all([VentaClienteMes(periodo="2026-01", rfc="AAA", nombre="A", total_mxn=100000, facturas=1),
+                VentaClienteMes(periodo=mes, rfc="AAA", nombre="A", total_mxn=130000, facturas=1),
+                ClienteEstatus(rfc="AAA", recurrente=True)])
+    db.commit()
+    ventas_auto_cmd()
+    ventas_frentes()
+    ventas_frentes()  # idempotente
+    db.expire_all()
+    assert not _mci(db).activo and not _mci(db, "ventas-facturacion").activo
+    cs, nv = _mci(db, "ventas-crossselling"), _mci(db, "ventas-nuevos")
+    assert cs.activo and nv.activo and len(cs.predictivas) == 3 and len(nv.predictivas) == 3
+    assert not ventas_auto.es_auto(cs)
+    t_admin, t_mario = admin.get("/?area=ventas").text, mario.get("/?area=ventas").text
+    assert "CrossSelling · clientes actuales cotizados" in t_admin and "Panel AyF · informativo" in t_admin
+    assert "Actual $130,000" in t_admin and "130,000" not in t_mario
+    assert f'name="valor_{cs.id}"' in admin.get("/indicadores/captura").text

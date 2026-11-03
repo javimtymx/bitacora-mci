@@ -12,7 +12,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from .config import get_settings
 from .web import admin, captura, circulo, gestion, reportes, tablero, voz
-from .web.base import NoAutenticado, TEMPLATES, ir
+from .web.base import NoAutenticado, Redirigir, TEMPLATES, ir
 
 s = get_settings()
 if s.cookie_secure and (len(s.secret_key) < 32 or s.secret_key.startswith(("dev-", "CAMBIA"))):
@@ -31,6 +31,11 @@ async def _no_auth(request: Request, exc: NoAutenticado):
     if request.url.path.startswith("/api/"):
         return JSONResponse({"ok": False, "mensaje": "Tu sesión expiró. Vuelve a entrar."}, status_code=401)
     return ir("/login")
+
+
+@app.exception_handler(Redirigir)
+async def _redirigir(request: Request, exc: Redirigir):
+    return ir(exc.url)
 
 
 @app.exception_handler(StarletteHTTPException)

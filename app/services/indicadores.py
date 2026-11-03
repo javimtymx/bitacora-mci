@@ -214,3 +214,52 @@ def decimales(mci: Mci) -> int:
     """Decimales para mostrar: hasta 3 (99.968%); 1 en crecimientos calculados de CFDI."""
     v = catalogo.version_vigente(mci.versiones)
     return 1 if v and v.fuente in ("cfdi_recurrente", "cfdi_total") else 3
+
+
+# ---------------------------------------------------------------- medidas predictivas (palancas)
+
+@dataclass
+class CeldaPredictiva:
+    semana: str
+    valor: float | None = None
+    meta: float | None = None
+    sentido: str = "mayor"
+    cumplidos: int = 0
+    compromisos: int = 0
+
+    @property
+    def estado(self) -> str:
+        """g en meta · r fuera · n capturado sin meta · '' sin captura."""
+        if self.valor is None:
+            return ""
+        if self.meta is None:
+            return "n"
+        ok = self.valor <= self.meta if self.sentido == "menor" else self.valor >= self.meta
+        return "g" if ok else "r"
+
+
+def mediciones_predictivas(db: Session, preds, sems: list[str]) -> dict[tuple[int, str], float]:
+    ver = {v.id: p.id for p in preds for v in p.versiones}
+    if not ver:
+        return {}
+    return {(ver[m.version_id], m.periodo): float(m.valor)
+            for m in db.scalars(select(Medicion).where(Medicion.tipo == "predictiva", Medicion.version_id.in_(list(ver)),
+                                                       Medicion.periodo.in_(sems)))}
+
+
+def matriz_predictivas(db: Session, preds, sems: list[str], comps) -> list[tuple]:
+    """Por predictiva y semana: valor capturado contra meta semanal y compromisos cumplidos / registrados."""
+    meds = mediciones_predictivas(db, preds, sems)
+    out = []
+    for p in preds:
+        fila = []
+        for s in sems:
+            v = catalogo.version_vigente(p.versiones, viernes_de(s)) if p.versiones else None
+            cs = [c for c in comps if c.predictiva_id == p.id and c.semana == s and c.estado != "cancelado"]
+            fila.append(CeldaPredictiva(semana=s, valor=meds.get((p.id, s)),
+                                        meta=float(v.meta_semanal) if v and v.meta_semanal is not None else None,
+                                        sentido=v.sentido if v else "mayor",
+                                        cumplidos=sum(1 for c in cs if c.estado == "cumplido"), compromisos=len(cs)))
+        vig = catalogo.version_vigente(p.versiones) if p.versiones else None
+        out.append((p, vig, fila))
+    return out

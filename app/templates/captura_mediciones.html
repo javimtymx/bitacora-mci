@@ -10,7 +10,17 @@
     <td class="num small">{% for x in f.prev %}{{ valor(x, '', f.dec) if x is not none else '—' }}{{ ' · ' if not loop.last }}{% endfor %}</td>
     <td class="num small">{{ valor(f.obj, '', f.dec) if f.obj is not none else '—' }}</td>
     <td><input class="input" name="valor_{{ f.m.id }}" inputmode="decimal" value="{{ valor(f.med.valor, '', 4) if f.med else '' }}" aria-label="Valor de {{ f.m.nombre }}"></td>
-    <td><input class="input" name="nota_{{ f.m.id }}" value="{{ f.med.nota or '' if f.med else '' }}" placeholder="Fuente o contexto (opcional)"></td></tr>{% endfor %}
+    <td><input class="input" name="nota_{{ f.m.id }}" value="{{ f.med.nota or '' if f.med else '' }}" placeholder="Fuente o contexto (opcional)"></td></tr>
+  {% else %}<tr><td colspan="6" class="muted">Tus indicadores de resultado se calculan solos.</td></tr>{% endfor %}
+  </tbody></table></div>
+  <h2 style="margin-top:6px">Medidas predictivas</h2>
+  <span class="small muted" style="margin-top:-8px">Lo que el equipo controla en la semana. Los compromisos se registran contra estas medidas.</span>
+  <div class="tbl"><table><thead><tr><th>Medida predictiva</th><th>Meta semanal</th><th class="num">Semanas anteriores</th><th style="width:160px">Valor S{{ num_semana(sem) }}</th></tr></thead><tbody>
+  {% for f in pfilas %}{% set act = f.fila[-1] %}<tr><td><b>{{ f.p.nombre }}</b><div class="muted small">{{ f.p.mci.nombre }}</div></td>
+    <td class="small">{{ valor(f.v.meta_semanal, f.v.unidad, 1) if f.v and f.v.meta_semanal is not none else 'Sin meta · defínela en Catálogo' }}</td>
+    <td class="num small">{% for c in f.fila[:-1] %}{% if c.estado %}<span class="tag {{ c.estado }}">{{ valor(c.valor, '', 1) }}</span>{% else %}—{% endif %}{{ ' ' if not loop.last }}{% endfor %}</td>
+    <td><input class="input" name="pred_{{ f.p.id }}" inputmode="decimal" value="{{ valor(act.valor, '', 4) if act.valor is not none else '' }}" aria-label="Valor de {{ f.p.nombre }}"></td></tr>
+  {% else %}<tr><td colspan="4" class="muted">Sin medidas predictivas.</td></tr>{% endfor %}
   </tbody></table></div>
   <button class="btn yellow" style="align-self:flex-start">{{ icon('ok') }}Guardar semana {{ num_semana(sem) }}</button>
 </form>

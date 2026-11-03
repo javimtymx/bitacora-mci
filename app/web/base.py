@@ -67,8 +67,11 @@ def valor(v, unidad: str = "", dec: int = 1, signo: bool = False) -> str:
     return f"{txt}{unidad}" if unidad.startswith("%") else f"{txt} {unidad}"
 
 
+from ..services import accesos  # noqa: E402
+
 TEMPLATES.env.globals.update(fmt_fecha=util.fmt_fecha, fmt_dia=util.fmt_dia, dias_desde=util.dias_desde,
-                             num_semana=util.num_semana, md=md, valor=valor)
+                             num_semana=util.num_semana, md=md, valor=valor, menu_lateral=accesos.menu_lateral,
+                             puede_menu=accesos.puede)
 
 
 def hash_password(pw: str) -> str:
@@ -86,12 +89,22 @@ class NoAutenticado(Exception):
     pass
 
 
+class Redirigir(Exception):
+    def __init__(self, url: str):
+        self.url = url
+
+
 def usuario_actual(request: Request, db: Session = Depends(get_db)) -> Usuario:
     uid = request.session.get("uid")
     u = db.get(Usuario, uid) if uid else None
     if not u or not u.activo:
         request.session.clear()
         raise NoAutenticado()
+    clave = accesos.menu_de_ruta(request.url.path)
+    if clave and not accesos.puede(u, clave):
+        if request.url.path == "/" and request.method == "GET":
+            raise Redirigir(accesos.primera_pagina(u))
+        raise HTTPException(403, "No tienes acceso a esta sección. Pídelo a Dirección.")
     return u
 
 

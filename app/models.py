@@ -61,6 +61,7 @@ class Usuario(Base):
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
     puede_confidencial: Mapped[bool] = mapped_column(Boolean, default=False)
     recibe_correos: Mapped[bool] = mapped_column(Boolean, default=True)
+    menus_bloqueados: Mapped[list | None] = mapped_column(JSON)  # claves de menú que Dirección le quitó
     creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     ultimo_acceso: Mapped[datetime | None] = mapped_column(DateTime)
     baja_en: Mapped[datetime | None] = mapped_column(DateTime)
