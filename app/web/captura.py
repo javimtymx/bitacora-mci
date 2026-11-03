@@ -367,6 +367,8 @@ def estado_idea(iid: int, estado: str = Form(...), db: Session = Depends(get_db)
 # ---------------------------------------------------------------- API de revisión IA (JSON)
 
 def _ia_error(e: Exception) -> JSONResponse:
+    import logging
+    logging.getLogger("bitacora.ia").error("Revisión IA no disponible: %s: %s", type(e).__name__, e)
     sin_llave = not ia.cliente().disponible
     return JSONResponse({"ok": False, "sin_ia": sin_llave,
                          "mensaje": "La IA no está configurada. Puedes guardar sin revisión." if sin_llave

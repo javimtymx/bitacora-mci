@@ -4,6 +4,8 @@ Todas las llamadas quedan en revisiones_ia (resultado, modelo, tokens y, cuando 
 la decisión humana: aceptada / motivo de rechazo)."""
 from __future__ import annotations
 
+import logging
+
 import json
 import re
 from datetime import date
@@ -36,6 +38,9 @@ SYSTEM = (
 )
 
 
+log = logging.getLogger("bitacora.ia")
+
+
 class IANoDisponible(Exception):
     pass
 
@@ -65,6 +70,7 @@ class ClienteIA:
             r = cli.messages.create(model=modelo, max_tokens=max_tokens, system=system or SYSTEM,
                                     messages=[{"role": "user", "content": prompt}])
         except Exception as e:  # red, límites o modelo inválido
+            log.error("Anthropic falló (modelo %s): %s: %s", modelo, type(e).__name__, e)
             raise IANoDisponible(str(e)) from e
         texto = "".join(b.text for b in r.content if getattr(b, "type", "") == "text")
         meta = {"modelo": modelo, "tin": getattr(r.usage, "input_tokens", 0), "tout": getattr(r.usage, "output_tokens", 0)}
@@ -82,6 +88,7 @@ class ClienteIA:
                 tools=[{"type": self.s.ia_herramienta_busqueda, "name": "web_search", "max_uses": max_busquedas}],
                 messages=[{"role": "user", "content": prompt}])
         except Exception as e:
+            log.error("Anthropic falló en investigación (modelo %s): %s: %s", modelo, type(e).__name__, e)
             raise IANoDisponible(str(e)) from e
         texto, fuentes = "", []
         for b in r.content:
