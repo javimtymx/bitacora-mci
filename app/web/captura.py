@@ -156,7 +156,11 @@ def compromisos(request: Request, scope: str = "mios", estado: str = "abiertos",
         lista = [c for c in lista if c.estado == "abierto" or (c.remediacion is None or c.remediacion.estado == "abierta")]
     from ..models import RecomendacionIA
     r = db.get(RecomendacionIA, rec) if rec else None
-    return render(request, "compromisos.html", u, "compromisos", lista=lista, scope=scope, estado=estado,
+    from ..models import SolicitudEliminacion
+    elim = set(db.scalars(select(SolicitudEliminacion.compromiso_id).where(SolicitudEliminacion.estado == "pendiente")))
+    n_arch = sum(1 for c in db.scalars(_visibles(db, u, scope).execution_options(include_archivados=True)
+                                       .where(Compromiso.archivado.is_(True))))
+    return render(request, "compromisos.html", u, "compromisos", lista=lista, scope=scope, estado=estado, elim=elim, n_arch=n_arch,
                   seg=seguimiento, pref_texto=(r.texto if r else texto[:1000]), rec=r, **_opciones_captura(db, u))
 
 
@@ -207,7 +211,9 @@ def detalle_compromiso(cid: int, request: Request, db: Session = Depends(get_db)
                                                      AccionAgente.entidad_id == c.id).order_by(AccionAgente.creado)))
     from ..models import SesionCliente
     sesiones = list(db.scalars(select(SesionCliente).where(SesionCliente.compromiso_id == c.id)))
+    from .archivo import solicitud_pendiente
     return render(request, "compromiso.html", u, "compromisos", c=c, revs=revs, acciones=acc, sesiones=sesiones,
+                  sol_elim=solicitud_pendiente(db, c.id),
                   pide_evidencia=bool(c.predictiva and c.predictiva.requiere_evidencia),
                   evidencia_obligatoria=requiere_evidencia(db, c),
                   puede=puede_actuar(u, c), seg=seguimiento,

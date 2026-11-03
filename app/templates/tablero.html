@@ -102,6 +102,7 @@
 
 <div class="grid2">
 <section class="card pad"><div class="row between"><h2>Compromisos de la semana</h2><a class="btn sm yellow" href="/compromisos#nuevo-compromiso">{{ icon('plus', 15) }}Nuevo</a></div>
+  <a class="lnk small" href="/compromisos/archivados" style="margin-top:-8px">{{ icon('doc', 14) }}Ver compromisos archivados</a>
   <div class="tbl"><table><tbody>{% for c in cons.comps_sem %}<tr><td><a href="/compromisos/{{ c.id }}">{{ c.texto }}</a><div class="muted small">{{ c.responsable.nombre }} · {{ fmt_dia(c.fecha_limite) }}</div></td>
     <td>{% if c.estado=='cumplido' %}<span class="tag g">Cumplido</span>{% elif c.estado=='no_cumplido' %}<span class="tag r">No cumplido</span>{% elif c.estado=='cancelado' %}<span class="tag n">Cancelado</span>{% else %}<span class="tag b">{{ c.avance }}%</span>{% endif %}</td></tr>
   {% else %}<tr><td class="muted">Nadie del área ha registrado compromiso esta semana.</td></tr>{% endfor %}</tbody></table></div></section>

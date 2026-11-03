@@ -43,6 +43,8 @@
     <form method="post" action="/logout" style="margin:0"><button type="submit">{{ icon('logout') }}Salir</button></form>
   </nav>
   <main class="main">
+    {% if pend_elim %}<div class="cint"><span class="ic">{{ icon('alert') }}</span><span style="flex:1 1 380px"><b>{{ 'Un usuario solicita' if pend_elim == 1 else pend_elim ~ ' solicitudes piden' }}</b> eliminar {{ 'un compromiso' if pend_elim == 1 else 'compromisos' }}. Solo un administrador puede autorizarlo.</span>
+      <a class="btn yellow sm" href="/compromisos/eliminaciones">Revisar solicitudes de eliminación</a></div>{% endif %}
     {% for f in flashes %}<div class="flash {{ f.k }}">{{ icon('ok' if f.k=='ok' else 'alert', 18) }}{{ f.t }}</div>{% endfor %}
     {% block content %}{% endblock %}
   </main>

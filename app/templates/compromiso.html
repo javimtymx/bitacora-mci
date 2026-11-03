@@ -7,6 +7,8 @@
   <div class="row">{{ estado_comp(c, seg) }}</div>
 </div>
 
+{% if sol_elim %}<div class="flash error" style="align-items:flex-start">{{ icon('alert', 18) }}<span style="flex:1"><b>Eliminación solicitada</b> por {{ sol_elim.solicitante.nombre }} el {{ fmt_fecha(sol_elim.creado) }}: «{{ sol_elim.motivo }}». El compromiso sigue activo hasta que un administrador lo autorice.</span>
+  {% if u.rol == 'admin' %}<a class="btn sm dark" href="/compromisos/eliminaciones#sol-{{ sol_elim.id }}">Revisar solicitud</a>{% endif %}</div>{% endif %}
 <div class="grid2" style="grid-template-columns:2fr 1fr">
 <div class="col" style="gap:20px">
   <section class="card pad">
@@ -78,11 +80,21 @@
     {% if puede %}<a class="btn soft sm" href="/sesiones/nueva?compromiso={{ c.id }}" style="align-self:flex-start">{{ icon('upload', 16) }}Cargar transcripción</a>{% endif %}</section>
   {% if c.recomendacion_id %}<div class="small muted">Nació de una recomendación de la IA.</div>{% endif %}
   {% if u.es_lider %}<a class="btn soft" href="/excepciones?compromiso={{ c.id }}">{{ icon('shield') }}Solicitar excepción</a>{% endif %}
+  {% if not sol_elim %}<button class="btn soft" type="button" data-open="eliminar" style="color:var(--r-fg)">{{ icon('x') }}Solicitar eliminación</button>{% endif %}
 </div>
 </div>
 {% endblock %}
 
 {% block modals %}
+{% if not sol_elim %}
+<div class="overlay" id="eliminar"><form class="modal sm" method="post" action="/compromisos/{{ c.id }}/eliminar" role="dialog" aria-modal="true" aria-labelledby="t-elim">
+  <div class="mh"><h2 id="t-elim">Solicitar eliminación</h2><button class="btn ghost" type="button" data-close style="width:42px;padding:0" aria-label="Cerrar">{{ icon('x') }}</button></div>
+  <div class="sec" style="border-top:0">
+    <span class="small">CMP-{{ '%04d' % c.id }} y su seguimiento (remediación y acciones programadas) se enviarán al archivo <b>solo si un administrador lo autoriza</b>. Mientras tanto seguirá visible y contando en los indicadores.</span>
+    <div class="field"><label for="el-m">Causa de la eliminación</label><textarea class="input" id="el-m" name="motivo" required minlength="10" maxlength="1000" placeholder="Ej. Se registró duplicado de CMP-0001; la misma acción ya está en seguimiento"></textarea></div>
+  </div>
+  <div class="mf"><button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn red">Enviar solicitud</button></div></form></div>
+{% endif %}
 {% if puede %}
 <div class="overlay" id="remediar">
 <form class="modal" method="post" action="/compromisos/{{ c.id }}/remediacion" data-ia="/api/ia/remediacion/{{ c.id }}" data-ia-tipo="remediacion" role="dialog" aria-modal="true" aria-labelledby="t-rem">

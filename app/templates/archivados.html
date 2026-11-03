@@ -1,0 +1,14 @@
+{% extends "base.html" %}{% from "_ui.html" import icon with context %}
+{% block title %}Compromisos archivados{% endblock %}
+{% block content %}
+<div class="top"><div class="col" style="gap:4px"><span class="muted small"><a href="/compromisos">Compromisos</a> · archivo</span><h1>Compromisos archivados</h1>
+  <span class="muted">Eliminados con autorización de un administrador. No cuentan en indicadores ni reportes; se conservan como registro.</span></div>
+  {% if u.rol == 'admin' %}<a class="btn soft" href="/compromisos/eliminaciones">Solicitudes de eliminación</a>{% endif %}</div>
+<section class="card pad">
+  <div class="tbl"><table><thead><tr><th>Folio</th><th>Sem.</th><th>Área</th><th>Responsable</th><th>Compromiso</th><th>Causa</th><th>Autorizó</th><th>Archivado</th></tr></thead><tbody>
+  {% for c in lista %}{% set s = sol.get(c.id) %}<tr><td>CMP-{{ '%04d' % c.id }}</td><td>{{ num_semana(c.semana) }}</td><td>{{ c.area.nombre }}</td><td>{{ c.responsable.nombre }}</td>
+    <td class="small">{{ c.texto }}</td><td class="small">{{ s.motivo if s else '—' }}{% if s %}<div class="muted">Solicitó {{ s.solicitante.nombre }}</div>{% endif %}</td>
+    <td>{{ s.resolutor.nombre if s and s.resolutor else '—' }}</td><td>{{ fmt_fecha(c.archivado_en) }}</td></tr>
+  {% else %}<tr><td colspan="8" class="muted">No hay compromisos archivados.</td></tr>{% endfor %}</tbody></table></div>
+</section>
+{% endblock %}

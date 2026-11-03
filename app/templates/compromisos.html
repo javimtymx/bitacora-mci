@@ -13,12 +13,13 @@
     <div class="row">
       <a class="btn sm {{ 'dark' if estado=='abiertos' else 'soft' }}" href="?scope={{ scope }}&estado=abiertos">Pendientes</a>
       <a class="btn sm {{ 'dark' if estado!='abiertos' else 'soft' }}" href="?scope={{ scope }}&estado=cerrados">Cerrados (4 semanas)</a>
+      <a class="btn sm soft" href="/compromisos/archivados">{{ icon('doc', 15) }}Archivados ({{ n_arch }})</a>
     </div>
     <label class="search" style="height:40px;border-radius:8px">{{ icon('search', 18) }}<input type="search" placeholder="Buscar aquí" data-filtra="t-comp"></label>
   </div>
   <div class="tbl"><table id="t-comp"><thead><tr><th>Folio</th><th>Sem.</th><th>Estatus</th><th>Área</th><th>Responsable</th><th>Compromiso</th><th>Vence</th><th>Avance</th><th></th></tr></thead>
   <tbody>{% for c in lista %}
-    <tr class="{{ 'hl' if seg.vencido(c) or seg.sin_remediacion(c) }}"><td>CMP-{{ '%04d' % c.id }}</td><td>{{ num_semana(c.semana) }}</td><td>{{ estado_comp(c, seg) }}</td>
+    <tr class="{{ 'hl' if seg.vencido(c) or seg.sin_remediacion(c) }}"><td>CMP-{{ '%04d' % c.id }}</td><td>{{ num_semana(c.semana) }}</td><td>{{ estado_comp(c, seg) }}{% if c.id in elim %}<div><span class="tag r" style="margin-top:4px" title="Eliminación solicitada; espera autorización de un administrador">Eliminación solicitada</span></div>{% endif %}</td>
     <td>{{ c.area.nombre }}</td><td>{{ c.responsable.nombre }}</td><td>{{ c.texto }}</td>
     <td>{{ fmt_fecha(c.remediacion.nueva_fecha if c.remediacion else c.fecha_limite) }}</td><td>{{ avance(c.avance) }}</td>
     <td><a class="lnk" href="/compromisos/{{ c.id }}">{{ icon('eye') }}Detalles</a></td></tr>

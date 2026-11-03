@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
+from sqlalchemy import false as sa_false
 from sqlalchemy import (
     JSON,
     Boolean,
@@ -243,6 +244,8 @@ class Compromiso(Base):
     creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     actualizado: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
     cerrado: Mapped[datetime | None] = mapped_column(DateTime)
+    archivado: Mapped[bool] = mapped_column(Boolean, default=False, server_default=sa_false(), index=True)
+    archivado_en: Mapped[datetime | None] = mapped_column(DateTime)
 
     area: Mapped[Area] = relationship()
     responsable: Mapped[Usuario] = relationship(foreign_keys=[responsable_id])
@@ -258,6 +261,24 @@ class Compromiso(Base):
     @property
     def remediacion(self) -> "Remediacion | None":
         return self.remediaciones[-1] if self.remediaciones else None
+
+
+class SolicitudEliminacion(Base):
+    """Petición de enviar un compromiso (y su remediación y seguimiento) al archivo. Solo un admin la autoriza."""
+    __tablename__ = "solicitudes_eliminacion"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    compromiso_id: Mapped[int] = mapped_column(ForeignKey("compromisos.id"), index=True)
+    motivo: Mapped[str] = mapped_column(Text)
+    solicitado_por: Mapped[int] = mapped_column(ForeignKey("usuarios.id"))
+    creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    estado: Mapped[str] = mapped_column(String(12), default="pendiente", index=True)  # pendiente | aprobada | rechazada
+    resuelto_por: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+    resuelto_en: Mapped[datetime | None] = mapped_column(DateTime)
+    comentario: Mapped[str | None] = mapped_column(Text)
+
+    compromiso: Mapped["Compromiso"] = relationship()
+    solicitante: Mapped[Usuario] = relationship(foreign_keys=[solicitado_por])
+    resolutor: Mapped[Usuario | None] = relationship(foreign_keys=[resuelto_por])
 
 
 class CompromisoNota(Base):
@@ -680,3 +701,17 @@ class Voto(Base):
 
     iniciativa: Mapped[Iniciativa] = relationship(back_populates="votos")
     usuario: Mapped[Usuario] = relationship()
+
+
+# ---------------------------------------------------------------- compromisos archivados
+# Un compromiso archivado (eliminación autorizada por un admin) desaparece de todas las consultas: listas,
+# indicadores, reportes y la IA. Solo se ve cuando la consulta lo pide con execution_options(include_archivados=True).
+from sqlalchemy import event as _event  # noqa: E402
+from sqlalchemy.orm import Session as _Session, with_loader_criteria as _wlc  # noqa: E402
+
+
+@_event.listens_for(_Session, "do_orm_execute")
+def _ocultar_archivados(st):
+    if st.is_select and not st.is_column_load and not st.is_relationship_load \
+            and not st.execution_options.get("include_archivados", False):
+        st.statement = st.statement.options(_wlc(Compromiso, lambda c: c.archivado.is_(False), include_aliases=True))

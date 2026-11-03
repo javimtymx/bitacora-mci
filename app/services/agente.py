@@ -78,7 +78,7 @@ def recordatorios(db: Session) -> int:
     manana = hoy() + timedelta(days=1)
     # 1) remediaciones que vencen mañana
     auto = parametros.get(db, "auto_recordatorio_remediacion")
-    for r in db.scalars(select(Remediacion).where(Remediacion.estado == "abierta", Remediacion.nueva_fecha == manana)):
+    for r in db.scalars(select(Remediacion).join(Compromiso).where(Remediacion.estado == "abierta", Remediacion.nueva_fecha == manana)):
         c = r.compromiso
         if acciones.ya_existe(db, "recordatorio_remediacion", "compromiso", c.id, ayer):
             continue

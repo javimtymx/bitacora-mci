@@ -133,6 +133,11 @@ def flash(request: Request, texto: str, tipo: str = "ok") -> None:
 
 def render(request: Request, plantilla: str, u: Usuario | None, nav: str = "", **ctx):
     msgs = request.session.pop("flash", []) if "flash" in request.session else []
+    if u is not None and u.rol == "admin" and "pend_elim" not in ctx:
+        from sqlalchemy.orm import object_session
+        from .archivo import pendientes
+        ses = object_session(u)
+        ctx["pend_elim"] = pendientes(ses) if ses is not None else 0
     return TEMPLATES.TemplateResponse(request, plantilla, {"u": u, "nav": nav, "flashes": msgs,
                                                            "hoy": util.hoy(), **ctx})
 

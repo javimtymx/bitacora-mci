@@ -1,0 +1,39 @@
+{% extends "base.html" %}{% from "_ui.html" import icon, estado_comp with context %}
+{% block title %}Solicitudes de eliminación{% endblock %}
+{% block content %}
+<div class="top"><div class="col" style="gap:4px"><span class="muted small"><a href="/compromisos">Compromisos</a> · solo administradores</span>
+  <h1>Solicitudes de eliminación</h1>
+  <span class="muted">Al autorizar, el compromiso, su remediación y sus acciones de seguimiento pasan al archivo y dejan de contar en indicadores, reportes y la IA. No se borran de la base de datos.</span></div>
+  <button class="btn soft" type="button" onclick="window.print()">{{ icon('print') }}Imprimir informe</button></div>
+
+<section class="card pad"><div class="row between"><h2>Pendientes de autorizar</h2><span class="tag {{ 'r' if pend else 'g' }}">{{ pend|length }}</span></div>
+{% for s in pend %}{% set c = s.compromiso %}
+  <article id="sol-{{ s.id }}" style="border:1px solid var(--line);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:10px">
+    <div class="row between" style="align-items:flex-start;gap:12px">
+      <div class="col" style="gap:4px;flex:1 1 420px">
+        <span class="small muted">CMP-{{ '%04d' % c.id }} · semana {{ num_semana(c.semana) }} · {{ c.area.nombre }} · responsable {{ c.responsable.nombre }} · vence {{ fmt_fecha(c.fecha_limite) }}</span>
+        <a href="/compromisos/{{ c.id }}"><b>{{ c.texto }}</b></a>
+        <div class="row small" style="gap:8px">{{ estado_comp(c, seg) }}<span class="muted">avance {{ c.avance }}%{% if c.remediaciones %} · {{ c.remediaciones|length }} remediación(es){% endif %}</span></div>
+      </div>
+    </div>
+    <div class="small" style="background:#FFF4D6;border:1px solid #F2D27A;border-radius:10px;padding:10px 12px"><b>Causa:</b> {{ s.motivo }}<div class="muted" style="margin-top:4px">Solicitó {{ s.solicitante.nombre }} el {{ fmt_fecha(s.creado) }}</div></div>
+    <div class="row noprint" style="gap:10px;align-items:flex-end">
+      <form method="post" action="/compromisos/eliminaciones/{{ s.id }}/aprobar" class="row" style="gap:8px">
+        <input class="input" name="comentario" placeholder="Comentario (opcional)" style="width:260px">
+        <button class="btn red">{{ icon('ok') }}Autorizar eliminación</button></form>
+      <form method="post" action="/compromisos/eliminaciones/{{ s.id }}/rechazar" class="row" style="gap:8px">
+        <input class="input" name="comentario" required minlength="5" placeholder="Motivo del rechazo" style="width:240px">
+        <button class="btn soft">Rechazar</button></form>
+    </div>
+  </article>
+{% else %}<span class="muted">No hay solicitudes pendientes.</span>{% endfor %}
+</section>
+
+<section class="card pad"><h2>Resueltas recientemente</h2>
+  <div class="tbl"><table><thead><tr><th>Folio</th><th>Compromiso</th><th>Causa</th><th>Solicitó</th><th>Resolución</th><th>Por</th><th>Fecha</th></tr></thead><tbody>
+  {% for s in resueltas %}<tr><td>CMP-{{ '%04d' % s.compromiso_id }}</td><td class="small">{{ s.compromiso.texto[:120] }}</td><td class="small">{{ s.motivo }}</td><td>{{ s.solicitante.nombre }}</td>
+    <td><span class="tag {{ 'r' if s.estado=='aprobada' else 'n' }}">{{ 'Archivado' if s.estado=='aprobada' else 'Rechazada' }}</span>{% if s.comentario %}<div class="small muted">{{ s.comentario }}</div>{% endif %}</td>
+    <td>{{ s.resolutor.nombre if s.resolutor else '—' }}</td><td>{{ fmt_fecha(s.resuelto_en) }}</td></tr>
+  {% else %}<tr><td colspan="7" class="muted">Sin historial.</td></tr>{% endfor %}</tbody></table></div>
+</section>
+{% endblock %}
