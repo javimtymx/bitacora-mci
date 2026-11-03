@@ -1,13 +1,14 @@
 [Unit]
 Description=Bitácora MCI (FastAPI)
-After=network.target mysql.service mariadb.service
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 User=bitacora
 Group=bitacora
 WorkingDirectory=/opt/bitacora-mci
 EnvironmentFile=/opt/bitacora-mci/.env
-ExecStart=/opt/bitacora-mci/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8010 --workers 2 --proxy-headers --forwarded-allow-ips=127.0.0.1
+ExecStart=/opt/bitacora-mci/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8020 --workers 1 --proxy-headers --forwarded-allow-ips=127.0.0.1
 Restart=always
 RestartSec=3
 NoNewPrivileges=true

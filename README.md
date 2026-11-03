@@ -32,7 +32,7 @@ Plataforma de ejecución semanal 4DX con un PM virtual (IA). El equipo captura c
 
 ## Despliegue en Lightsail
 
-Requisitos: Ubuntu o Debian con MySQL (o MariaDB) local, un dominio apuntando a la IP estática de la instancia y los puertos 80 y 443 abiertos en el firewall de Lightsail.
+Requisitos: Ubuntu 22.04+ con nginx, MySQL 8 en Amazon RDS accesible desde la IP estática de Lightsail (Security Group en 3306), un dominio apuntando a esa IP y los puertos 80/443 abiertos en el firewall de Lightsail. La app escucha en 127.0.0.1:8020 (8010–8012 ya los usan otras apps del servidor).
 
 ```bash
 # 1. Código
@@ -42,7 +42,7 @@ cd ~/bitacora-mci
 
 # 2. Base de datos: edita contraseñas y el nombre real de tu base de CFDI
 nano deploy/mysql.sql
-sudo mysql < deploy/mysql.sql
+mysql -h TU_ENDPOINT_RDS -u admin -p < deploy/mysql.sql
 
 # 3. Instalación (crea /opt/bitacora-mci, venv, servicios y nginx)
 sudo bash deploy/setup.sh            # la primera vez crea .env y se detiene
