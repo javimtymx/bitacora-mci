@@ -51,6 +51,13 @@ def _consolidado_area(db: Session, area: Area, sem: str, sems8: list[str]) -> di
                                                              Predictiva.activo.is_(True)).order_by(Mci.id, Predictiva.id)))
     comps = list(db.scalars(select(Compromiso).where(Compromiso.area_id == area.id, Compromiso.semana.in_(sems8))))
     matriz = indicadores.matriz_predictivas(db, preds, sems8, comps)
+    # jerarquía: cada MCI (meta) con su resultado semanal y, debajo, las predictivas que la mueven
+    grupos = []
+    for m in indicadores.mcis_de(db, area.id):
+        filas = [f for f in matriz if f[0].mci_id == m.id]
+        sr = indicadores.serie_mci(db, m, len(sems8), sems8[-1])
+        grupos.append({"mci": m, "v": sr.version, "puntos": sr.puntos, "filas": filas, "dec": indicadores.decimales(m),
+                       "racha": sr.racha})
     comps_sem = sorted((c for c in comps if c.semana == sem), key=lambda c: c.fecha_limite)
     desde = hoy() - _td(weeks=6)
     hall = list(db.scalars(select(Hallazgo).join(SesionCliente).where(SesionCliente.area_id == area.id,
@@ -69,7 +76,7 @@ def _consolidado_area(db: Session, area: Area, sem: str, sems8: list[str]) -> di
     ideas = list(db.scalars(select(Idea).where(Idea.area_id == area.id, Idea.creado >= utcnow() - _td(days=90))
                             .order_by(Idea.actualizado.desc())))
     d = diagnostico.ultimo(db, area.id)
-    return {"ayf": _panel_ayf(db, area), "matriz": matriz, "comps_sem": comps_sem, "sems8": sems8,
+    return {"ayf": _panel_ayf(db, area), "matriz": matriz, "grupos": grupos, "comps_sem": comps_sem, "sems8": sems8,
             "temas": sorted(temas.items(), key=lambda x: -x[1])[:5], "tipos": sorted(tipos.items(), key=lambda x: -x[1][0]),
             "n_ses": n_ses, "ideas": ideas[:5], "ideas_estado": {k: sum(1 for i in ideas if i.estado == k)
                                                                    for k in ("propuesta", "validada", "en_curso", "implementada")},

@@ -16,7 +16,7 @@
   <div class="tbl"><table><thead><tr><th>Medida predictiva</th><th>Versión vigente</th><th>Meta semanal</th><th>Fuente</th><th>Desde</th><th></th></tr></thead><tbody>
   {% for p in m.predictivas %}{% set pv = vigente(p.versiones) %}<tr class="{{ '' if p.activo else 'hl' }}">
     <td><b>{{ p.nombre }}</b>{% if not p.activo %} <span class="tag n">retirada</span>{% endif %}<div class="muted small">{{ pv.descripcion if pv }}</div></td>
-    <td>v{{ pv.version if pv }}</td><td>{{ pv.meta_semanal if pv and pv.meta_semanal is not none else '—' }} {{ pv.unidad if pv }}</td><td>{{ pv.fuente if pv }}</td><td>{{ fmt_fecha(pv.vigente_desde) if pv }}</td>
+    <td>v{{ pv.version if pv }}</td><td>{{ valor(pv.meta_semanal, pv.unidad, 2) if pv and pv.meta_semanal is not none else '—' }}</td><td>{{ pv.fuente if pv }}</td><td>{{ fmt_fecha(pv.vigente_desde) if pv }}</td>
     <td><div class="row" style="gap:6px;flex-wrap:nowrap"><button class="btn sm soft" data-open="v-pred-{{ p.id }}">Nueva versión</button>
       <form method="post" action="/admin/predictivas/{{ p.id }}/evidencia"><button class="btn sm ghost" title="Pedir transcripción como evidencia">{{ 'Evidencia: sí' if p.requiere_evidencia else 'Evidencia: no' }}</button></form>
       <form method="post" action="/admin/predictivas/{{ p.id }}/activo"><input type="hidden" name="motivo" value="{{ 'Reactivada' if not p.activo else 'Retirada del catálogo' }}"><button class="btn sm ghost">{{ 'Reactivar' if not p.activo else 'Retirar' }}</button></form></div></td></tr>

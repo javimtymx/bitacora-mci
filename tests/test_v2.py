@@ -283,7 +283,7 @@ def test_ventas_automaticas_desde_panel_ayf(admin, mario, db):
 def test_vista_consolidada_por_area(admin, db):
     t = admin.get("/?area=ventas").text
     assert "Palancas de Ventas" not in t  # palancas = medidas predictivas
-    for txt in ("Medidas predictivas · 8 semanas", "Meta / sem", "Citas por LinkedIn",
+    for txt in ("Metas y medidas predictivas · 8 semanas", "mci-row", "pred-row", "Citas por LinkedIn",
                 "Compromisos de la semana", "Voz del cliente · 6 semanas", "Ideas del área"):
         assert txt in t, txt
     t = admin.get("/").text

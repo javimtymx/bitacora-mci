@@ -15,10 +15,13 @@
       abrir(a.dataset.open); return;
     }
     const c = e.target.closest("[data-close]"); if (c) { e.preventDefault(); cerrar(c.closest(".overlay")); return; }
-    if (e.target.classList.contains("overlay")) cerrar(e.target);
+    // clic en la zona gris: no se cierra (se pierde lo capturado); solo un aviso visual de que sigue abierto
+    if (e.target.classList.contains("overlay")) {
+      const m = e.target.querySelector(".modal");
+      if (m) { m.classList.remove("attn"); void m.offsetWidth; m.classList.add("attn"); }
+    }
     const x = e.target.closest(".cint .x"); if (x) x.closest(".cint").remove();
   });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") $$(".overlay.open").forEach(cerrar); });
   if (location.hash && document.getElementById(location.hash.slice(1))?.classList.contains("overlay")) abrir(location.hash.slice(1));
 
   // ---- filtro de predictivas por área
@@ -91,7 +94,8 @@
     $("[name=revision_id]", form).value = d.revision_id || "";
     $("[data-btn-sug]", form).classList.toggle("hidden", !d.sugerencia || v === "ok");
     $("[data-btn-propio]", form).textContent = (v === "ok" || v === "fuerte" || v === "media") ? "Guardar" : "Guardar como está";
-    box.classList.remove("hidden");
+    box.classList.remove("hidden", "stale");
+    $(".stale-aviso", box)?.remove();
     $("[data-ia-acciones]", form).classList.remove("hidden");
     $("[data-btn-revisar]", form).classList.add("hidden");
   }
@@ -99,13 +103,30 @@
   $$("form[data-ia]").forEach((form) => {
     const btn = $("[data-btn-revisar]", form);
     // si se edita después de revisar, hay que volver a revisar
-    $$("[data-revisable]", form).forEach((el) => el.addEventListener("input", () => {
+    // si se edita después de revisar: la retroalimentación se queda a la vista (sirve de guía mientras se corrige),
+    // pero queda marcada como desactualizada y solo se puede volver a revisar; no se puede guardar ni usar la sugerencia.
+    const marcarDesactualizada = () => {
       if (!$("[name=revision_id]", form).value) return;
       $("[name=revision_id]", form).value = "";
-      $("[data-ia-resultado]", form).classList.add("hidden");
+      const box = $("[data-ia-resultado]", form);
+      box.classList.add("stale");
+      if (!$(".stale-aviso", box)) {
+        const a = document.createElement("div");
+        a.className = "stale-aviso";
+        a.innerHTML = `<b>Modificaste los datos.</b> Esta revisión corresponde a la versión anterior; úsala como guía y pide que el PM virtual revise de nuevo para poder guardar.`;
+        box.prepend(a);
+      }
+      $$("input[name=plan_sel]", box).forEach((c) => { c.disabled = true; });
+      $("[data-ia-motivo]", form).classList.add("hidden");
       $("[data-ia-acciones]", form).classList.add("hidden");
+      btn.innerHTML = btn.dataset.txtNuevo || btn.innerHTML;
       btn.classList.remove("hidden");
-    }));
+    };
+    if (!btn.dataset.txtNuevo) btn.dataset.txtNuevo = btn.innerHTML.replace(/Revisar con IA|Evaluar con IA/, "Revisar de nuevo con IA");
+    $$("[data-revisable]", form).forEach((el) => {
+      el.addEventListener("input", marcarDesactualizada);
+      el.addEventListener("change", marcarDesactualizada);
+    });
     btn.addEventListener("click", async () => {
       if (!form.reportValidity()) return;
       const txt = btn.innerHTML;

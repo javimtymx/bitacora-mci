@@ -86,13 +86,19 @@
   {% else %}<span class="muted small">Aún no hay diagnóstico para esta área.</span>{% endif %}</section>
 </div>
 
-<section class="card pad"><div class="row between"><h2>Medidas predictivas · 8 semanas</h2><div class="row" style="gap:10px"><span class="small muted">Valor capturado vs meta semanal · debajo, compromisos cumplidos / registrados</span>{% if u.es_lider %}<a class="btn sm soft" href="/indicadores/captura">{{ icon('plus', 15) }}Capturar</a>{% endif %}</div></div>
-  <div class="tbl"><table><thead><tr><th>Medida predictiva</th><th class="num">Meta / sem</th>{% for s in cons.sems8 %}<th class="num">S{{ num_semana(s) }}</th>{% endfor %}</tr></thead><tbody>
-  {% for p, v, fila in cons.matriz %}<tr><td class="small"><b>{{ p.nombre }}</b>{% if p.requiere_evidencia %} <span class="tag n">evidencia</span>{% endif %}<div class="muted">{{ p.mci.nombre }}</div></td>
-    <td class="num small">{{ valor(v.meta_semanal, v.unidad, 1) if v and v.meta_semanal is not none else '—' }}</td>
-    {% for c in fila %}<td class="num">{% if c.estado %}<span class="tag {{ c.estado }}">{{ valor(c.valor, '', 1) }}{% if c.meta is not none %}/{{ valor(c.meta, '', 1) }}{% endif %}</span>{% else %}<span class="muted">·</span>{% endif %}
-      {% if c.compromisos %}<div class="muted" style="font-size:11px;margin-top:2px" title="Compromisos cumplidos / registrados">{{ c.cumplidos }}/{{ c.compromisos }} comp.</div>{% endif %}</td>{% endfor %}</tr>
-  {% else %}<tr><td class="muted" colspan="10">Sin medidas predictivas.</td></tr>{% endfor %}</tbody></table></div></section>
+<section class="card pad"><div class="row between"><h2>Metas y medidas predictivas · 8 semanas</h2><div class="row" style="gap:10px"><span class="small muted">Cada meta con su resultado y, debajo, las predictivas que la mueven · valor vs meta · compromisos cumplidos / registrados</span>{% if u.es_lider %}<a class="btn sm soft" href="/indicadores/captura">{{ icon('plus', 15) }}Capturar</a>{% endif %}</div></div>
+  <div class="tbl"><table class="jer"><thead><tr><th>Meta (MCI) y sus medidas predictivas</th><th class="num">Meta</th>{% for s in cons.sems8 %}<th class="num">S{{ num_semana(s) }}</th>{% endfor %}</tr></thead>
+  {% for g in cons.grupos %}<tbody>
+    <tr class="mci-row"><td><div class="row" style="gap:8px;flex-wrap:nowrap"><span class="tag b" style="flex:none">MCI</span><b>{{ g.mci.nombre }}</b></div>
+        <div class="muted small" style="margin-top:2px">{% if g.v and g.v.meta is not none %}Meta {{ valor(g.v.meta, g.v.unidad, g.dec) }}{{ ' · ' ~ g.v.periodicidad if g.v.periodicidad }}{% else %}Sin meta definida{% endif %} · {{ g.mci.dueno.nombre if g.mci.dueno else 'sin dueño' }} · <a class="lnk" href="/kardex/{{ g.mci.id }}">Kárdex</a></div></td>
+      <td class="num small">{% if g.v and g.v.meta is not none %}{{ valor(g.v.meta, g.v.unidad, g.dec) }}{% else %}—{% endif %}</td>
+      {% for pt in g.puntos %}<td class="num">{% if pt.valor is not none %}<span class="tag {{ 'g' if pt.brecha is not none and pt.brecha >= 0 else 'r' if pt.brecha is not none else 'n' }}">{{ valor(pt.valor, '', g.dec) }}{% if pt.objetivo is not none %}/{{ valor(pt.objetivo, '', g.dec) }}{% endif %}</span>{% else %}<span class="muted">·</span>{% endif %}</td>{% endfor %}</tr>
+    {% for p, v, fila in g.filas %}<tr class="pred-row"><td class="small"><div class="row" style="gap:6px;flex-wrap:nowrap"><span class="rama" aria-hidden="true">{{ '└' if loop.last else '├' }}</span><b>{{ p.nombre }}</b>{% if p.requiere_evidencia %} <span class="tag n">evidencia</span>{% endif %}</div></td>
+      <td class="num small">{{ valor(v.meta_semanal, v.unidad, 1) if v and v.meta_semanal is not none else '—' }}</td>
+      {% for c in fila %}<td class="num">{% if c.estado %}<span class="tag {{ c.estado }}">{{ valor(c.valor, '', 1) }}{% if c.meta is not none %}/{{ valor(c.meta, '', 1) }}{% endif %}</span>{% else %}<span class="muted">·</span>{% endif %}
+        {% if c.compromisos %}<div class="muted" style="font-size:11px;margin-top:2px" title="Compromisos cumplidos / registrados">{{ c.cumplidos }}/{{ c.compromisos }} comp.</div>{% endif %}</td>{% endfor %}</tr>
+    {% else %}<tr class="pred-row"><td colspan="10" class="small muted"><span class="rama">└</span> Esta meta no tiene medidas predictivas. Agrégalas en Configurar → Catálogo.</td></tr>{% endfor %}
+  </tbody>{% else %}<tbody><tr><td class="muted" colspan="10">Sin metas en esta área.</td></tr></tbody>{% endfor %}</table></div></section>
 
 <div class="grid2">
 <section class="card pad"><div class="row between"><h2>Compromisos de la semana</h2><a class="btn sm yellow" href="/compromisos#nuevo-compromiso">{{ icon('plus', 15) }}Nuevo</a></div>
