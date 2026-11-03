@@ -1,5 +1,5 @@
 {% extends "base.html" %}{% from "_ui.html" import icon, estado_comp, avance with context %}
-{% block title %}Inicio{% endblock %}
+{% block title %}Mi semana{% endblock %}
 {% block content %}
 <div class="top"><h1>Hola, {{ u.nombre.split()[0] }}</h1>
   <span class="muted" style="font-weight:600">{{ fmt_dia(hoy) }} · semana {{ num_semana(sem) }}</span></div>

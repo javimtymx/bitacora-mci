@@ -2,13 +2,14 @@
 <div class="overlay" id="nuevo-compromiso">
 <form class="modal" method="post" action="/compromisos" data-ia="/api/ia/compromiso" data-ia-tipo="compromiso" role="dialog" aria-modal="true" aria-labelledby="t-nc">
   <input type="hidden" name="revision_id" value="">
+  {% if rec %}<input type="hidden" name="recomendacion_id" value="{{ rec.id }}">{% endif %}
   <div class="mh">
     <div class="row"><h2 id="t-nc">Nuevo compromiso</h2><span style="width:1px;height:20px;background:var(--line2)"></span>
       <span class="muted" style="font-weight:600">Semana {{ num_semana(sem) }} · vence por omisión el {{ fmt_dia(viernes) }}</span></div>
     <button class="btn ghost" type="button" data-close aria-label="Cerrar" style="width:42px;padding:0">{{ icon('x') }}</button>
   </div>
   <div style="padding:18px 24px 4px"><div class="cint"><span class="ic">{{ icon('spark') }}</span>
-    <span style="flex:1">El PM virtual revisa tu compromiso antes de guardarlo: que sea verificable, que mueva la medida y que no repita lo que ya no funcionó.</span></div></div>
+    <span style="flex:1">{% if rec %}Viene de la recomendación de la IA de la semana {{ num_semana(rec.semana) }}: ajústala a algo que tú puedas cumplir y verificar. {% endif %}El PM virtual revisa tu compromiso antes de guardarlo: que sea verificable, que mueva la medida y que no repita lo que ya no funcionó.</span></div></div>
   <div class="sec" style="border-top:0">
     <div class="sech"><span class="secic">{{ icon('check') }}</span>Datos del compromiso</div>
     <div class="grid4">
@@ -30,7 +31,7 @@
     </div>
     <div class="grid2" style="grid-template-columns:3fr 1fr">
       <div class="field"><label for="nc-texto">Compromiso (qué harás, cuánto y para cuándo)</label>
-        <textarea class="input" id="nc-texto" name="texto" required maxlength="1000" data-revisable placeholder="Ej. Enviar 15 mensajes directos a gerentes de comercio exterior de empresas IMMEX y agendar 1 cita antes del jueves"></textarea></div>
+        <textarea class="input" id="nc-texto" name="texto" required maxlength="1000" data-revisable placeholder="Ej. Enviar 15 mensajes directos a gerentes de comercio exterior de empresas IMMEX y agendar 1 cita antes del jueves">{{ pref_texto or '' }}</textarea></div>
       <div class="field"><label for="nc-est">Estrategia ligada (opcional)</label>
         <select class="input" id="nc-est" name="estrategia_id" data-revisable>
           <option value="">Ninguna</option>

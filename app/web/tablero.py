@@ -1,0 +1,269 @@
+"""Tablero semanal, kárdex por indicador, captura semanal, diagnóstico IA por área y prompts por área."""
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from ..db import get_db
+from ..models import (
+    Area,
+    Compromiso,
+    DiagnosticoSemanal,
+    Mci,
+    Medicion,
+    PromptArea,
+    RecomendacionIA,
+    Usuario,
+    utcnow,
+)
+from ..services import catalogo, diagnostico, ia, indicadores, parametros, seguimiento
+from ..services.util import auditar, hoy, semana_iso
+from . import graficas
+from .base import flash, ir, render, requiere_direccion, requiere_lider, usuario_actual
+
+router = APIRouter()
+
+
+def _areas(db: Session) -> list[Area]:
+    return [a for a in db.scalars(select(Area).where(Area.activo.is_(True)).order_by(Area.id))
+            if indicadores.mcis_de(db, a.id)]
+
+
+def _tarjeta(db: Session, m: Mci, sem: str) -> dict:
+    sr = indicadores.serie_mci(db, m, 8, sem)
+    v = sr.version
+    dec = indicadores.decimales(m)
+    ult = sr.ultimo
+    racha, n = sr.racha
+    actual = sr.puntos[-1]
+    return {"mci": m, "serie": sr, "v": v, "ult": ult, "racha": racha, "n": n, "dec": dec,
+            "barras": graficas.barras_brecha(sr), "comp_txt": f"{actual.cumplidos} / {actual.compromisos}" if actual.compromisos else "—"}
+
+
+@router.get("/")
+def tablero(request: Request, area: str = "todas", semana: str | None = None, db: Session = Depends(get_db),
+            u: Usuario = Depends(usuario_actual)):
+    sem = semana or semana_iso(hoy())
+    areas = _areas(db)
+    sel = next((a for a in areas if a.clave == area), None)
+    mcis = indicadores.mcis_de(db, sel.id if sel else None)
+    tarjetas = [_tarjeta(db, m, sem) for m in mcis]
+    ganando = sum(1 for t in tarjetas if t["racha"] == "ganando")
+    perdiendo = sum(1 for t in tarjetas if t["racha"] == "perdiendo")
+    sem_ant = indicadores.semanas(2, sem)[0]
+    comps_ant = list(db.scalars(select(Compromiso).where(Compromiso.semana == sem_ant)))
+    if sel:
+        comps_ant = [c for c in comps_ant if c.area_id == sel.id]
+    cerrados = [c for c in comps_ant if c.estado in ("cumplido", "no_cumplido")]
+    personas = seguimiento.estado_personas(db, sel.id if sel else None)
+    sems8 = indicadores.semanas(8, sem)
+    tiras = indicadores.semanas_persona(db, [p.usuario.id for p in personas], sems8)
+    diags = [d for d in (diagnostico.ultimo(db, a.id, sem) for a in areas) if d]
+    sin_rem = sum(1 for c in db.scalars(select(Compromiso).where(Compromiso.estado == "no_cumplido"))
+                  if seguimiento.sin_remediacion(c) and (not sel or c.area_id == sel.id))
+    return render(request, "tablero.html", u, "inicio", areas=areas, sel=sel, sem=sem, tarjetas=tarjetas,
+                  ganando=ganando, perdiendo=perdiendo, cumplidos_ant=sum(1 for c in cerrados if c.estado == "cumplido"),
+                  cerrados_ant=len(cerrados), sem_ant=sem_ant, sin_rem=sin_rem, personas=personas, tiras=tiras,
+                  sems8=sems8, diags=diags, semanas=indicadores.semanas(12))
+
+
+@router.get("/kardex")
+def kardex_area(area: str, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+    a = db.scalar(select(Area).where(Area.clave == area))
+    ms = indicadores.mcis_de(db, a.id) if a else []
+    if not ms:
+        raise HTTPException(404, "Esa área no tiene indicadores.")
+    return ir(f"/kardex/{ms[0].id}")
+
+
+@router.get("/kardex/{mid}")
+def kardex(mid: int, request: Request, semana: str | None = None, db: Session = Depends(get_db),
+           u: Usuario = Depends(usuario_actual)):
+    m = db.get(Mci, mid)
+    if not m:
+        raise HTTPException(404)
+    sem = semana or semana_iso(hoy())
+    sr = indicadores.serie_mci(db, m, 16, sem)
+    sems = [p.semana for p in sr.puntos]
+    eventos = indicadores.eventos_mci(db, m, sems)
+    dec = indicadores.decimales(m)
+    unidad = sr.version.unidad if sr.version else ""
+    ultimos4 = sr.puntos[-4:]
+    cum4 = sum(p.cumplidos for p in ultimos4)
+    tot4 = sum(p.compromisos for p in ultimos4)
+    pred_ids = [p.id for p in m.predictivas]
+    comps_sem = list(db.scalars(select(Compromiso).where(Compromiso.predictiva_id.in_(pred_ids), Compromiso.semana == sem)
+                                .order_by(Compromiso.fecha_limite))) if pred_ids else []
+    preds = []
+    for p in m.predictivas:
+        if not p.activo:
+            continue
+        cs = [c for c in comps_sem if c.predictiva_id == p.id]
+        hechos = sum(1 for c in cs if c.estado == "cumplido")
+        preds.append((p, hechos, len(cs)))
+    diags = {d.semana: d for d in db.scalars(select(DiagnosticoSemanal).where(DiagnosticoSemanal.area_id == m.area_id,
+                                                                             DiagnosticoSemanal.semana.in_(sems)))}
+    ev_por_sem: dict[str, list[str]] = {}
+    for s, t in eventos:
+        ev_por_sem.setdefault(s, []).append(t)
+    filas = []
+    for i in range(len(sr.puntos) - 1, max(len(sr.puntos) - 9, 0), -1):
+        p = sr.puntos[i]
+        prev = sr.puntos[i - 1] if i else None
+        mov = p.valor - prev.valor if (p.valor is not None and prev and prev.valor is not None) else None
+        filas.append({"p": p, "mov": mov, "eventos": ev_por_sem.get(p.semana, []), "diag": diags.get(p.semana)})
+    ultimo_diag = diagnostico.ultimo(db, m.area_id)
+    dec_obj = 1 if (sr.version and sr.version.tipo_meta == "acumulado") else dec
+    return render(request, "kardex.html", u, "inicio", m=m, sr=sr, sem=sem, dec=dec, dec_obj=dec_obj, unidad=unidad,
+                  grafica=graficas.kardex(sr, eventos, unidad, dec), eventos=eventos, filas=filas, preds=preds,
+                  comps_sem=comps_sem, cum4=cum4, tot4=tot4, areas=_areas(db), hermanas=indicadores.mcis_de(db, m.area_id),
+                  rem_ok=sum(p.remediados for p in sr.puntos), rem_texto=sum(p.solo_texto for p in sr.puntos),
+                  ultimo_diag=ultimo_diag, seg=seguimiento, puede_capturar=_puede_capturar(u, m))
+
+
+# ---------------------------------------------------------------- captura semanal
+
+def _puede_capturar(u: Usuario, m: Mci) -> bool:
+    return u.es_direccion or m.dueno_id == u.id or (u.rol == "lider" and u.area_id == m.area_id)
+
+
+@router.get("/indicadores/captura")
+def captura(request: Request, semana: str | None = None, db: Session = Depends(get_db),
+            u: Usuario = Depends(usuario_actual)):
+    sem = semana or semana_iso(hoy())
+    ms = [m for m in indicadores.mcis_de(db) if _puede_capturar(u, m)]
+    if not ms:
+        raise HTTPException(403, "No eres dueño de ningún indicador.")
+    filas = []
+    for m in ms:
+        v = catalogo.version_vigente(m.versiones, indicadores.viernes_de(sem))
+        med = db.scalar(select(Medicion).where(Medicion.tipo == "mci", Medicion.version_id.in_([x.id for x in m.versiones]),
+                                               Medicion.periodo == sem)) if m.versiones else None
+        sr = indicadores.serie_mci(db, m, 4, sem)
+        filas.append({"m": m, "v": v, "med": med, "prev": [p.valor for p in sr.puntos[:-1]],
+                      "obj": sr.puntos[-1].objetivo, "dec": indicadores.decimales(m)})
+    return render(request, "captura_mediciones.html", u, "indicadores", filas=filas, sem=sem,
+                  semanas=indicadores.semanas(8))
+
+
+@router.post("/indicadores/captura")
+async def guardar_captura(request: Request, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+    form = await request.form()
+    sem = str(form.get("semana") or semana_iso(hoy()))
+    try:
+        dia = indicadores.viernes_de(sem)
+    except ValueError:
+        raise HTTPException(400, "Semana inválida.")
+    n = 0
+    for m in indicadores.mcis_de(db):
+        raw = str(form.get(f"valor_{m.id}") or "").strip().replace(",", "")
+        if not raw or not _puede_capturar(u, m):
+            continue
+        try:
+            valor = float(raw.rstrip("%"))
+        except ValueError:
+            continue
+        v = catalogo.version_vigente(m.versiones, dia)
+        if not v:
+            continue
+        nota = str(form.get(f"nota_{m.id}") or "").strip()[:500] or None
+        med = db.scalar(select(Medicion).where(Medicion.tipo == "mci", Medicion.version_id.in_([x.id for x in m.versiones]),
+                                               Medicion.periodo == sem))
+        if med:
+            med.valor, med.nota, med.version_id, med.capturado_por = valor, nota, v.id, u.id
+        else:
+            db.add(Medicion(tipo="mci", version_id=v.id, periodo=sem, valor=valor, nota=nota, capturado_por=u.id))
+        n += 1
+    if n:
+        auditar(db, "captura", "mediciones", None, u.id, semana=sem, n=n)
+    db.commit()
+    flash(request, f"{n} indicador(es) guardados para la semana {sem[-2:]}." if n else "No se capturó ningún valor.")
+    return ir(f"/indicadores/captura?semana={sem}")
+
+
+# ---------------------------------------------------------------- diagnóstico IA por área
+
+@router.get("/diagnostico")
+def ver_diagnostico(request: Request, area: str | None = None, semana: str | None = None,
+                    db: Session = Depends(get_db), u: Usuario = Depends(requiere_lider)):
+    areas = _areas(db)
+    if not areas:
+        raise HTTPException(404, "No hay indicadores configurados.")
+    sel = next((a for a in areas if a.clave == area), None) or \
+        next((a for a in areas if a.id == u.area_id), None) or areas[0]
+    sem = semana or semana_iso(hoy())
+    d = diagnostico.ultimo(db, sel.id, sem) or diagnostico.ultimo(db, sel.id)
+    estados = {a.id: diagnostico.ultimo(db, a.id, sem) for a in areas}
+    previas = list(db.scalars(select(RecomendacionIA).where(RecomendacionIA.area_id == sel.id,
+                                                            RecomendacionIA.ejecucion.is_not(None))
+                              .order_by(RecomendacionIA.semana.desc()).limit(6)))
+    hist = list(db.scalars(select(DiagnosticoSemanal).where(DiagnosticoSemanal.area_id == sel.id)
+                           .order_by(DiagnosticoSemanal.creado.desc()).limit(8)))
+    return render(request, "diagnostico.html", u, "diagnostico", areas=areas, sel=sel, d=d, sem=sem, estados=estados,
+                  previas=previas, hist=hist, efect=diagnostico.efectividad(db, sel.id),
+                  inv_usadas=diagnostico.investigaciones_usadas(db, sem),
+                  inv_max=parametros.get(db, "investigaciones_por_semana"),
+                  prompt=diagnostico.prompt_vigente(db, sel), puede=u.es_direccion or u.area_id == sel.id)
+
+
+@router.post("/diagnostico/generar")
+def generar_diagnostico(request: Request, area: str = Form(...), pregunta: str = Form(""),
+                        db: Session = Depends(get_db), u: Usuario = Depends(requiere_lider)):
+    a = db.scalar(select(Area).where(Area.clave == area))
+    if not a or not (u.es_direccion or u.area_id == a.id):
+        raise HTTPException(403)
+    try:
+        diagnostico.generar(db, a, usuario_id=u.id, pregunta_manual=pregunta.strip() or None)
+        flash(request, "Diagnóstico generado." + (" Incluye investigación profunda." if pregunta.strip() else ""))
+    except ia.IANoDisponible as e:
+        flash(request, f"La IA no está disponible: {str(e)[:160]}", "error")
+    return ir(f"/diagnostico?area={a.clave}")
+
+
+@router.get("/recomendaciones/{rid}/compromiso")
+def recomendacion_a_compromiso(rid: int, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+    r = db.get(RecomendacionIA, rid)
+    if not r:
+        raise HTTPException(404)
+    return ir(f"/compromisos?scope=mios&rec={r.id}#nuevo-compromiso")
+
+
+@router.post("/recomendaciones/{rid}/descartar")
+def descartar_recomendacion(rid: int, request: Request, db: Session = Depends(get_db), u: Usuario = Depends(requiere_lider)):
+    r = db.get(RecomendacionIA, rid)
+    if not r:
+        raise HTTPException(404)
+    r.estado = "descartada"
+    auditar(db, "descartar", "recomendacion", r.id, u.id)
+    db.commit()
+    a = db.get(Area, r.area_id)
+    return ir(f"/diagnostico?area={a.clave}")
+
+
+# ---------------------------------------------------------------- prompts por área
+
+@router.get("/admin/prompts")
+def prompts(request: Request, db: Session = Depends(get_db), u: Usuario = Depends(requiere_direccion)):
+    areas = list(db.scalars(select(Area).order_by(Area.id)))
+    vig = {a.id: diagnostico.prompt_vigente(db, a) for a in areas}
+    hist = {a.id: list(db.scalars(select(PromptArea).where(PromptArea.area_id == a.id).order_by(PromptArea.version.desc())))
+            for a in areas}
+    return render(request, "admin_prompts.html", u, "admin", areas=areas, vig=vig, hist=hist, tab="prompts")
+
+
+@router.post("/admin/prompts/{aid}")
+def guardar_prompt(aid: int, request: Request, especialidad: str = Form(...), instrucciones: str = Form(...),
+                   motivo: str = Form(...), db: Session = Depends(get_db), u: Usuario = Depends(requiere_direccion)):
+    a = db.get(Area, aid)
+    if not a or not motivo.strip():
+        raise HTTPException(400, "El cambio requiere motivo.")
+    actual = diagnostico.prompt_vigente(db, a)
+    for p in db.scalars(select(PromptArea).where(PromptArea.area_id == a.id, PromptArea.activo.is_(True))):
+        p.activo = False
+    db.add(PromptArea(area_id=a.id, version=(actual.version + 1) if actual else 1, especialidad=especialidad.strip()[:300],
+                      instrucciones=instrucciones.strip(), motivo=motivo.strip(), creado_por=u.id))
+    auditar(db, "prompt", "area", a.id, u.id, motivo=motivo)
+    db.commit()
+    flash(request, f"Nueva versión del especialista de {a.nombre}. Los diagnósticos anteriores conservan la versión con la que se hicieron.")
+    return ir("/admin/prompts")

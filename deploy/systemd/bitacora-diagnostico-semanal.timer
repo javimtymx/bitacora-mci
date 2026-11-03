@@ -1,0 +1,10 @@
+[Unit]
+Description=Bitácora MCI · diagnóstico semanal de la IA por área
+
+[Timer]
+OnCalendar=Mon *-*-* 07:00:00 America/Mexico_City
+Persistent=true
+Unit=bitacora-job@diagnostico-semanal.service
+
+[Install]
+WantedBy=timers.target

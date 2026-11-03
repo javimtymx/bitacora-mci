@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     ia_modelo: str = "claude-sonnet-5-5"
     ia_modelo_rapido: str = "claude-haiku-5-5"
+    ia_busqueda_web: bool = True
+    ia_herramienta_busqueda: str = "web_search_20250305"
+
+    # Clave Fernet para cifrar transcripciones (python -c "from cryptography.fernet import Fernet;print(Fernet.generate_key().decode())")
+    transcripciones_clave: str = ""
 
     smtp_host: str = ""
     smtp_port: int = 587

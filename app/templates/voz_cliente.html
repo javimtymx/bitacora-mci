@@ -1,0 +1,42 @@
+{% extends "base.html" %}{% from "_ui.html" import icon, qtag with context %}
+{% block title %}Voz del Cliente{% endblock %}
+{% block content %}
+<div class="top"><div class="col" style="gap:4px"><h1>Voz del Cliente</h1><span class="muted">Lo que dicen los clientes en las sesiones 1:1 de retención y en las sesiones de objeciones</span></div>
+  <div class="row"><nav class="seg" aria-label="Fuente"><a href="?semanas={{ semanas }}" class="{{ 'on' if not tipo }}">Todas</a><a href="?tipo=retencion&semanas={{ semanas }}" class="{{ 'on' if tipo=='retencion' }}">1:1 Retención</a><a href="?tipo=objeciones&semanas={{ semanas }}" class="{{ 'on' if tipo=='objeciones' }}">Objeciones</a></nav>
+  <form method="get"><input type="hidden" name="tipo" value="{{ tipo }}"><select class="input" name="semanas" onchange="this.form.submit()" style="width:170px" aria-label="Periodo">{% for n in [4,8,12,26,52] %}<option value="{{ n }}" {{ 'selected' if n==semanas }}>Últimas {{ n }} semanas</option>{% endfor %}</select></form>
+  <a class="btn yellow" href="/sesiones/nueva">{{ icon('upload') }}Cargar sesión</a></div></div>
+<div class="card" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:14px 16px">
+  <div class="stat"><span class="ico" style="background:var(--mint);color:var(--teal)">{{ icon('doc') }}</span><span style="font-weight:600">Sesiones analizadas</span><b>{{ r.n_sesiones }}</b></div>
+  <div class="stat"><span class="ico" style="background:var(--mint);color:var(--teal)">{{ icon('users') }}</span><span style="font-weight:600">Clientes escuchados</span><b>{{ r.clientes }}</b></div>
+  <div class="stat"><span class="ico" style="background:var(--mint);color:var(--teal)">{{ icon('flag') }}</span><span style="font-weight:600">Citas registradas</span><b>{{ r.citas }}</b></div>
+  <div class="stat"><span class="ico" style="background:#FDE1DF;color:#B3261E">{{ icon('alert') }}</span><span style="font-weight:600">Cuentas con riesgo alto</span><b>{{ r.riesgo_alto }}</b></div>
+</div>
+{% if r.prioridad %}{% set p0 = r.prioridad[0] %}
+<div class="cint"><span class="ic">{{ icon('spark') }}</span><span style="flex:1 1 420px"><b>Dónde reenfocar la energía:</b> «{{ p0.tema }}» ({{ cuadrantes[p0.cuadrante] }}) suma {{ p0.menciones }} menciones de {{ p0.n_clientes }} cliente(s){% if p0.n_riesgo %} y aparece en {{ p0.n_riesgo }} cuenta(s) con riesgo alto{% endif %}. Es la prioridad 1 de la tabla.</span>
+  <a class="btn yellow sm" href="/diagnostico?area=retencion">{{ icon('spark', 16) }}Ver diagnóstico</a></div>{% endif %}
+<section class="q4">{% for k, q in r.cuadrantes.items() %}
+  <article class="card pad cq-{{ k }}" style="border-top:4px solid var(--c)">
+    <div class="row between"><h3 style="font-size:17px">{{ q.nombre }}</h3>{% if q.tendencia %}<span class="tag {{ 'r' if q.tendencia > 0 else 'g' }}">{{ '%+d' % q.tendencia }} vs periodo anterior</span>{% endif %}</div>
+    <div class="row" style="align-items:baseline;gap:8px"><span class="big">{{ q.pct|round|int }}%</span><span class="small muted">de las menciones · {{ q.n }}</span></div>
+    <div class="meter"><span style="width:{{ q.pct }}%;background:var(--c)"></span></div>
+    <div>{% for t, n in q.temas %}<div class="row between" style="padding:5px 0;border-bottom:1px solid #F1F3F5;flex-wrap:nowrap"><span class="small">{{ t }}</span><b class="small">{{ n }}</b></div>{% else %}<span class="small muted">Sin menciones en el periodo.</span>{% endfor %}</div>
+    {% if q.cita %}<div class="quote small">«{{ q.cita.cita }}»</div>{% endif %}
+  </article>{% endfor %}</section>
+<section class="card pad"><div class="row between"><h2>Prioridad para reenfocar</h2><span class="small muted">Orden: menciones × clientes × (1 + cuentas en riesgo alto)</span></div>
+  <div class="tbl"><table><thead><tr><th class="num">#</th><th>Tema</th><th>Cuadrante</th><th class="num">Menciones</th><th class="num">Clientes</th><th class="num">En riesgo</th><th>Marca</th></tr></thead><tbody>
+  {% for p in r.prioridad %}<tr><td class="num"><b>{{ loop.index }}</b></td><td><b>{{ p.tema }}</b></td><td>{{ qtag(p.cuadrante, cuadrantes) }}</td><td class="num">{{ p.menciones }}</td><td class="num">{{ p.n_clientes }}</td><td class="num">{{ p.n_riesgo }}</td><td>{% if p.normativo %}<span class="tag b">normativo</span>{% endif %}</td></tr>
+  {% else %}<tr><td colspan="7" class="muted">Aún no hay sesiones analizadas en el periodo.</td></tr>{% endfor %}</tbody></table></div></section>
+<div class="grid2" style="grid-template-columns:1.6fr 1fr">
+<section class="card pad"><h2>Biblioteca de objeciones</h2>
+  <div class="tbl"><table><thead><tr><th>Tipo</th><th>Cómo la dicen</th><th class="num">Veces</th><th>Respuesta que mejor funciona</th><th class="num">Avanza</th></tr></thead><tbody>
+  {% for b in r.biblioteca %}<tr><td><span class="tag n">{{ b.tipo }}</span></td><td class="small" style="font-style:italic">«{{ b.cita[:140] }}»</td><td class="num">{{ b.n }}</td><td class="small">{{ b.mejor or '—' }}</td><td class="num"><b>{{ b.pct|round|int }}%</b></td></tr>
+  {% else %}<tr><td colspan="5" class="muted">Sin sesiones de objeciones en el periodo.</td></tr>{% endfor %}</tbody></table></div>
+  <span class="small muted">«Avanza» = sesiones en las que, después de esa respuesta, el prospecto aceptó un siguiente paso.</span></section>
+<section class="card pad"><h2>Evidencia de ejecución</h2><span class="small muted" style="margin-top:-8px">Sesiones ligadas a compromisos, con evidencia verificada</span>
+  <div class="tbl"><table><thead><tr><th>Persona</th><th class="num">Verificadas</th><th class="num">Sesiones</th></tr></thead><tbody>
+  {% for uid, v in evid.items() %}<tr><td><b>{{ nombres[uid].nombre }}</b></td><td class="num">{{ v[0] }}</td><td class="num">{{ v[1] }}</td></tr>{% else %}<tr><td colspan="3" class="muted">Sin sesiones ligadas.</td></tr>{% endfor %}</tbody></table></div></section>
+</div>
+<section class="card pad"><h2>Sesiones del periodo</h2><div class="tbl"><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Cliente</th><th>Riesgo</th><th>Evidencia</th><th></th></tr></thead><tbody>
+  {% for s in r.sesiones|sort(attribute='fecha', reverse=true) %}<tr><td>{{ fmt_fecha(s.fecha) }}</td><td>{{ 'Objeciones' if s.tipo=='objeciones' else '1:1 retención' }}</td>
+    <td>{{ (s.cliente_nombre or s.cliente_rfc or '—') if u.puede_confidencial else 'Cliente #%04d' % s.id }}</td><td>{{ s.riesgo_baja or '—' }}</td><td>{{ 'Verificada' if s.evidencia_verificada else '—' }}</td><td><a class="lnk" href="/sesiones/{{ s.id }}">Abrir</a></td></tr>{% endfor %}</tbody></table></div></section>
+{% endblock %}

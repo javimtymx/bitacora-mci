@@ -111,9 +111,19 @@ def _exigir_revision(db: Session, rev: RevisionIA | None, decision: str, motivo:
         raise HTTPException(400, "Explica por qué guardas sin aceptar la observación de la IA.")
 
 
+def requiere_evidencia(db: Session, c: Compromiso) -> bool:
+    return bool(c.predictiva and c.predictiva.requiere_evidencia and parametros.get(db, "evidencia_sesion_obligatoria"))
+
+
+def tiene_evidencia(db: Session, c: Compromiso) -> bool:
+    from ..models import SesionCliente
+    return db.scalar(select(SesionCliente.id).where(SesionCliente.compromiso_id == c.id,
+                                                    SesionCliente.evidencia_verificada.is_(True)).limit(1)) is not None
+
+
 # ---------------------------------------------------------------- inicio
 
-@router.get("/")
+@router.get("/mi-semana")
 def inicio(request: Request, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
     sem = semana_iso(hoy())
     q = _visibles(db, u, "area" if not u.es_direccion else "todos")
@@ -125,7 +135,7 @@ def inicio(request: Request, db: Session = Depends(get_db), u: Usuario = Depends
     ideas_mes = len(list(db.scalars(select(Idea.id).where(
         Idea.creado >= utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)))))
     mis_alertas = [a for a in al if a.usuario and a.usuario.id == u.id]
-    return render(request, "inicio.html", u, "inicio", recientes=recientes, seg=seguimiento,
+    return render(request, "inicio.html", u, "mi-semana", recientes=recientes, seg=seguimiento,
                   n_semana=len(todos_sem), n_vencidos=sum(1 for c in todos_sem if seguimiento.vencido(c)),
                   n_sin_captura=sum(1 for p in personas if p.semana == 0), ideas_mes=ideas_mes, pm=pm,
                   mis_alertas=mis_alertas, **_opciones_captura(db, u))
@@ -134,8 +144,8 @@ def inicio(request: Request, db: Session = Depends(get_db), u: Usuario = Depends
 # ---------------------------------------------------------------- compromisos
 
 @router.get("/compromisos")
-def compromisos(request: Request, scope: str = "mios", estado: str = "abiertos", db: Session = Depends(get_db),
-                u: Usuario = Depends(usuario_actual)):
+def compromisos(request: Request, scope: str = "mios", estado: str = "abiertos", rec: int | None = None,
+                texto: str = "", db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
     q = _visibles(db, u, scope)
     if estado == "abiertos":
         q = q.where(or_(Compromiso.estado == "abierto", Compromiso.estado == "no_cumplido"))
@@ -144,14 +154,17 @@ def compromisos(request: Request, scope: str = "mios", estado: str = "abiertos",
     lista = list(db.scalars(q.order_by(Compromiso.fecha_limite)))
     if estado == "abiertos":
         lista = [c for c in lista if c.estado == "abierto" or (c.remediacion is None or c.remediacion.estado == "abierta")]
+    from ..models import RecomendacionIA
+    r = db.get(RecomendacionIA, rec) if rec else None
     return render(request, "compromisos.html", u, "compromisos", lista=lista, scope=scope, estado=estado,
-                  seg=seguimiento, **_opciones_captura(db, u))
+                  seg=seguimiento, pref_texto=(r.texto if r else texto[:1000]), rec=r, **_opciones_captura(db, u))
 
 
 @router.post("/compromisos")
 def crear_compromiso(request: Request, area_id: int = Form(...), predictiva_id: int = Form(...),
                      responsable_id: int = Form(...), texto: str = Form(...), fecha_limite: date = Form(...),
                      estrategia_id: int | None = Form(None), revision_id: int | None = Form(None),
+                     recomendacion_id: int | None = Form(None),
                      decision: str = Form("ok"), motivo: str = Form(""), db: Session = Depends(get_db),
                      u: Usuario = Depends(usuario_actual)):
     opciones = _opciones_captura(db, u)
@@ -167,6 +180,11 @@ def crear_compromiso(request: Request, area_id: int = Form(...), predictiva_id: 
     c = Compromiso(semana=semana_iso(hoy()), area_id=area_id, responsable_id=responsable_id, autor_id=u.id,
                    predictiva_id=pred.id, predictiva_version_id=(catalogo.version_vigente(pred.versiones).id if pred.versiones else None),
                    estrategia_id=estrategia_id or None, texto=texto.strip()[:1000], fecha_limite=fecha_limite)
+    from ..models import RecomendacionIA
+    rec = db.get(RecomendacionIA, recomendacion_id) if recomendacion_id else None
+    if rec:
+        c.recomendacion_id = rec.id
+        rec.estado = "convertida"
     db.add(c)
     db.flush()
     _registrar_decision(db, rev, decision, motivo, c.id)
@@ -187,7 +205,11 @@ def detalle_compromiso(cid: int, request: Request, db: Session = Depends(get_db)
     from ..models import AccionAgente
     acc = list(db.scalars(select(AccionAgente).where(AccionAgente.entidad_tipo == "compromiso",
                                                      AccionAgente.entidad_id == c.id).order_by(AccionAgente.creado)))
-    return render(request, "compromiso.html", u, "compromisos", c=c, revs=revs, acciones=acc,
+    from ..models import SesionCliente
+    sesiones = list(db.scalars(select(SesionCliente).where(SesionCliente.compromiso_id == c.id)))
+    return render(request, "compromiso.html", u, "compromisos", c=c, revs=revs, acciones=acc, sesiones=sesiones,
+                  pide_evidencia=bool(c.predictiva and c.predictiva.requiere_evidencia),
+                  evidencia_obligatoria=requiere_evidencia(db, c),
                   puede=puede_actuar(u, c), seg=seguimiento,
                   dias_max=parametros.get(db, "dias_max_remediacion"))
 
@@ -215,6 +237,9 @@ def avance(cid: int, request: Request, avance: int = Form(...), nota: str = Form
 @router.post("/compromisos/{cid}/cumplido")
 def cumplido(cid: int, request: Request, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
     c = _comp_editable(db, cid, u)
+    if requiere_evidencia(db, c) and not tiene_evidencia(db, c):
+        flash(request, "Este compromiso necesita la transcripción de la sesión como evidencia. Cárgala en «Evidencia de la sesión».", "error")
+        return ir(f"/compromisos/{cid}")
     c.estado, c.avance, c.cerrado = "cumplido", 100, utcnow()
     auditar(db, "cumplido", "compromiso", c.id, u.id)
     db.commit()

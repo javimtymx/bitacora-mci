@@ -15,6 +15,10 @@
  'clock':'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M12 7v5l3 2',
  'eye':'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
  'x':'M6 6l12 12 M18 6L6 18',
+ 'up':'M4 17l6-6 4 4 6-7 M14 8h6v6',
+ 'dn':'M4 7l6 6 4-4 6 7 M14 16h6v-6',
+ 'cal':'M4 6h16v14H4z M4 10h16 M8 3v4 M16 3v4',
+ 'upload':'M12 20V8 M6 14l6-6 6 6 M4 4h16',
  'search':'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z M21 21l-5-5',
  'down':'M12 4v12 M6 10l6 6 6-6 M4 20h16',
  'target':'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M12 12h.01',
@@ -55,4 +59,18 @@
 {%- elif x >= 85 -%}<span class="tag g">{{ '%.0f' % x }}%</span>
 {%- elif x >= 65 -%}<span class="tag o">{{ '%.0f' % x }}%</span>
 {%- else -%}<span class="tag r">{{ '%.0f' % x }}%</span>{%- endif -%}
+{%- endmacro %}
+
+{% macro racha_tag(racha, n) -%}
+{%- if racha == 'ganando' -%}<span class="tag g" style="display:inline-flex;gap:4px;align-items:center">{{ icon('up', 14) }}Ganando {{ n }} sem.</span>
+{%- elif racha == 'perdiendo' -%}<span class="tag r" style="display:inline-flex;gap:4px;align-items:center">{{ icon('dn', 14) }}Perdiendo {{ n }} sem.</span>
+{%- elif racha == 'en_meta' -%}<span class="tag b">En el objetivo</span>
+{%- elif racha == 'sin_meta' -%}<span class="tag o" title="Registra la meta en Configurar → Catálogo">Sin meta</span>
+{%- else -%}<span class="tag n">Sin captura</span>{%- endif -%}
+{%- endmacro %}
+
+{% macro qtag(k, cuadrantes) -%}<span class="qtag cq-{{ k }}">{{ cuadrantes.get(k, k) }}</span>{%- endmacro %}
+
+{% macro veredicto_tag(v) -%}
+{%- if v == 'ganando' -%}<span class="tag g">Ganando</span>{%- elif v == 'perdiendo' -%}<span class="tag r">Perdiendo</span>{%- else -%}<span class="tag o">En riesgo</span>{%- endif -%}
 {%- endmacro %}

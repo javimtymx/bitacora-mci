@@ -31,7 +31,7 @@ sudo -u bitacora bash -c "cd $APP && set -a && . ./.env && set +a && .venv/bin/a
 cp "$APP"/deploy/systemd/*.service "$APP"/deploy/systemd/*.timer /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now bitacora.service
-for t in informe-diario recordatorios ejecutar-acciones sync-cfdi; do systemctl enable --now "bitacora-$t.timer"; done
+for t in informe-diario recordatorios ejecutar-acciones sync-cfdi diagnostico-semanal; do systemctl enable --now "bitacora-$t.timer"; done
 systemctl restart bitacora.service
 
 # Nginx

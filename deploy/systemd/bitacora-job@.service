@@ -9,3 +9,4 @@ Group=bitacora
 WorkingDirectory=/opt/bitacora-mci
 EnvironmentFile=/opt/bitacora-mci/.env
 ExecStart=/opt/bitacora-mci/.venv/bin/python -m app.jobs %i
+TimeoutStartSec=1800

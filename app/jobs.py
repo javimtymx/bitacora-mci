@@ -4,6 +4,7 @@
     python -m app.jobs recordatorios       # 8:00 L-V
     python -m app.jobs ejecutar-acciones   # cada 15 min
     python -m app.jobs sync-cfdi           # 6:00 diario
+    python -m app.jobs diagnostico-semanal # lunes 7:00
 """
 from __future__ import annotations
 
@@ -11,7 +12,7 @@ import logging
 import sys
 
 from .db import SessionLocal
-from .services import acciones, agente, cfdi
+from .services import acciones, agente, cfdi, diagnostico, parametros
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("bitacora.jobs")
@@ -21,6 +22,8 @@ TAREAS = {
     "recordatorios": lambda db: f"{agente.recordatorios(db)} recordatorios",
     "ejecutar-acciones": lambda db: f"{acciones.ejecutar_pendientes(db)} acciones ejecutadas",
     "sync-cfdi": lambda db: f"{cfdi.sincronizar(db)} comprobantes leídos",
+    "diagnostico-semanal": lambda db: (f"{diagnostico.semanal_todas(db)} diagnósticos generados"
+                                       if parametros.get(db, "auto_diagnostico_semanal") else "desactivado en parámetros"),
 }
 
 

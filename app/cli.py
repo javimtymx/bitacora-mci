@@ -3,6 +3,7 @@
     python -m app.cli init-db          # crea tablas (en producción usa: alembic upgrade head)
     python -m app.cli seed             # áreas, MCI, medidas predictivas y líderes de los tableros
     python -m app.cli crear-admin --email jmartinez@onecore.mx --nombre "Javier Martínez"
+    python -m app.cli especialistas    # especialistas IA por área y evidencia en medidas de sesión (idempotente)
 """
 from __future__ import annotations
 
@@ -14,7 +15,7 @@ from datetime import date
 from sqlalchemy import select
 
 from .db import Base, SessionLocal, engine
-from .models import Area, Mci, Predictiva, Usuario
+from .models import Area, Mci, Predictiva, PromptArea, Usuario
 from .services import catalogo
 from .web.base import hash_password
 
@@ -118,6 +119,27 @@ def seed() -> None:
     print("Catálogo inicial cargado. Revisa correos de líderes y metas en Configurar → Catálogo.")
 
 
+EVIDENCIA = ("Sesiones 1:1 con minuta resuelta", "Análisis 1:1 de riesgo con IA", "Objeciones documentadas con respuesta")
+
+
+def especialistas() -> None:
+    from .services.diagnostico import PROMPTS_DEFAULT
+    with SessionLocal() as db:
+        n = 0
+        for a in db.scalars(select(Area)):
+            if a.clave in PROMPTS_DEFAULT and not db.scalar(select(PromptArea.id).where(PromptArea.area_id == a.id).limit(1)):
+                esp, ins = PROMPTS_DEFAULT[a.clave]
+                db.add(PromptArea(area_id=a.id, version=1, especialidad=esp, instrucciones=ins, motivo="Carga inicial"))
+                n += 1
+        m = 0
+        for p in db.scalars(select(Predictiva).where(Predictiva.nombre.in_(EVIDENCIA))):
+            if not p.requiere_evidencia:
+                p.requiere_evidencia = True
+                m += 1
+        db.commit()
+    print(f"Especialistas creados: {n}. Medidas que piden evidencia: {m}.")
+
+
 def crear_admin(email: str, nombre: str, password: str | None) -> None:
     password = password or getpass.getpass("Contraseña (mínimo 10 caracteres): ")
     if len(password) < 10:
@@ -139,6 +161,7 @@ def main() -> None:
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("init-db")
     sub.add_parser("seed")
+    sub.add_parser("especialistas")
     a = sub.add_parser("crear-admin")
     a.add_argument("--email", required=True)
     a.add_argument("--nombre", required=True)
@@ -148,6 +171,9 @@ def main() -> None:
         init_db()
     elif args.cmd == "seed":
         seed()
+        especialistas()
+    elif args.cmd == "especialistas":
+        especialistas()
     else:
         crear_admin(args.email, args.nombre, args.password)
 

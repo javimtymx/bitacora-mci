@@ -1,0 +1,17 @@
+{% extends "base.html" %}{% from "_ui.html" import icon with context %}
+{% block title %}Captura de indicadores{% endblock %}
+{% block content %}
+<div class="top"><div class="col" style="gap:4px"><h1>Captura semanal de indicadores</h1><span class="muted">Un valor por indicador por semana. Queda ligado a la versión de la meta vigente ese viernes.</span></div>
+  <form method="get"><select class="input" name="semana" onchange="this.form.submit()" style="width:200px" aria-label="Semana">{% for s in semanas|reverse %}<option value="{{ s }}" {{ 'selected' if s==sem }}>Semana {{ num_semana(s) }} · {{ s[:4] }}</option>{% endfor %}</select></form></div>
+<form class="card pad" method="post"><input type="hidden" name="semana" value="{{ sem }}">
+  <div class="tbl"><table><thead><tr><th>Indicador</th><th>Meta vigente</th><th class="num">Semanas anteriores</th><th class="num">Objetivo S{{ num_semana(sem) }}</th><th style="width:160px">Valor S{{ num_semana(sem) }}</th><th>Nota</th></tr></thead><tbody>
+  {% for f in filas %}<tr><td><b>{{ f.m.nombre }}</b><div class="muted small">{{ f.m.area.nombre }}</div></td>
+    <td class="small">{% if f.v %}{{ valor(f.v.meta, f.v.unidad, f.dec) }} · {{ 'acumulado' if f.v.tipo_meta=='acumulado' else 'nivel' }}{% else %}—{% endif %}</td>
+    <td class="num small">{% for x in f.prev %}{{ valor(x, '', f.dec) if x is not none else '—' }}{{ ' · ' if not loop.last }}{% endfor %}</td>
+    <td class="num small">{{ valor(f.obj, '', f.dec) if f.obj is not none else '—' }}</td>
+    <td><input class="input" name="valor_{{ f.m.id }}" inputmode="decimal" value="{{ valor(f.med.valor, '', 4) if f.med else '' }}" aria-label="Valor de {{ f.m.nombre }}"></td>
+    <td><input class="input" name="nota_{{ f.m.id }}" value="{{ f.med.nota or '' if f.med else '' }}" placeholder="Fuente o contexto (opcional)"></td></tr>{% endfor %}
+  </tbody></table></div>
+  <button class="btn yellow" style="align-self:flex-start">{{ icon('ok') }}Guardar semana {{ num_semana(sem) }}</button>
+</form>
+{% endblock %}

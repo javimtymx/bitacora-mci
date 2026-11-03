@@ -1,0 +1,16 @@
+{% extends "base.html" %}{% from "_ui.html" import icon with context %}
+{% block title %}Especialistas IA{% endblock %}
+{% block content %}
+<div class="top"><h1>Configuración</h1></div>
+{% include "_admin_tabs.html" %}
+<span class="muted">Cada área tiene su especialista: la IA diagnostica con esa experiencia. Los cambios crean una versión nueva; cada diagnóstico guarda con qué versión se hizo.</span>
+{% for a in areas %}{% set p = vig[a.id] %}
+<form class="card pad" method="post" action="/admin/prompts/{{ a.id }}">
+  <div class="row between"><h2>{{ a.nombre }}</h2>{% if p %}<span class="tag b">v{{ p.version }} · {{ fmt_fecha(p.creado) }}</span>{% else %}<span class="tag o">Sin especialista</span>{% endif %}</div>
+  <div class="field"><label>Especialidad (quién es la IA para esta área)</label><input class="input" name="especialidad" required maxlength="300" value="{{ p.especialidad if p else '' }}"></div>
+  <div class="field"><label>Métodos, técnicas y contexto que domina</label><textarea class="input" name="instrucciones" required style="min-height:120px">{{ p.instrucciones if p else '' }}</textarea></div>
+  <div class="row"><input class="input" name="motivo" required placeholder="Motivo del cambio" style="flex:1;min-width:240px"><button class="btn yellow">Guardar versión</button></div>
+  {% if hist[a.id]|length > 1 %}<details class="small"><summary>Versiones anteriores</summary><ul>{% for h in hist[a.id][1:] %}<li>v{{ h.version }} · {{ fmt_fecha(h.creado) }} · {{ h.motivo }}</li>{% endfor %}</ul></details>{% endif %}
+</form>
+{% endfor %}
+{% endblock %}

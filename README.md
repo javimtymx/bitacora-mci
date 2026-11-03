@@ -22,6 +22,19 @@ Plataforma de ejecución semanal 4DX con un PM virtual (IA). El equipo captura c
 | **Socio** | Corte ejecutivo consolidado por área, sin personas ni compromisos individuales. Las excepciones marcadas como visibles aparecen etiquetadas, y Dirección escribe la narrativa. Al publicarse, el corte queda congelado. |
 | **Usuarios** | Alta con invitación y baja lógica: se reasignan sus compromisos abiertos y se conserva el histórico. Permisos: colaborador, líder, Dirección o admin, más el permiso de datos confidenciales. |
 
+## Tablero, diagnóstico IA, Voz del Cliente y Círculo de Innovación
+
+| Módulo | Para qué |
+|---|---|
+| **Tablero** (`/`) | Una tarjeta por MCI con su valor, la meta, la racha (ganando o perdiendo) y la brecha de 8 semanas. Filtra por área. Incluye el indicador de cada persona, con una tira de 8 semanas. |
+| **Kárdex** (`/kardex/<id>`) | Histórico de 16 semanas en tres franjas alineadas: el indicador contra su objetivo, la brecha, y los compromisos (cumplidos, remediados, en remediación y sin ejecutar). También: eventos, predictivas, tareas y movimientos con liga a la foto de la IA. |
+| **Captura semanal** (`/indicadores/captura`) | El dueño de cada MCI captura un valor por semana, ligado a la versión de la meta vigente ese viernes. Una meta puede ser *nivel* (se compara directo) o *acumulado* (ritmo lineal de la línea base a la meta en su fecha). |
+| **Diagnóstico IA** (`/diagnostico`) | Cada lunes a las 7:00, un especialista por área (configurable en Configurar → Especialistas IA) diagnostica con el histórico, evalúa si sus recomendaciones anteriores se ejecutaron y recomienda hasta 3 acciones. Cada recomendación se puede convertir en compromiso. Cada diagnóstico queda guardado como foto semanal. |
+| **Investigación profunda** | La IA la pide sola cuando una decisión depende de información externa, o la pide un líder. Usa la herramienta de búsqueda web de Anthropic, cita sus fuentes y tiene un límite semanal configurable. |
+| **Sesiones con cliente** (`/sesiones/nueva`) | Se carga la transcripción en .txt de un 1:1 de retención o de una sesión de objeciones. La IA verifica que la sesión corresponda al compromiso (evidencia de ejecución), clasifica hallazgos en 4 cuadrantes con citas textuales verificadas contra el archivo, evalúa objeciones con LAER y SPIN, y extrae acuerdos. La transcripción se guarda cifrada. |
+| **Voz del Cliente** (`/voz-cliente`) | Cuadrantes (producto, plataforma, servicio, valor), prioridad para reenfocar la energía, biblioteca de objeciones y evidencia por persona. |
+| **Círculo de Innovación** (`/circulo`) | La IA consolida ideas, hallazgos y objeciones en iniciativas con su evidencia. Votación por puntos: 5 por persona, máximo 3 por iniciativa, resultados ocultos hasta cerrar. Las decisiones crean estrategias ligadas a su MCI. |
+
 ## Principios de arquitectura
 
 - **Nada se edita en sitio cuando importa para la historia.** Las metas tienen versiones, las estrategias tienen eventos, las excepciones y los parámetros tienen historial, y todo pasa por la tabla `auditoria`.
@@ -79,6 +92,7 @@ sudo -u bitacora bash -c 'set -a; . ./.env; set +a; .venv/bin/python -m app.jobs
 | `bitacora-informe-diario` | L-V 7:30 | Informe del PM virtual |
 | `bitacora-recordatorios` | L-V 8:00 | Remediaciones por vencer, personas sin compromiso, seguimiento de estrategias (lunes) |
 | `bitacora-ejecutar-acciones` | cada 15 min | Envía correos y redacta informes aprobados |
+| `bitacora-diagnostico-semanal` | lunes 7:00 | Diagnóstico de la IA por área (foto semanal) |
 
 Para revisar: `systemctl list-timers 'bitacora-*'` y `journalctl -u 'bitacora-job@*' -n 50`.
 

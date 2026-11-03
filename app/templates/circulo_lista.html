@@ -1,0 +1,17 @@
+{% extends "base.html" %}{% from "_ui.html" import icon with context %}
+{% block title %}Círculo de Innovación{% endblock %}
+{% block content %}
+<div class="top"><div class="col" style="gap:4px"><h1>Círculo de Innovación</h1><span class="muted">Sesión mensual: la IA consolida ideas, voz del cliente y objeciones en iniciativas; el círculo vota con puntos y decide.</span></div>
+  {% if u.es_lider %}<form method="post" action="/circulo" class="row"><input class="input" type="month" name="mes" value="{{ mes_def }}" style="width:170px" aria-label="Mes">
+    <input class="input" type="number" name="puntos" value="5" min="1" max="20" style="width:90px" aria-label="Puntos por persona" title="Puntos por persona">
+    <input class="input" type="number" name="maximo" value="3" min="1" max="10" style="width:90px" aria-label="Máximo por iniciativa" title="Máximo por iniciativa">
+    <button class="btn yellow">{{ icon('plus') }}Preparar sesión</button></form>{% endif %}</div>
+<div class="card" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:14px 16px">
+  <div class="stat"><span class="ico" style="background:var(--mint);color:var(--teal)">{{ icon('idea') }}</span><span style="font-weight:600">Ideas disponibles</span><b>{{ n_ideas }}</b></div>
+  <div class="stat"><span class="ico" style="background:var(--mint);color:var(--teal)">{{ icon('users') }}</span><span style="font-weight:600">Hallazgos de clientes</span><b>{{ n_hall }}</b></div>
+  <div class="stat"><span class="ico" style="background:var(--mint);color:var(--teal)">{{ icon('target') }}</span><span style="font-weight:600">Objeciones</span><b>{{ n_obj }}</b></div>
+</div>
+<section class="card pad"><div class="tbl"><table><thead><tr><th>Sesión</th><th>Estado</th><th class="num">Iniciativas</th><th>Creada</th><th></th></tr></thead><tbody>
+{% for c in circulos %}<tr><td><b>{{ c.nombre }}</b></td><td><span class="tag {{ 'b' if c.estado=='votacion' else 'o' if c.estado=='decisiones' else 'g' if c.estado=='cerrado' else 'n' }}">{{ c.estado }}</span></td><td class="num">{{ c.iniciativas|length }}</td><td>{{ fmt_fecha(c.creado) }}</td><td><a class="lnk" href="/circulo/{{ c.id }}">Abrir</a></td></tr>
+{% else %}<tr><td colspan="5" class="muted">Aún no hay sesiones.</td></tr>{% endfor %}</tbody></table></div></section>
+{% endblock %}

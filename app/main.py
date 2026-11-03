@@ -10,7 +10,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
 from .config import get_settings
-from .web import admin, captura, gestion, reportes
+from .web import admin, captura, circulo, gestion, reportes, tablero, voz
 from .web.base import NoAutenticado, TEMPLATES, ir
 
 s = get_settings()
@@ -21,7 +21,7 @@ app.add_middleware(SessionMiddleware, secret_key=s.secret_key, https_only=s.cook
                    max_age=60 * 60 * 12, session_cookie="bitacora")
 app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")), name="static")
 
-for r in (captura.router, gestion.router, admin.router, reportes.router):
+for r in (tablero.router, captura.router, gestion.router, admin.router, reportes.router, voz.router, circulo.router):
     app.include_router(r)
 
 

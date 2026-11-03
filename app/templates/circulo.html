@@ -1,0 +1,67 @@
+{% extends "base.html" %}{% from "_ui.html" import icon, ai_badge with context %}
+{% block title %}{{ c.nombre }}{% endblock %}
+{% block content %}
+{% set colores = {'Ganancia rápida':'#2E8B3D','Proyecto':'#6A4BC4','Relleno':'#8A949E','Reconsiderar':'#C26A00'} %}
+{% set an = c.analisis or {} %}
+<div class="top"><div class="col" style="gap:4px"><span class="muted small"><a href="/circulo">Círculo de Innovación</a></span><h1>{{ c.nombre }}</h1>
+  <span class="muted small">{{ c.puntos_por_persona }} puntos por persona · máximo {{ c.max_por_iniciativa }} por iniciativa · resultados ocultos hasta cerrar la votación</span></div>
+  <button class="btn soft" onclick="window.print()">{{ icon('print') }}Acta / PDF</button></div>
+{% set fases = [('preparacion','Fuentes y consolidación IA'),('votacion','Votación'),('decisiones','Decisiones'),('cerrado','Cerrado')] %}
+{% set idx = {'preparacion':0,'votacion':1,'decisiones':2,'cerrado':3}[c.estado] %}
+<div class="steps" role="list">{% for k, t in fases %}<span role="listitem" class="{{ 'on' if loop.index0==idx else 'done' if loop.index0 < idx }}">{{ loop.index }} · {{ t }}</span>{% endfor %}</div>
+
+{% if c.estado == 'preparacion' %}
+<section class="card pad"><h2>Consolidar con IA</h2><span class="muted">La IA junta las ideas del equipo (validadas, en curso y propuestas que no sean débiles), los hallazgos de clientes de los últimos 4 meses y las objeciones de ventas, y los agrupa en iniciativas con su evidencia.</span>
+  {% if u.es_lider %}<form method="post" action="/circulo/{{ c.id }}/consolidar"><button class="btn aibtn">{{ icon('spark') }}Consolidar iniciativas</button></form>{% endif %}</section>
+{% else %}
+{% if an.fuentes %}<div class="card" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:14px 16px">
+  <div class="stat"><span class="ico" style="background:var(--mint);color:var(--teal)">{{ icon('idea') }}</span><span style="font-weight:600">Ideas del equipo</span><b>{{ an.fuentes.ideas }}</b></div>
+  <div class="stat"><span class="ico" style="background:var(--mint);color:var(--teal)">{{ icon('users') }}</span><span style="font-weight:600">Hallazgos de clientes</span><b>{{ an.fuentes.hallazgos }}</b></div>
+  <div class="stat"><span class="ico" style="background:var(--mint);color:var(--teal)">{{ icon('target') }}</span><span style="font-weight:600">Objeciones</span><b>{{ an.fuentes.objeciones }}</b></div>
+  <div class="stat"><span class="ico" style="background:#FFE9C2;color:#7A4600">{{ icon('spark') }}</span><span style="font-weight:600">Iniciativas</span><b>{{ c.iniciativas|length }}</b></div></div>{% endif %}
+{% if an.lectura %}<div class="cint"><span class="ic">{{ icon('spark') }}</span><span style="flex:1 1 420px"><b>Lectura estratégica de la IA:</b> {{ an.lectura }}</span></div>{% endif %}
+<div class="grid2" style="grid-template-columns:1.3fr 1fr">
+<section class="card pad"><div class="row between"><h2>Mapa de iniciativas</h2><span class="small muted">Tamaño = evidencia</span></div>{{ mapa }}</section>
+<section class="card pad"><div class="row between"><h2>Votación</h2><span class="ai">{{ icon('users', 14) }}{{ votaron|length }} votante(s)</span></div>
+  {% if c.estado == 'votacion' %}<div class="small" style="padding:10px 12px;background:#FFF8D1;border-radius:10px"><b>Tus puntos:</b> usaste {{ usados }} de {{ c.puntos_por_persona }}</div>{% endif %}
+  {% if visibles %}{% set mx = (conteo|map(attribute=1)|max) or 1 %}
+    {% for ini, pts in conteo %}<div style="display:grid;grid-template-columns:26px minmax(0,1fr) 34px;gap:10px;align-items:center;padding:6px 0"><span style="width:24px;height:24px;border-radius:50%;background:{{ colores.get(ini.cuadrante,'#8A949E') }};color:#fff;font-weight:800;font-size:12px;display:flex;align-items:center;justify-content:center">{{ ini.orden }}</span>
+      <div><div class="small" style="font-weight:600">{{ ini.titulo }}</div><div class="meter" style="margin-top:6px"><span style="width:{{ pts / mx * 100 }}%;background:{{ colores.get(ini.cuadrante,'#8A949E') }}"></span></div></div><b style="text-align:right">{{ pts }}</b></div>{% endfor %}
+  {% else %}<span class="small muted">Los resultados se muestran al cerrar la votación. Ya votaron: {% for uid in votaron %}{{ nombres[uid].nombre }}{{ ', ' if not loop.last }}{% else %}nadie aún{% endfor %}.</span>
+    {% if u.es_lider %}<form method="post" action="/circulo/{{ c.id }}/cerrar-votacion"><button class="btn dark" style="width:100%">Cerrar votación y pasar a decisiones</button></form>{% endif %}{% endif %}
+</section></div>
+
+<section class="col" style="gap:12px"><div class="row between"><h2>Iniciativas consolidadas por la IA</h2><span class="small muted">Cada una junta ideas, voz del cliente y objeciones que hablan del mismo problema</span></div>
+<div class="q4">{% for ini in c.iniciativas %}{% set col = colores.get(ini.cuadrante,'#8A949E') %}
+  <article class="card pad" id="ini-{{ ini.id }}">
+    <div class="row between" style="flex-wrap:nowrap;align-items:flex-start"><div class="row" style="flex-wrap:nowrap;align-items:flex-start"><span style="width:30px;height:30px;border-radius:50%;background:{{ col }};color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;flex:none">{{ ini.orden }}</span><h3 style="line-height:1.3;margin-top:4px">{{ ini.titulo }}</h3></div>
+      <span class="tag" style="border-color:{{ col }};color:{{ col }};background:#fff">{{ ini.cuadrante }}</span></div>
+    <p class="small" style="margin:0">{{ ini.descripcion }}</p>
+    <div class="row small" style="gap:8px"><span class="pill">{{ icon('idea', 14) }}{{ ini.fuentes.ideas|length }} ideas</span><span class="pill">{{ icon('users', 14) }}{{ ini.fuentes.hallazgos|length }} hallazgos</span><span class="pill">{{ icon('target', 14) }}{{ ini.fuentes.objeciones|length }} objeciones</span></div>
+    {% if ini.cita %}<div class="quote small">«{{ ini.cita[:220] }}»</div>{% endif %}
+    <div class="small muted">Impacto {{ ini.impacto }}/5 · esfuerzo {{ ini.esfuerzo }}/5{% if ini.mci %} · mueve: {{ ini.mci.nombre }}{% endif %}</div>
+    <div class="row between" style="border-top:1px solid #EEF1F4;padding-top:12px">
+      {% if c.estado == 'votacion' %}{% set mine = mios.get(ini.id, 0) %}
+      <form method="post" action="/circulo/{{ c.id }}/votar" class="vote"><input type="hidden" name="iniciativa_id" value="{{ ini.id }}"><span class="small" style="font-weight:700">Tus puntos</span>
+        {% for k in range(0, c.max_por_iniciativa + 1) %}<button name="puntos" value="{{ k }}" class="{{ 'mine' if k <= mine and k > 0 else '' }}" aria-label="Poner {{ k }} punto(s)" title="{{ k }}">{{ k }}</button>{% endfor %}</form>
+      {% elif ini.estrategia_id %}<a class="lnk" href="/estrategias/{{ ini.estrategia_id }}">{{ icon('target', 15) }}Ver estrategia creada</a>{% else %}<span></span>{% endif %}
+      <a class="lnk" href="/circulo/{{ c.id }}/fuentes/{{ ini.id }}">{{ icon('eye', 15) }}Fuentes</a></div>
+  </article>{% endfor %}</div></section>
+
+{% if c.estado in ('decisiones','cerrado') %}
+<form class="card pad" method="post" action="/circulo/{{ c.id }}/decisiones" id="decisiones">
+  <div class="row between"><h2>Decisiones del círculo</h2>{% if c.estado=='cerrado' %}<span class="tag g">Cerrado</span>{% endif %}</div>
+  <div class="tbl"><table><thead><tr><th class="num">#</th><th>Iniciativa</th><th class="num">Puntos</th><th>Decisión</th><th>Responsable</th><th>Primera revisión</th></tr></thead><tbody>
+  {% for ini, pts in conteo %}<tr><td class="num"><b>{{ ini.orden }}</b></td><td><b>{{ ini.titulo }}</b></td><td class="num">{{ pts }}</td>
+    {% if c.estado == 'decisiones' %}
+    <td><select class="input" name="decision_{{ ini.id }}" style="min-width:190px"><option value="">—</option><option value="estrategia" {{ 'selected' if loop.index <= 2 }}>Aprobar como estrategia</option><option value="proyecto">Aprobar como proyecto</option><option value="banco">Banco de ideas</option><option value="descartar">Descartar</option></select></td>
+    <td><select class="input" name="responsable_{{ ini.id }}" style="min-width:170px"><option value="">—</option>{% for x in responsables %}<option value="{{ x.id }}" {{ 'selected' if ini.mci and ini.mci.dueno_id==x.id }}>{{ x.nombre }}</option>{% endfor %}</select></td>
+    <td><input class="input" type="date" name="revision_{{ ini.id }}" style="width:160px"></td>
+    {% else %}<td>{{ ini.decision or '—' }}</td><td>{{ ini.responsable.nombre if ini.responsable else '—' }}</td><td>{{ fmt_fecha(ini.primera_revision) }}</td>{% endif %}</tr>{% endfor %}</tbody></table></div>
+  {% if c.estado == 'decisiones' and u.es_direccion %}<span class="small muted">Al guardar: cada estrategia o proyecto aprobado se crea activo, ligado a su MCI, y se avisa a quienes aportaron las ideas.</span><button class="btn yellow" style="align-self:flex-start">{{ icon('ok') }}Guardar decisiones y cerrar</button>{% endif %}
+</form>{% endif %}
+
+{% if an.sueltas %}<section class="card pad"><h2>Ideas que no se consolidaron</h2><span class="small muted" style="margin-top:-8px">Quedan en el banco para el siguiente círculo</span>
+  {% for s in an.sueltas %}{% set i = ideas.get(s.idea_id) %}{% if i %}<div class="row between" style="padding:6px 0;border-bottom:1px solid var(--line)"><span class="small" style="font-weight:600">{{ i.titulo }}</span><span class="small muted">{{ s.motivo }}</span></div>{% endif %}{% endfor %}</section>{% endif %}
+{% endif %}
+{% endblock %}

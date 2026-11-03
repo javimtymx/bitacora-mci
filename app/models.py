@@ -106,6 +106,11 @@ class MciVersion(Base):
     unidad: Mapped[str] = mapped_column(String(30), default="")
     sentido: Mapped[str] = mapped_column(String(10), default="mayor")
     periodicidad: Mapped[str] = mapped_column(String(20), default="mensual")
+    # nivel: la meta se compara directo cada semana (ej. retención 95%).
+    # acumulado: se avanza de linea_base a meta para fecha_meta; el ritmo esperado es lineal.
+    tipo_meta: Mapped[str] = mapped_column(String(12), default="nivel")
+    linea_base: Mapped[float | None] = mapped_column(Numeric(18, 4))
+    fecha_meta: Mapped[date | None] = mapped_column(Date)
     vigente_desde: Mapped[date] = mapped_column(Date)
     vigente_hasta: Mapped[date | None] = mapped_column(Date)
     motivo_cambio: Mapped[str | None] = mapped_column(Text)
@@ -122,6 +127,7 @@ class Predictiva(Base):
     clave: Mapped[str] = mapped_column(String(60), unique=True)
     nombre: Mapped[str] = mapped_column(String(200))
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
+    requiere_evidencia: Mapped[bool] = mapped_column(Boolean, default=False)
 
     mci: Mapped[Mci] = relationship(back_populates="predictivas")
     versiones: Mapped[list["PredictivaVersion"]] = relationship(
@@ -224,6 +230,7 @@ class Compromiso(Base):
     predictiva_id: Mapped[int | None] = mapped_column(ForeignKey("predictivas.id"))
     predictiva_version_id: Mapped[int | None] = mapped_column(ForeignKey("predictiva_versiones.id"))
     estrategia_id: Mapped[int | None] = mapped_column(ForeignKey("estrategias.id"))
+    recomendacion_id: Mapped[int | None] = mapped_column(ForeignKey("recomendaciones_ia.id"))
     texto: Mapped[str] = mapped_column(Text)
     fecha_limite: Mapped[date] = mapped_column(Date)
     estado: Mapped[str] = mapped_column(String(20), default="abierto", index=True)
@@ -474,3 +481,187 @@ class Auditoria(Base):
     entidad_id: Mapped[int | None] = mapped_column(Integer)
     detalle: Mapped[dict] = mapped_column(JSON, default=dict)
     creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+
+# ---------------------------------------------------------------- diagnóstico semanal por área
+
+class PromptArea(Base):
+    """Especialización de la IA por área. Versionado: cada diagnóstico guarda con qué versión se hizo."""
+    __tablename__ = "prompts_area"
+    __table_args__ = (UniqueConstraint("area_id", "version"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    area_id: Mapped[int] = mapped_column(ForeignKey("areas.id"))
+    version: Mapped[int] = mapped_column(Integer)
+    especialidad: Mapped[str] = mapped_column(String(300))
+    instrucciones: Mapped[str] = mapped_column(Text)
+    activo: Mapped[bool] = mapped_column(Boolean, default=True)
+    motivo: Mapped[str] = mapped_column(Text, default="")
+    creado_por: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+    creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    area: Mapped[Area] = relationship()
+
+
+class DiagnosticoSemanal(Base):
+    """Foto semanal del diagnóstico de la IA por área: lo que vio, lo que concluyó y lo que recomendó."""
+    __tablename__ = "diagnosticos_semanales"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    area_id: Mapped[int] = mapped_column(ForeignKey("areas.id"), index=True)
+    semana: Mapped[str] = mapped_column(String(8), index=True)
+    veredicto: Mapped[str] = mapped_column(String(20), default="")
+    resultado: Mapped[dict] = mapped_column(JSON, default=dict)
+    investigacion: Mapped[dict | None] = mapped_column(JSON)
+    contexto: Mapped[str] = mapped_column(Text, default="")
+    prompt_area_id: Mapped[int | None] = mapped_column(ForeignKey("prompts_area.id"))
+    modelo: Mapped[str] = mapped_column(String(60), default="")
+    prompt_version: Mapped[str] = mapped_column(String(20), default="")
+    generado_por: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+    creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    area: Mapped[Area] = relationship()
+    prompt_area: Mapped[PromptArea | None] = relationship()
+    recomendaciones: Mapped[list["RecomendacionIA"]] = relationship(
+        back_populates="diagnostico", order_by="RecomendacionIA.orden")
+
+
+class RecomendacionIA(Base):
+    __tablename__ = "recomendaciones_ia"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    diagnostico_id: Mapped[int] = mapped_column(ForeignKey("diagnosticos_semanales.id"))
+    area_id: Mapped[int] = mapped_column(ForeignKey("areas.id"), index=True)
+    semana: Mapped[str] = mapped_column(String(8))
+    orden: Mapped[int] = mapped_column(Integer, default=1)
+    texto: Mapped[str] = mapped_column(Text)
+    tecnica: Mapped[str] = mapped_column(String(200), default="")
+    impacto: Mapped[str] = mapped_column(String(10), default="medio")
+    estado: Mapped[str] = mapped_column(String(20), default="propuesta")  # propuesta | convertida | descartada
+    ejecucion: Mapped[str | None] = mapped_column(String(20))  # la IA la evalúa la semana siguiente: si | parcial | no
+    efecto: Mapped[str | None] = mapped_column(Text)
+    creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    diagnostico: Mapped[DiagnosticoSemanal] = relationship(back_populates="recomendaciones")
+
+
+# ---------------------------------------------------------------- voz del cliente
+
+CUADRANTES = {
+    "producto": "Producto e innovación",
+    "plataforma": "Plataforma",
+    "servicio": "Servicio y atención",
+    "valor": "Valor comercial",
+}
+TIPOS_OBJECION = ("precio", "urgencia", "autoridad", "necesidad", "confianza", "competencia", "otra")
+
+
+class SesionCliente(Base):
+    """Sesión con cliente (1:1 de retención u objeciones de ventas). Es evidencia de ejecución y fuente de insights."""
+    __tablename__ = "sesiones_cliente"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tipo: Mapped[str] = mapped_column(String(20))  # retencion | objeciones
+    area_id: Mapped[int] = mapped_column(ForeignKey("areas.id"))
+    compromiso_id: Mapped[int | None] = mapped_column(ForeignKey("compromisos.id"), index=True)
+    cliente_rfc: Mapped[str] = mapped_column(String(13), default="")
+    cliente_nombre: Mapped[str] = mapped_column(String(255), default="")
+    fecha: Mapped[date] = mapped_column(Date)
+    participantes: Mapped[str] = mapped_column(String(300), default="")
+    consentimiento: Mapped[bool] = mapped_column(Boolean, default=False)
+    transcripcion: Mapped[str] = mapped_column(Text().with_variant(Text(length=4294967295), "mysql"))
+    cifrada: Mapped[bool] = mapped_column(Boolean, default=False)
+    palabras: Mapped[int] = mapped_column(Integer, default=0)
+    estado: Mapped[str] = mapped_column(String(20), default="cargada")  # cargada | analizada | error
+    resultado: Mapped[dict] = mapped_column(JSON, default=dict)
+    riesgo_baja: Mapped[str] = mapped_column(String(10), default="")
+    evidencia_verificada: Mapped[bool] = mapped_column(Boolean, default=False)
+    citas_descartadas: Mapped[int] = mapped_column(Integer, default=0)
+    autor_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"))
+    creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    area: Mapped[Area] = relationship()
+    autor: Mapped[Usuario] = relationship()
+    compromiso: Mapped["Compromiso | None"] = relationship()
+    hallazgos: Mapped[list["Hallazgo"]] = relationship(back_populates="sesion")
+    objeciones: Mapped[list["Objecion"]] = relationship(back_populates="sesion")
+
+
+class Hallazgo(Base):
+    __tablename__ = "hallazgos"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sesion_id: Mapped[int] = mapped_column(ForeignKey("sesiones_cliente.id"), index=True)
+    cuadrante: Mapped[str] = mapped_column(String(20), index=True)
+    tema: Mapped[str] = mapped_column(String(200))
+    cita: Mapped[str] = mapped_column(Text)
+    sentimiento: Mapped[str] = mapped_column(String(12), default="neutral")  # positivo | neutral | negativo
+    severidad: Mapped[str] = mapped_column(String(10), default="media")
+    tipo: Mapped[str] = mapped_column(String(20), default="queja")  # queja | necesidad | elogio | riesgo
+    normativo: Mapped[bool] = mapped_column(Boolean, default=False)
+    creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    sesion: Mapped[SesionCliente] = relationship(back_populates="hallazgos")
+
+
+class Objecion(Base):
+    __tablename__ = "objeciones"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sesion_id: Mapped[int] = mapped_column(ForeignKey("sesiones_cliente.id"), index=True)
+    tipo: Mapped[str] = mapped_column(String(20), index=True)
+    cita: Mapped[str] = mapped_column(Text)
+    manejo: Mapped[str] = mapped_column(String(20), default="")  # explorada | sin_explorar | no_manejada
+    respuesta: Mapped[str] = mapped_column(Text, default="")
+    avanzo: Mapped[bool] = mapped_column(Boolean, default=False)
+    creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    sesion: Mapped[SesionCliente] = relationship(back_populates="objeciones")
+
+
+# ---------------------------------------------------------------- círculo de innovación
+
+class CirculoInnovacion(Base):
+    __tablename__ = "circulos_innovacion"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    mes: Mapped[str] = mapped_column(String(7))
+    nombre: Mapped[str] = mapped_column(String(200))
+    estado: Mapped[str] = mapped_column(String(20), default="preparacion")  # preparacion | votacion | decisiones | cerrado
+    puntos_por_persona: Mapped[int] = mapped_column(Integer, default=5)
+    max_por_iniciativa: Mapped[int] = mapped_column(Integer, default=3)
+    analisis: Mapped[dict] = mapped_column(JSON, default=dict)
+    creado_por: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+    creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    iniciativas: Mapped[list["Iniciativa"]] = relationship(back_populates="circulo", order_by="Iniciativa.orden")
+
+
+class Iniciativa(Base):
+    __tablename__ = "iniciativas"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    circulo_id: Mapped[int] = mapped_column(ForeignKey("circulos_innovacion.id"), index=True)
+    orden: Mapped[int] = mapped_column(Integer, default=1)
+    titulo: Mapped[str] = mapped_column(String(200))
+    descripcion: Mapped[str] = mapped_column(Text, default="")
+    impacto: Mapped[int] = mapped_column(Integer, default=3)
+    esfuerzo: Mapped[int] = mapped_column(Integer, default=3)
+    cuadrante: Mapped[str] = mapped_column(String(30), default="")
+    mci_id: Mapped[int | None] = mapped_column(ForeignKey("mci.id"))
+    fuentes: Mapped[dict] = mapped_column(JSON, default=dict)  # {"ideas":[ids], "hallazgos":[ids], "objeciones":[ids]}
+    cita: Mapped[str] = mapped_column(Text, default="")
+    decision: Mapped[str] = mapped_column(String(20), default="")  # estrategia | proyecto | banco | descartar
+    responsable_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+    primera_revision: Mapped[date | None] = mapped_column(Date)
+    estrategia_id: Mapped[int | None] = mapped_column(ForeignKey("estrategias.id"))
+
+    circulo: Mapped[CirculoInnovacion] = relationship(back_populates="iniciativas")
+    mci: Mapped[Mci | None] = relationship()
+    responsable: Mapped[Usuario | None] = relationship()
+    votos: Mapped[list["Voto"]] = relationship(back_populates="iniciativa")
+
+
+class Voto(Base):
+    __tablename__ = "votos"
+    __table_args__ = (UniqueConstraint("iniciativa_id", "usuario_id"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    iniciativa_id: Mapped[int] = mapped_column(ForeignKey("iniciativas.id"))
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"))
+    puntos: Mapped[int] = mapped_column(Integer, default=0)
+    creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    iniciativa: Mapped[Iniciativa] = relationship(back_populates="votos")
+    usuario: Mapped[Usuario] = relationship()

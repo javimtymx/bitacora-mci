@@ -1,0 +1,48 @@
+{% extends "base.html" %}{% from "_ui.html" import icon, ai_badge, qtag with context %}
+{% block title %}Sesión con cliente{% endblock %}
+{% block content %}
+{% set r = s.resultado %}
+<div class="top"><div class="col" style="gap:4px"><span class="muted small">{{ 'Sesión de objeciones' if s.tipo=='objeciones' else '1:1 de retención' }} · {{ fmt_dia(s.fecha) }} · {{ s.palabras }} palabras · cargó {{ s.autor.nombre }}{% if s.compromiso %} · <a href="/compromisos/{{ s.compromiso.id }}">CMP-{{ '%04d' % s.compromiso.id }}</a>{% endif %}</span>
+  <h1 style="font-size:24px">{{ cliente }}</h1></div>
+  <div class="row">{{ ai_badge() }}{% if u.es_direccion or s.autor_id==u.id %}<a class="btn soft sm" href="/sesiones/{{ s.id }}/transcripcion">{{ icon('doc', 16) }}Transcripción</a>{% endif %}
+  <form method="post" action="/sesiones/{{ s.id }}/analizar"><button class="btn soft sm">{{ icon('refresh', 16) }}Analizar de nuevo</button></form></div></div>
+
+{% if s.estado != 'analizada' %}<div class="flash error">La sesión aún no tiene análisis. Usa «Analizar de nuevo».</div>{% else %}
+{% if s.evidencia_verificada %}<div class="flash ok">{{ icon('ok', 18) }}<span><b>Evidencia verificada.</b> {{ r.evidencia.motivo }}</span></div>
+{% elif s.compromiso %}<div class="flash error">{{ icon('alert', 18) }}<span><b>Evidencia no verificada.</b> {{ r.evidencia.motivo or 'Falta el consentimiento del cliente.' }}</span></div>{% endif %}
+<div class="grid2" style="grid-template-columns:1.5fr 1fr">
+<div class="col" style="gap:20px">
+<section class="card pad">
+  <div class="row">{% if s.riesgo_baja %}<span class="tag {{ 'r' if s.riesgo_baja=='alto' else 'o' if s.riesgo_baja=='medio' else 'g' }}">Riesgo de baja: {{ s.riesgo_baja }}</span>{% endif %}
+    {% if r.sentimiento %}<span class="tag n">Sentimiento: {{ r.sentimiento }}</span>{% endif %}
+    {% if s.citas_descartadas %}<span class="tag o" title="La IA propuso citas que no aparecen tal cual en la transcripción">{{ s.citas_descartadas }} citas descartadas</span>{% endif %}</div>
+  <p style="margin:0;line-height:1.65">{{ r.resumen }}</p>
+</section>
+{% if s.objeciones %}<section class="card pad"><h2>Objeciones y cómo se manejaron</h2>
+  <div class="tbl"><table><thead><tr><th>Tipo</th><th>Lo que dijo</th><th>Manejo (LAER)</th><th>Respuesta</th><th>Resultado</th></tr></thead><tbody>
+  {% for o in s.objeciones %}<tr><td><span class="tag n">{{ o.tipo }}</span></td><td class="small" style="font-style:italic">«{{ o.cita }}»</td>
+    <td><span class="tag {{ 'g' if o.manejo=='explorada' else 'o' if o.manejo=='sin_explorar' else 'r' }}">{{ o.manejo.replace('_',' ') }}</span></td><td class="small">{{ o.respuesta }}</td>
+    <td><span class="tag {{ 'g' if o.avanzo else 'r' }}">{{ 'Avanzó' if o.avanzo else 'Se estancó' }}</span></td></tr>{% endfor %}</tbody></table></div>
+  {% if r.coaching %}<div class="sug" style="font-weight:500"><b>Coaching:</b> {{ r.coaching }}</div>{% endif %}
+</section>{% endif %}
+<section class="card pad"><h2>Hallazgos por cuadrante</h2>
+  {% for h in s.hallazgos %}<div class="col" style="gap:6px;padding:10px 0;border-bottom:1px solid var(--line)">
+    <div class="row between">{{ qtag(h.cuadrante, cuadrantes) }}<span class="small muted">{{ h.tipo }} · {{ h.sentimiento }} · severidad {{ h.severidad }}{{ ' · normativo' if h.normativo }}</span></div>
+    <b>{{ h.tema }}</b><div class="quote small">«{{ h.cita }}»</div>
+    {% if h.cuadrante=='producto' %}<form method="post" action="/hallazgos/{{ h.id }}/idea"><button class="btn sm soft">{{ icon('idea', 15) }}Enviar a Ideas</button></form>{% endif %}
+  </div>{% else %}<span class="muted small">Sin hallazgos con cita verificable.</span>{% endfor %}
+</section>
+</div>
+<div class="col" style="gap:20px">
+{% if r.descubrimiento %}<section class="card pad"><h3>Descubrimiento del dolor</h3>
+  {% for k, t in [('dolor','Dolor declarado'),('impacto','Impacto cuantificado'),('comprador','Comprador económico'),('siguiente_paso','Siguiente paso')] %}<div class="small"><b>{{ t }}:</b> {{ r.descubrimiento[k] or '—' }}</div>{% endfor %}</section>{% endif %}
+{% if r.spin %}<section class="card pad"><h3>Calidad de la conversación</h3>
+  {% for k, t in [('situacion','Situación'),('problema','Problema'),('implicacion','Implicación'),('necesidad','Necesidad-beneficio')] %}<div style="display:grid;grid-template-columns:140px 1fr 30px;gap:10px;align-items:center"><span class="small">{{ t }}</span><div class="meter"><span style="width:{{ [r.spin[k]*15,100]|min }}%;background:{{ '#2E8B3D' if r.spin[k] >= 2 else '#D7261E' }}"></span></div><b class="small">{{ r.spin[k] }}</b></div>{% endfor %}
+  <div class="row small" style="gap:20px"><span>Habló el vendedor: <b style="color:{{ 'var(--r-fg)' if r.habla_vendedor and r.habla_vendedor > 50 else 'inherit' }}">{{ r.habla_vendedor }}%</b></span><span>Preguntas abiertas: <b>{{ r.preguntas_abiertas }}</b></span></div></section>{% endif %}
+{% if r.acuerdos %}<section class="card pad"><h3>Acuerdos de la sesión</h3>
+  {% for a in r.acuerdos %}<div class="row between" style="padding:6px 0;border-bottom:1px solid var(--line);flex-wrap:nowrap"><span class="small"><span class="tag {{ 'b' if a.quien=='nosotros' else 'n' }}">{{ a.quien }}</span> {{ a.texto }}{% if a.fecha %} · {{ a.fecha }}{% endif %}</span>
+    {% if a.quien=='nosotros' %}<a class="btn sm soft" href="/compromisos?texto={{ a.texto|urlencode }}#nuevo-compromiso">{{ icon('plus', 14) }}Compromiso</a>{% endif %}</div>{% endfor %}</section>{% endif %}
+{% if puede_cerrar %}<form method="post" action="/sesiones/{{ s.id }}/cumplido"><button class="btn yellow" style="width:100%" {{ 'disabled' if not s.evidencia_verificada }}>{{ icon('ok') }}Marcar el compromiso como cumplido con evidencia</button></form>{% endif %}
+</div></div>
+{% endif %}
+{% endblock %}

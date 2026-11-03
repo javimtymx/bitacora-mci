@@ -49,8 +49,23 @@ def md(texto: str | None) -> Markup:
     return Markup("".join(out))
 
 
+def valor(v, unidad: str = "", dec: int = 1, signo: bool = False) -> str:
+    """Número con su unidad: 21% · 9 mejoras · 99.968% · meta sin ceros de más."""
+    if v is None:
+        return "—"
+    v = float(v)
+    txt = f"{v:+,.{dec}f}" if signo else f"{v:,.{dec}f}"
+    if "." in txt:
+        txt = txt.rstrip("0").rstrip(".")
+    if signo and txt in ("+0", "-0"):
+        txt = "0"
+    if not unidad:
+        return txt
+    return f"{txt}{unidad}" if unidad.startswith("%") else f"{txt} {unidad}"
+
+
 TEMPLATES.env.globals.update(fmt_fecha=util.fmt_fecha, fmt_dia=util.fmt_dia, dias_desde=util.dias_desde,
-                             num_semana=util.num_semana, md=md)
+                             num_semana=util.num_semana, md=md, valor=valor)
 
 
 def hash_password(pw: str) -> str:

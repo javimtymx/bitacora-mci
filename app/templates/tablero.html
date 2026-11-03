@@ -1,0 +1,63 @@
+{% extends "base.html" %}{% from "_ui.html" import icon, racha_tag, veredicto_tag, pct with context %}
+{% block title %}Tablero semanal{% endblock %}
+{% block content %}
+<div class="top">
+  <div class="col" style="gap:4px"><h1>Tablero semanal</h1>
+    <span class="muted small">{{ sel.nombre if sel else 'Toda la empresa' }} · {{ tarjetas|length }} indicador(es) · semana {{ num_semana(sem) }}</span></div>
+  <div class="row">
+    <form method="get" class="row"><input type="hidden" name="area" value="{{ sel.clave if sel else 'todas' }}">
+      <select class="input" name="semana" onchange="this.form.submit()" style="width:190px" aria-label="Semana">{% for s in semanas|reverse %}<option value="{{ s }}" {{ 'selected' if s==sem }}>Semana {{ num_semana(s) }} · {{ s[:4] }}</option>{% endfor %}</select></form>
+    <a class="btn soft" href="/indicadores/captura">{{ icon('plus') }}Capturar indicadores</a>
+  </div>
+</div>
+<nav class="seg" aria-label="Filtrar por área">
+  <a href="/?semana={{ sem }}" class="{{ 'on' if not sel }}">Todas</a>
+  {% for a in areas %}<a href="/?area={{ a.clave }}&semana={{ sem }}" class="{{ 'on' if sel and sel.id==a.id }}">{{ a.nombre }}</a>{% endfor %}
+</nav>
+
+{% if u.es_lider %}
+<div class="cint"><span class="ic">{{ icon('spark') }}</span>
+  {% if diags %}
+  <span style="flex:1 1 420px"><b>Diagnóstico de la semana {{ num_semana(sem) }}:</b>
+    {% for d in diags %}{{ d.area.nombre }} {{ veredicto_tag(d.veredicto) }}{{ ' · ' if not loop.last }}{% endfor %}
+    {% set d0 = (diags|selectattr('veredicto','equalto','perdiendo')|list or diags)[0] %}<br>{{ d0.resultado.titular }}</span>
+  {% else %}<span style="flex:1 1 420px">El diagnóstico de la IA se genera cada lunes por área. También puedes pedirlo ahora.</span>{% endif %}
+  <a class="btn yellow sm" href="/diagnostico{{ '?area=' ~ sel.clave if sel }}">{{ icon('spark', 16) }}Ver diagnóstico por área</a>
+</div>
+{% endif %}
+
+<div class="card" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:14px 16px">
+  <div class="stat"><span class="ico" style="background:#D7F5D6;color:#1D6B2A">{{ icon('up') }}</span><span style="font-weight:600">Indicadores ganando</span><b>{{ ganando }}</b></div>
+  <div class="stat"><span class="ico" style="background:#FDE1DF;color:#B3261E">{{ icon('dn') }}</span><span style="font-weight:600">Perdiendo</span><b>{{ perdiendo }}</b></div>
+  <div class="stat"><span class="ico" style="background:var(--mint);color:var(--teal)">{{ icon('ok') }}</span><span style="font-weight:600">Cumplidos S{{ num_semana(sem_ant) }}</span><b>{{ cumplidos_ant }} / {{ cerrados_ant }}</b></div>
+  <div class="stat"><span class="ico" style="background:#FFE9C2;color:#7A4600">{{ icon('alert') }}</span><span style="font-weight:600">Sin remediación</span><b>{{ sin_rem }}</b></div>
+</div>
+
+<section class="kgrid" aria-label="Indicadores">
+{% for t in tarjetas %}
+  <article class="kcard {{ 'pierde' if t.racha=='perdiendo' }}">
+    <div class="row between" style="gap:8px"><span class="pill">{{ t.mci.area.nombre }}</span>{{ racha_tag(t.racha, t.n) }}</div>
+    <h3 style="line-height:1.3">{{ t.mci.nombre }}</h3>
+    <div class="row" style="align-items:baseline;gap:10px">
+      <span class="big">{% if t.ult %}{{ valor(t.ult.valor, t.v.unidad if t.v else '', t.dec) }}{% else %}—{% endif %}</span>
+      <span class="muted small">{% if t.v %}meta {{ valor(t.v.meta, t.v.unidad, t.dec) }}{% if t.ult and t.ult.objetivo is not none and t.v.tipo_meta=='acumulado' %} · ritmo {{ valor(t.ult.objetivo, t.v.unidad, 1) }}{% endif %}{% endif %}{% if t.ult and t.ult.semana != sem %} · último dato S{{ num_semana(t.ult.semana) }}{% endif %}</span>
+    </div>
+    <div><div class="cap" style="margin-bottom:2px">Brecha vs objetivo · 8 semanas</div>{{ t.barras }}</div>
+    <div class="row between" style="border-top:1px solid #EEF1F4;padding-top:10px;gap:8px">
+      <span class="small muted">{{ t.mci.dueno.nombre if t.mci.dueno else '—' }} · compromisos S{{ num_semana(sem) }} <b style="color:var(--ink)">{{ t.comp_txt }}</b></span>
+      <a class="lnk" href="/kardex/{{ t.mci.id }}?semana={{ sem }}">{{ icon('eye', 16) }}Kárdex</a></div>
+  </article>
+{% else %}<div class="card pad muted">No hay indicadores en esta vista. Dirección los da de alta en Configurar → Catálogo.</div>{% endfor %}
+</section>
+
+<section class="card pad">
+  <div class="row between"><h2>Indicador de cada persona</h2>
+    <div class="row small muted" style="gap:14px"><span class="row" style="gap:6px"><span class="tira"><span class="t-g"></span></span>cumplió</span><span class="row" style="gap:6px"><span class="tira"><span class="t-r"></span></span>no cumplió</span><span class="row" style="gap:6px"><span class="tira"><span class="t-a"></span></span>abierto</span><span class="row" style="gap:6px"><span class="tira"><span class="t-x"></span></span>exceptuado</span><span class="row" style="gap:6px"><span class="tira"><span class="t-n"></span></span>sin compromiso</span></div></div>
+  <div class="tbl"><table><thead><tr><th>Persona</th><th>Área</th><th class="num">Compromisos S{{ num_semana(sem) }}</th><th class="num">Cumplimiento 4 sem</th><th>Semanas {{ num_semana(sems8[0]) }} – {{ num_semana(sems8[-1]) }}</th><th>Estado</th></tr></thead><tbody>
+  {% for p in personas %}<tr><td><b>{{ p.usuario.nombre }}</b></td><td>{{ p.usuario.area.nombre if p.usuario.area else '—' }}</td>
+    <td class="num">{{ p.semana }}</td><td class="num"><b>{{ pct(p.cumpl.pct) }}</b></td>
+    <td><div class="tira" role="img" aria-label="Últimas 8 semanas">{% for x in tiras[p.usuario.id] %}<span class="t-{{ x }}" title="S{{ num_semana(sems8[loop.index0]) }}"></span>{% endfor %}</div></td>
+    <td><span class="tag {{ 'r' if p.estado=='atender' else 'o' if p.estado=='revisar' else 'g' }}">{{ 'Atender' if p.estado=='atender' else 'Revisar' if p.estado=='revisar' else 'Al día' }}</span></td></tr>
+  {% endfor %}</tbody></table></div>
+</section>
+{% endblock %}

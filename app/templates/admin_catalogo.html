@@ -8,7 +8,8 @@
 <section class="card pad">
   <div class="row between"><div class="col" style="gap:2px"><span class="muted small">{{ m.area.nombre }} · {{ m.clave }}{% if m.dueno %} · dueño: {{ m.dueno.nombre }}{% endif %}</span><h2>{{ m.nombre }}</h2></div>
     <div class="row"><button class="btn sm soft" data-open="v-mci-{{ m.id }}">Nueva versión de la meta</button><button class="btn sm soft" data-open="n-pred-{{ m.id }}">{{ icon('plus') }}Medida predictiva</button></div></div>
-  {% if v %}<div class="small">v{{ v.version }} · {{ v.descripcion }} · meta <b>{{ v.meta if v.meta is not none else '—' }} {{ v.unidad }}</b> ({{ v.periodicidad }}) · vigente desde {{ fmt_fecha(v.vigente_desde) }}</div>{% endif %}
+  {% if v %}<div class="small">v{{ v.version }} · {{ v.descripcion }} · meta <b>{{ valor(v.meta, v.unidad, 3) }}</b> ({{ v.periodicidad }}) · {{ 'acumulado de ' ~ (v.linea_base if v.linea_base is not none else '—') ~ ' al ' ~ fmt_fecha(v.fecha_meta) if v.tipo_meta=='acumulado' else 'nivel semanal' }} · vigente desde {{ fmt_fecha(v.vigente_desde) }}</div>
+  {% if v.tipo_meta=='acumulado' and (v.linea_base is none or not v.fecha_meta) %}<div class="flash error small">Para calcular el ritmo, esta meta acumulada necesita línea base y fecha. Registra una nueva versión con esos datos.</div>{% endif %}{% endif %}
   {% if m.versiones|length > 1 %}<details class="small"><summary>Historial de la meta ({{ m.versiones|length }} versiones)</summary>
     <ul>{% for x in m.versiones|reverse %}<li>v{{ x.version }} · {{ x.meta }} {{ x.unidad }} · {{ fmt_fecha(x.vigente_desde) }} – {{ fmt_fecha(x.vigente_hasta) }} · {{ x.motivo_cambio }}</li>{% endfor %}</ul></details>{% endif %}
   <div class="tbl"><table><thead><tr><th>Medida predictiva</th><th>Versión vigente</th><th>Meta semanal</th><th>Fuente</th><th>Desde</th><th></th></tr></thead><tbody>
@@ -16,6 +17,7 @@
     <td><b>{{ p.nombre }}</b>{% if not p.activo %} <span class="tag n">retirada</span>{% endif %}<div class="muted small">{{ pv.descripcion if pv }}</div></td>
     <td>v{{ pv.version if pv }}</td><td>{{ pv.meta_semanal if pv and pv.meta_semanal is not none else '—' }} {{ pv.unidad if pv }}</td><td>{{ pv.fuente if pv }}</td><td>{{ fmt_fecha(pv.vigente_desde) if pv }}</td>
     <td><div class="row" style="gap:6px;flex-wrap:nowrap"><button class="btn sm soft" data-open="v-pred-{{ p.id }}">Nueva versión</button>
+      <form method="post" action="/admin/predictivas/{{ p.id }}/evidencia"><button class="btn sm ghost" title="Pedir transcripción como evidencia">{{ 'Evidencia: sí' if p.requiere_evidencia else 'Evidencia: no' }}</button></form>
       <form method="post" action="/admin/predictivas/{{ p.id }}/activo"><input type="hidden" name="motivo" value="{{ 'Reactivada' if not p.activo else 'Retirada del catálogo' }}"><button class="btn sm ghost">{{ 'Reactivar' if not p.activo else 'Retirar' }}</button></form></div></td></tr>
   {% endfor %}</tbody></table></div>
 </section>
@@ -29,6 +31,11 @@
     <div class="field"><label>Unidad</label><input class="input" name="unidad" placeholder="%, MXN, citas"></div>
     <div class="field"><label>Sentido</label><select class="input" name="sentido"><option value="mayor">Más es mejor</option><option value="menor">Menos es mejor</option></select></div>
     {% if mci %}<div class="field"><label>Periodicidad</label><select class="input" name="periodicidad"><option>mensual</option><option>trimestral</option><option>anual</option></select></div>
+  </div>
+  <div class="grid4">
+    <div class="field"><label>Cómo se mide cada semana</label><select class="input" name="tipo_meta"><option value="nivel">Nivel: se compara directo con la meta</option><option value="acumulado">Acumulado: avance hacia la meta con ritmo</option></select></div>
+    <div class="field"><label>Línea base (acumulado)</label><input class="input" type="number" step="any" name="linea_base"></div>
+    <div class="field"><label>Fecha de la meta (acumulado)</label><input class="input" type="date" name="fecha_meta"></div>
     {% else %}<div class="field"><label>Fuente</label><select class="input" name="fuente"><option value="captura">Captura</option><option value="cfdi">CFDI</option><option value="compromisos">Compromisos</option></select></div>{% endif %}
   </div>
   <div class="field" style="max-width:220px"><label>Vigente desde</label><input class="input" type="date" name="vigente_desde" value="{{ hoy.isoformat() }}" required></div>

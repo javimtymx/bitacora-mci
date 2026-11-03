@@ -8,6 +8,7 @@ DB = Path(__file__).parent / "test.sqlite3"
 os.environ["DATABASE_URL"] = f"sqlite:///{DB}"
 os.environ["ANTHROPIC_API_KEY"] = "fake"
 os.environ["SMTP_DRY_RUN"] = "true"
+os.environ["TRANSCRIPCIONES_CLAVE"] = "q2Yl8b6c1v3f0WnJ8mXo0n2pP5wqJ0k9Z1s3bQyK6aE="
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from fastapi.testclient import TestClient  # noqa: E402
@@ -26,11 +27,19 @@ class FakeIA:
     def __init__(self):
         self.respuestas = []
         self.prompts = []
+        self.systems = []
+        self.investigaciones = []
 
-    def pedir_json(self, prompt, rapido=False, max_tokens=1500):
+    def pedir_json(self, prompt, rapido=False, max_tokens=1500, system=None):
         self.prompts.append(prompt)
+        self.systems.append(system)
         r = self.respuestas.pop(0) if self.respuestas else {"veredicto": "ok", "observaciones": []}
         return r, {"modelo": "fake", "tin": 10, "tout": 5}
+
+    def investigar(self, prompt, max_busquedas=5, system=None):
+        self.investigaciones.append(prompt)
+        return ({"resumen": "Seguimiento en 48 h duplica la tasa de cita.", "hallazgos": ["dato 1"], "implicacion": "retomar"},
+                {"modelo": "fake", "fuentes": [{"url": "https://ejemplo.org/estudio", "titulo": "Estudio"}]})
 
 
 @pytest.fixture()

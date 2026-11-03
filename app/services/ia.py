@@ -49,20 +49,61 @@ class ClienteIA:
     def disponible(self) -> bool:
         return bool(self.s.anthropic_api_key)
 
-    def pedir_json(self, prompt: str, rapido: bool = False, max_tokens: int = 1500) -> tuple[dict, dict]:
+    def _anthropic(self, timeout: int = 90):
         if not self.disponible:
             raise IANoDisponible("Falta ANTHROPIC_API_KEY")
         if self._cli is None:
             import anthropic
-            self._cli = anthropic.Anthropic(api_key=self.s.anthropic_api_key, timeout=90)
+            self._cli = anthropic.Anthropic(api_key=self.s.anthropic_api_key, timeout=180)
+        return self._cli
+
+    def pedir_json(self, prompt: str, rapido: bool = False, max_tokens: int = 1500,
+                   system: str | None = None) -> tuple[dict, dict]:
+        cli = self._anthropic()
         modelo = self.s.ia_modelo_rapido if rapido else self.s.ia_modelo
         try:
-            r = self._cli.messages.create(model=modelo, max_tokens=max_tokens, system=SYSTEM,
-                                          messages=[{"role": "user", "content": prompt}])
+            r = cli.messages.create(model=modelo, max_tokens=max_tokens, system=system or SYSTEM,
+                                    messages=[{"role": "user", "content": prompt}])
         except Exception as e:  # red, límites o modelo inválido
             raise IANoDisponible(str(e)) from e
         texto = "".join(b.text for b in r.content if getattr(b, "type", "") == "text")
         meta = {"modelo": modelo, "tin": getattr(r.usage, "input_tokens", 0), "tout": getattr(r.usage, "output_tokens", 0)}
+        return extraer_json(texto), meta
+
+    def investigar(self, prompt: str, max_busquedas: int = 5, system: str | None = None) -> tuple[dict, dict]:
+        """Investigación con búsqueda web (herramienta de servidor de Anthropic). Regresa JSON + fuentes."""
+        if not self.s.ia_busqueda_web:
+            raise IANoDisponible("La búsqueda web está desactivada (IA_BUSQUEDA_WEB=false).")
+        cli = self._anthropic()
+        modelo = self.s.ia_modelo
+        try:
+            r = cli.messages.create(
+                model=modelo, max_tokens=4000, system=system or SYSTEM,
+                tools=[{"type": self.s.ia_herramienta_busqueda, "name": "web_search", "max_uses": max_busquedas}],
+                messages=[{"role": "user", "content": prompt}])
+        except Exception as e:
+            raise IANoDisponible(str(e)) from e
+        texto, fuentes = "", []
+        for b in r.content:
+            t = getattr(b, "type", "")
+            if t == "text":
+                texto += b.text
+                for c in getattr(b, "citations", None) or []:
+                    url = getattr(c, "url", None)
+                    if url:
+                        fuentes.append({"url": url, "titulo": getattr(c, "title", "") or url})
+            elif t == "web_search_tool_result":
+                for item in getattr(b, "content", None) or []:
+                    url = getattr(item, "url", None)
+                    if url:
+                        fuentes.append({"url": url, "titulo": getattr(item, "title", "") or url})
+        vistos, unicas = set(), []
+        for f in fuentes:
+            if f["url"] not in vistos:
+                vistos.add(f["url"])
+                unicas.append(f)
+        meta = {"modelo": modelo, "tin": getattr(r.usage, "input_tokens", 0),
+                "tout": getattr(r.usage, "output_tokens", 0), "fuentes": unicas[:15]}
         return extraer_json(texto), meta
 
 

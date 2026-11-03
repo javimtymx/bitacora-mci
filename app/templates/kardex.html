@@ -1,0 +1,56 @@
+{% extends "base.html" %}{% from "_ui.html" import icon, racha_tag, veredicto_tag with context %}
+{% block title %}Kárdex · {{ m.nombre }}{% endblock %}
+{% block content %}
+{% set v = sr.version %}{% set ult = sr.ultimo %}{% set rr = sr.racha %}
+<div class="top">
+  <div class="col" style="gap:4px"><span class="muted small"><a href="/?area={{ m.area.clave }}">Tablero</a> · {{ m.area.nombre }}</span><h1 style="font-size:24px">Kárdex · {{ m.nombre }}</h1></div>
+  <div class="row">{% if puede_capturar %}<a class="btn soft" href="/indicadores/captura?semana={{ sem }}">{{ icon('plus') }}Capturar valor</a>{% endif %}
+    {% if u.es_lider %}<a class="btn aibtn" href="/diagnostico?area={{ m.area.clave }}">{{ icon('spark') }}Diagnóstico de {{ m.area.nombre }}</a>{% endif %}</div>
+</div>
+<nav class="seg" aria-label="Área">{% for a in areas %}<a href="/kardex?area={{ a.clave }}" class="{{ 'on' if a.id==m.area_id }}">{{ a.nombre }}</a>{% endfor %}</nav>
+{% if hermanas|length > 1 %}<div class="tabs">{% for h in hermanas %}<a href="/kardex/{{ h.id }}?semana={{ sem }}" class="{{ 'on' if h.id==m.id }}">{{ h.nombre }}</a>{% endfor %}</div>{% endif %}
+
+<div class="card" style="display:flex;flex-wrap:wrap;gap:24px;align-items:center;padding:16px 20px">
+  <div><div class="muted small">Último valor{% if ult %} · S{{ num_semana(ult.semana) }}{% endif %}</div><div class="big">{% if ult %}{{ valor(ult.valor, unidad, dec) }}{% else %}—{% endif %}</div></div>
+  <div><div class="muted small">{{ 'Ritmo esperado' if v and v.tipo_meta=='acumulado' else 'Meta' }}</div><div class="big" style="font-size:24px">{% if ult and ult.objetivo is not none %}{{ valor(ult.objetivo, unidad, dec_obj) }}{% elif v %}{{ valor(v.meta, unidad, dec) }}{% else %}—{% endif %}</div></div>
+  <div><div class="muted small">Brecha</div><div class="big" style="font-size:24px;color:{{ 'var(--r-fg)' if ult and ult.brecha is not none and ult.brecha < 0 else 'var(--g-fg)' }}">{% if ult and ult.brecha is not none %}{{ valor(ult.brecha, '', dec_obj, true) }}{% else %}—{% endif %}</div></div>
+  <div><div class="muted small">Tendencia</div><div style="margin-top:6px">{{ racha_tag(rr[0], rr[1]) }}</div></div>
+  <div><div class="muted small">Compromisos · 4 semanas</div><div class="big" style="font-size:24px">{% if tot4 %}{{ (cum4 / tot4 * 100)|round|int }}%{% else %}—{% endif %}</div><div class="small muted">{{ cum4 }} de {{ tot4 }} cumplidos</div></div>
+  <div><div class="muted small">Remediaciones · 16 semanas</div><div class="big" style="font-size:24px">{{ rem_ok }} <span class="muted" style="font-size:14px;font-weight:600">cumplidas</span></div><div class="small" style="font-weight:700;color:{{ 'var(--r-fg)' if rem_texto else 'var(--muted)' }}">{{ rem_texto }} sin ejecutar</div></div>
+  <div><div class="muted small">Dueño · meta vigente</div><div style="font-weight:700;margin-top:4px">{{ m.dueno.nombre if m.dueno else '—' }}{% if v %} · v{{ v.version }} desde {{ fmt_fecha(v.vigente_desde) }}{% endif %}</div></div>
+</div>
+
+<section class="card pad">
+  <div class="row between"><h2>Histórico semanal: el indicador y los compromisos que lo mueven</h2>
+    <div class="row small muted" style="gap:14px"><span class="row" style="gap:6px"><span style="width:20px;height:3px;background:var(--teal);display:inline-block"></span>real</span><span class="row" style="gap:6px"><span style="width:20px;border-top:2px dashed #8A949E;display:inline-block"></span>objetivo</span><span class="row" style="gap:6px"><span class="tira"><span style="background:#2E8B3D"></span></span>cumplido</span><span class="row" style="gap:6px"><span class="tira"><span style="background:#F3A39E"></span></span>remediado</span><span class="row" style="gap:6px"><span class="tira"><span style="background:#F0A020"></span></span>en remediación</span><span class="row" style="gap:6px"><span class="tira"><span style="background:#D7261E"></span></span>sin ejecutar (solo en texto)</span></div></div>
+  {{ grafica }}
+  {% if ultimo_diag and ultimo_diag.resultado.titular %}<div class="row small" style="gap:10px;align-items:flex-start;padding:12px 14px;border-radius:10px;background:var(--mint);color:var(--teal);flex-wrap:nowrap">{{ icon('spark', 18) }}<span><b>Lectura de la IA (S{{ num_semana(ultimo_diag.semana) }}):</b> {{ ultimo_diag.resultado.titular }}</span></div>{% endif %}
+  {% if eventos %}<ol class="small" style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:4px;color:var(--ink3)">{% for s, t in eventos[:9] %}<li>S{{ num_semana(s) }} · {{ t }}</li>{% endfor %}</ol>{% endif %}
+  {% if not ult %}<div class="flash error small">Aún no hay valores capturados para este indicador; la gráfica muestra solo los compromisos. {% if puede_capturar %}<a href="/indicadores/captura">Capturar ahora</a>.{% endif %}</div>{% endif %}
+</section>
+
+<div class="grid2" style="grid-template-columns:1fr 1.4fr">
+<section class="card pad"><h2>Medidas predictivas · S{{ num_semana(sem) }}</h2><span class="small muted" style="margin-top:-8px">Compromisos cumplidos por medida esta semana</span>
+  {% for p, h, t in preds %}<div class="row between" style="padding:8px 0;border-bottom:1px solid #EEF1F4;flex-wrap:nowrap"><span class="small" style="font-weight:600">{{ p.nombre }}{% if p.requiere_evidencia %} <span class="tag n" title="Pide transcripción como evidencia">evidencia</span>{% endif %}</span>
+    <span class="row" style="gap:8px;flex:none"><span class="small muted">{{ h }} de {{ t }}</span>{% if t %}<span class="tag {{ 'g' if h==t else 'o' if h else 'r' }}">{{ (h / t * 100)|round|int }}%</span>{% else %}<span class="tag n">sin compromisos</span>{% endif %}</span></div>
+  {% endfor %}</section>
+<section class="card pad"><div class="row between"><h2>Tareas del indicador · S{{ num_semana(sem) }}</h2><a class="btn yellow sm" href="/compromisos#nuevo-compromiso">{{ icon('plus', 16) }}Nuevo compromiso</a></div>
+  <div class="tbl"><table><thead><tr><th>Compromiso</th><th>Responsable</th><th>Vence</th><th>Estado</th></tr></thead><tbody>
+  {% for c in comps_sem %}<tr><td><a href="/compromisos/{{ c.id }}">{{ c.texto }}</a></td><td class="small">{{ c.responsable.nombre }}</td><td class="small">{{ fmt_dia(c.remediacion.nueva_fecha if c.remediacion else c.fecha_limite) }}</td>
+    <td>{% if c.estado=='cumplido' %}<span class="tag g">Cumplido</span>{% elif c.estado=='no_cumplido' %}<span class="tag r">{{ 'Sin remediación' if not c.remediacion else 'Remediación ' ~ c.remediacion.estado }}</span>{% elif c.estado=='cancelado' %}<span class="tag n">Cancelado</span>{% else %}<span class="tag b">Abierto {{ c.avance }}%</span>{% endif %}</td></tr>
+  {% else %}<tr><td colspan="4" class="muted">Sin compromisos ligados a este indicador esta semana.</td></tr>{% endfor %}</tbody></table></div></section>
+</div>
+
+<section class="card pad"><h2>Kárdex de movimientos</h2>
+  <div class="tbl"><table><thead><tr><th>Semana</th><th class="num">Movimiento</th><th class="num">Valor</th><th class="num">Objetivo</th><th class="num">Brecha</th><th class="num">Cumplidos</th><th>Remediaciones</th><th>Eventos</th><th>Foto IA</th></tr></thead><tbody>
+  {% for f in filas %}{% set p = f.p %}<tr><td><b>S{{ num_semana(p.semana) }}</b></td>
+    <td class="num">{% if f.mov is not none %}{{ valor(f.mov, '', dec, true) }}{% else %}—{% endif %}</td>
+    <td class="num"><b>{% if p.valor is not none %}{{ valor(p.valor, unidad, dec) }}{% else %}—{% endif %}</b></td>
+    <td class="num">{% if p.objetivo is not none %}{{ valor(p.objetivo, unidad, dec_obj) }}{% else %}—{% endif %}</td>
+    <td class="num" style="font-weight:800;color:{{ 'var(--r-fg)' if p.brecha is not none and p.brecha < 0 else 'var(--g-fg)' if p.brecha else 'var(--ink3)' }}">{% if p.brecha is not none %}{{ valor(p.brecha, '', dec_obj, true) }}{% else %}—{% endif %}</td>
+    <td class="num">{{ p.cumplidos }} / {{ p.compromisos }}</td>
+    <td class="small">{% if p.remediados %}{{ p.remediados }} cumplida(s) {% endif %}{% if p.en_remediacion %}· {{ p.en_remediacion }} en curso {% endif %}{% if p.solo_texto %}<b style="color:var(--r-fg)">· {{ p.solo_texto }} sin ejecutar</b>{% endif %}{% if not (p.remediados or p.en_remediacion or p.solo_texto) %}—{% endif %}</td>
+    <td class="small">{{ f.eventos|join(' · ') or '—' }}</td>
+    <td>{% if f.diag %}<a class="lnk" href="/diagnostico?area={{ m.area.clave }}&semana={{ p.semana }}">{{ icon('spark', 15) }}S{{ num_semana(p.semana) }}</a>{% else %}<span class="muted small">—</span>{% endif %}</td></tr>{% endfor %}
+  </tbody></table></div></section>
+{% endblock %}

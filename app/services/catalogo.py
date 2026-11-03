@@ -41,12 +41,15 @@ def nueva_version_predictiva(db: Session, pred: Predictiva, *, descripcion: str,
 
 
 def nueva_version_mci(db: Session, mci: Mci, *, descripcion: str, meta, unidad: str, sentido: str,
-                      periodicidad: str, vigente_desde: date, motivo: str, usuario_id: int | None) -> MciVersion:
+                      periodicidad: str, vigente_desde: date, motivo: str, usuario_id: int | None,
+                      tipo_meta: str = "nivel", linea_base=None, fecha_meta: date | None = None) -> MciVersion:
     actual = mci.versiones[-1] if mci.versiones else None
     if actual and actual.vigente_hasta is None:
         actual.vigente_hasta = vigente_desde - timedelta(days=1)
     v = MciVersion(mci_id=mci.id, version=(actual.version + 1) if actual else 1, descripcion=descripcion,
                    meta=meta, unidad=unidad, sentido=sentido, periodicidad=periodicidad,
+                   tipo_meta=tipo_meta if tipo_meta in ("nivel", "acumulado") else "nivel",
+                   linea_base=linea_base, fecha_meta=fecha_meta,
                    vigente_desde=vigente_desde, motivo_cambio=motivo, creado_por=usuario_id)
     db.add(v)
     auditar(db, "nueva_version", "mci", mci.id, usuario_id, motivo=motivo, version=v.version)

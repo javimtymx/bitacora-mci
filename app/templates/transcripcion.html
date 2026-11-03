@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}Transcripción{% endblock %}
+{% block content %}
+<div class="top"><div class="col" style="gap:4px"><span class="muted small"><a href="/sesiones/{{ s.id }}">Sesión</a> · {{ fmt_dia(s.fecha) }} · consulta registrada en auditoría</span><h1 style="font-size:22px">Transcripción · {{ cliente }}</h1></div></div>
+<pre class="card pad" style="white-space:pre-wrap;font:14px/1.6 'Manrope',sans-serif;max-width:980px">{{ texto }}</pre>
+{% endblock %}

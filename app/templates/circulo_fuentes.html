@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}Fuentes · {{ ini.titulo }}{% endblock %}
+{% block content %}
+<div class="top"><div class="col" style="gap:4px"><span class="muted small"><a href="/circulo/{{ ini.circulo_id }}">{{ ini.circulo.nombre }}</a> · iniciativa #{{ ini.orden }}</span><h1 style="font-size:22px">{{ ini.titulo }}</h1></div></div>
+<section class="card pad"><h2>Ideas del equipo ({{ ideas|length }})</h2>{% for i in ideas %}<div style="padding:8px 0;border-bottom:1px solid var(--line)"><b>{{ i.titulo }}</b> <span class="muted small">· {{ i.autor.nombre }} · {{ i.estado }}</span><div class="small">{{ i.problema }}</div></div>{% else %}<span class="muted small">Ninguna.</span>{% endfor %}</section>
+<section class="card pad"><h2>Voz del cliente ({{ hall|length }})</h2>{% for h in hall %}<div style="padding:8px 0;border-bottom:1px solid var(--line)"><b>{{ h.tema }}</b> <span class="muted small">· {{ h.cuadrante }} · {{ fmt_fecha(h.sesion.fecha) }}</span><div class="quote small">«{{ h.cita }}»</div></div>{% else %}<span class="muted small">Ninguno.</span>{% endfor %}</section>
+<section class="card pad"><h2>Objeciones ({{ objs|length }})</h2>{% for o in objs %}<div style="padding:8px 0;border-bottom:1px solid var(--line)"><span class="tag n">{{ o.tipo }}</span> <span class="muted small">{{ fmt_fecha(o.sesion.fecha) }}</span><div class="quote small">«{{ o.cita }}»</div></div>{% else %}<span class="muted small">Ninguna.</span>{% endfor %}</section>
+{% endblock %}
