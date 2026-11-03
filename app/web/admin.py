@@ -23,7 +23,7 @@ from ..models import (
 from ..services import catalogo, cfdi, correo, parametros, ventas_auto
 from ..services.util import auditar
 from ..config import get_settings
-from .base import flash, hash_password, ir, render, requiere_direccion
+from .base import flash, hash_password, ir, render, requiere_direccion, OptInt, OptFloat, OptDate
 
 router = APIRouter(prefix="/admin")
 
@@ -44,7 +44,7 @@ def usuarios(request: Request, ver: str = "activos", db: Session = Depends(get_d
 
 @router.post("/usuarios")
 def alta_usuario(request: Request, nombre: str = Form(...), email: str = Form(...), rol: str = Form("colaborador"),
-                 area_id: int | None = Form(None), puede_confidencial: bool = Form(False),
+                 area_id: OptInt = Form(None), puede_confidencial: bool = Form(False),
                  enviar_invitacion: bool = Form(False), db: Session = Depends(get_db),
                  u: Usuario = Depends(requiere_direccion)):
     email = email.strip().lower()
@@ -82,7 +82,7 @@ def alta_usuario(request: Request, nombre: str = Form(...), email: str = Form(..
 
 @router.post("/usuarios/{uid}")
 def editar_usuario(uid: int, request: Request, nombre: str = Form(...), rol: str = Form(...),
-                   area_id: int | None = Form(None), puede_confidencial: bool = Form(False),
+                   area_id: OptInt = Form(None), puede_confidencial: bool = Form(False),
                    recibe_correos: bool = Form(False), db: Session = Depends(get_db),
                    u: Usuario = Depends(requiere_direccion)):
     x = db.get(Usuario, uid)
@@ -113,7 +113,7 @@ def reset_password(uid: int, request: Request, db: Session = Depends(get_db), u:
 
 
 @router.post("/usuarios/{uid}/baja")
-def baja_usuario(uid: int, request: Request, motivo: str = Form(...), reasignar_a: int | None = Form(None),
+def baja_usuario(uid: int, request: Request, motivo: str = Form(...), reasignar_a: OptInt = Form(None),
                  db: Session = Depends(get_db), u: Usuario = Depends(requiere_direccion)):
     """Baja lógica: el histórico se conserva; los compromisos abiertos se reasignan o se cancelan."""
     x = db.get(Usuario, uid)
@@ -202,11 +202,11 @@ def crear_area(request: Request, nombre: str = Form(...), clave: str = Form(...)
 
 @router.post("/mci")
 def crear_mci(request: Request, area_id: int = Form(...), clave: str = Form(...), nombre: str = Form(...),
-              descripcion: str = Form(...), meta: float | None = Form(None), unidad: str = Form(""),
+              descripcion: str = Form(...), meta: OptFloat = Form(None), unidad: str = Form(""),
               sentido: str = Form("mayor"), periodicidad: str = Form("mensual"), vigente_desde: date = Form(...),
-              tipo_meta: str = Form("nivel"), linea_base: float | None = Form(None), fecha_meta: date | None = Form(None),
+              tipo_meta: str = Form("nivel"), linea_base: OptFloat = Form(None), fecha_meta: OptDate = Form(None),
               fuente: str = Form("captura"), base_desde: str = Form(""), base_hasta: str = Form(""),
-              dueno_id: int | None = Form(None), db: Session = Depends(get_db), u: Usuario = Depends(requiere_direccion)):
+              dueno_id: OptInt = Form(None), db: Session = Depends(get_db), u: Usuario = Depends(requiere_direccion)):
     m = Mci(area_id=area_id, clave=clave.strip(), nombre=nombre.strip(), dueno_id=dueno_id or None)
     db.add(m)
     db.flush()
@@ -221,10 +221,10 @@ def crear_mci(request: Request, area_id: int = Form(...), clave: str = Form(...)
 
 
 @router.post("/mci/{mid}/version")
-def version_mci(mid: int, request: Request, descripcion: str = Form(...), meta: float | None = Form(None),
+def version_mci(mid: int, request: Request, descripcion: str = Form(...), meta: OptFloat = Form(None),
                 unidad: str = Form(""), sentido: str = Form("mayor"), periodicidad: str = Form("mensual"),
                 vigente_desde: date = Form(...), motivo: str = Form(...), tipo_meta: str = Form("nivel"),
-                linea_base: float | None = Form(None), fecha_meta: date | None = Form(None),
+                linea_base: OptFloat = Form(None), fecha_meta: OptDate = Form(None),
                 fuente: str = Form("captura"), base_desde: str = Form(""), base_hasta: str = Form(""),
                 db: Session = Depends(get_db),
                 u: Usuario = Depends(requiere_direccion)):
@@ -245,7 +245,7 @@ def version_mci(mid: int, request: Request, descripcion: str = Form(...), meta: 
 
 @router.post("/predictivas")
 def crear_predictiva(request: Request, mci_id: int = Form(...), clave: str = Form(...), nombre: str = Form(...),
-                     descripcion: str = Form(...), meta_semanal: float | None = Form(None), unidad: str = Form(""),
+                     descripcion: str = Form(...), meta_semanal: OptFloat = Form(None), unidad: str = Form(""),
                      sentido: str = Form("mayor"), fuente: str = Form("captura"), vigente_desde: date = Form(...),
                      db: Session = Depends(get_db), u: Usuario = Depends(requiere_direccion)):
     p = Predictiva(mci_id=mci_id, clave=clave.strip(), nombre=nombre.strip())
@@ -260,7 +260,7 @@ def crear_predictiva(request: Request, mci_id: int = Form(...), clave: str = For
 
 
 @router.post("/predictivas/{pid}/version")
-def version_predictiva(pid: int, request: Request, descripcion: str = Form(...), meta_semanal: float | None = Form(None),
+def version_predictiva(pid: int, request: Request, descripcion: str = Form(...), meta_semanal: OptFloat = Form(None),
                        unidad: str = Form(""), sentido: str = Form("mayor"), fuente: str = Form("captura"),
                        vigente_desde: date = Form(...), motivo: str = Form(...), db: Session = Depends(get_db),
                        u: Usuario = Depends(requiere_direccion)):

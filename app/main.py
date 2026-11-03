@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -46,3 +47,15 @@ async def _http(request: Request, exc: StarletteHTTPException):
 @app.get("/salud")
 def salud():
     return {"ok": True}
+
+
+@app.exception_handler(RequestValidationError)
+async def _validacion(request: Request, exc: RequestValidationError):
+    campos = ", ".join(sorted({str(e.get("loc", ["", "?"])[-1]) for e in exc.errors()}))
+    import logging
+    logging.getLogger("bitacora").warning("Formulario inválido en %s: %s", request.url.path, exc.errors())
+    if request.url.path.startswith("/api/"):
+        return JSONResponse({"ok": False, "mensaje": f"Revisa los datos del formulario ({campos})."}, status_code=422)
+    return TEMPLATES.TemplateResponse(request, "error.html", {
+        "u": None, "nav": "", "flashes": [], "codigo": 422, "titulo": "Revisa los datos",
+        "detalle": f"Hay campos con un valor no válido: {campos}."}, status_code=422)

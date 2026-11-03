@@ -24,7 +24,7 @@ from ..models import (
 )
 from ..services import acciones, catalogo, ia, parametros, seguimiento
 from ..services.util import auditar, hoy, semana_iso, semanas_atras, viernes
-from .base import check_password, flash, ir, puede_actuar, render, tocar_acceso, usuario_actual
+from .base import check_password, flash, ir, puede_actuar, render, tocar_acceso, usuario_actual, OptInt
 
 router = APIRouter()
 
@@ -163,8 +163,8 @@ def compromisos(request: Request, scope: str = "mios", estado: str = "abiertos",
 @router.post("/compromisos")
 def crear_compromiso(request: Request, area_id: int = Form(...), predictiva_id: int = Form(...),
                      responsable_id: int = Form(...), texto: str = Form(...), fecha_limite: date = Form(...),
-                     estrategia_id: int | None = Form(None), revision_id: int | None = Form(None),
-                     recomendacion_id: int | None = Form(None),
+                     estrategia_id: OptInt = Form(None), revision_id: OptInt = Form(None),
+                     recomendacion_id: OptInt = Form(None),
                      decision: str = Form("ok"), motivo: str = Form(""), db: Session = Depends(get_db),
                      u: Usuario = Depends(usuario_actual)):
     opciones = _opciones_captura(db, u)
@@ -249,7 +249,7 @@ def cumplido(cid: int, request: Request, db: Session = Depends(get_db), u: Usuar
 
 @router.post("/compromisos/{cid}/remediacion")
 def remediar(cid: int, request: Request, causa: str = Form(...), accion: str = Form(...), nueva_fecha: date = Form(...),
-             revision_id: int | None = Form(None), decision: str = Form("ok"), motivo: str = Form(""),
+             revision_id: OptInt = Form(None), decision: str = Form("ok"), motivo: str = Form(""),
              plan_sel: list[int] = Form([]), db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
     c = _comp_editable(db, cid, u)
     dmax = parametros.get(db, "dias_max_remediacion")
@@ -317,7 +317,7 @@ def ideas(request: Request, filtro: str = "activas", db: Session = Depends(get_d
 
 @router.post("/ideas")
 def crear_idea(request: Request, titulo: str = Form(...), problema: str = Form(...), beneficio: str = Form(""),
-               origen: str = Form(...), area_id: int = Form(...), revision_id: int | None = Form(None),
+               origen: str = Form(...), area_id: int = Form(...), revision_id: OptInt = Form(None),
                decision: str = Form("ok"), motivo: str = Form(""), db: Session = Depends(get_db),
                u: Usuario = Depends(usuario_actual)):
     rev = _revision_valida(db, revision_id, "idea", u)
@@ -375,7 +375,7 @@ def _ia_error(e: Exception) -> JSONResponse:
 
 @router.post("/api/ia/compromiso")
 def api_rev_compromiso(area_id: int = Form(...), predictiva_id: int = Form(...), responsable_id: int = Form(...),
-                       texto: str = Form(...), fecha_limite: date = Form(...), estrategia_id: int | None = Form(None),
+                       texto: str = Form(...), fecha_limite: date = Form(...), estrategia_id: OptInt = Form(None),
                        db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
     pred = db.get(Predictiva, predictiva_id)
     resp = db.get(Usuario, responsable_id)

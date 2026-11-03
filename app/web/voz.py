@@ -11,7 +11,7 @@ from ..db import get_db
 from ..models import CUADRANTES, Area, Compromiso, Idea, SesionCliente, Usuario, VentaClienteMes, utcnow
 from ..services import ia, vozcliente
 from ..services.util import auditar, hoy
-from .base import flash, ir, puede_actuar, render, requiere_lider, usuario_actual
+from .base import flash, ir, puede_actuar, render, requiere_lider, usuario_actual, OptInt
 
 router = APIRouter()
 MAX_BYTES = 2 * 1024 * 1024
@@ -50,8 +50,8 @@ def nueva(request: Request, compromiso: int | None = None, db: Session = Depends
 
 @router.post("/sesiones")
 async def crear_sesion(request: Request, tipo: str = Form(...), fecha: date = Form(...), participantes: str = Form(""),
-                       cliente: str = Form(""), cliente_nombre: str = Form(""), compromiso_id: int | None = Form(None),
-                       area_id: int | None = Form(None), consentimiento: bool = Form(False),
+                       cliente: str = Form(""), cliente_nombre: str = Form(""), compromiso_id: OptInt = Form(None),
+                       area_id: OptInt = Form(None), consentimiento: bool = Form(False),
                        archivo: UploadFile = File(...), db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
     if tipo not in ("retencion", "objeciones"):
         raise HTTPException(400)

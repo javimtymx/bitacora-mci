@@ -257,3 +257,19 @@ def test_socio_corte(admin, db):
     pid = r.headers["location"].split("/")[-1]
     admin.post(f"/socio/{pid}", data={"narrativa": "Buen mes", "accion": "publicar"})
     assert admin.post(f"/socio/{pid}", data={"narrativa": "cambio"}).status_code == 400
+
+
+def test_campos_opcionales_vacios(manuel, db, fake):
+    """El select 'Ninguna' manda estrategia_id vacío; no debe romper la revisión ni el guardado."""
+    fake.respuestas = [{"veredicto": "ok", "observaciones": [], "sugerencia": ""}]
+    d = {**_form_comp(db), "estrategia_id": "", "revision_id": "", "motivo": ""}
+    r = manuel.post("/api/ia/compromiso", data=d).json()
+    assert r["ok"], r
+    x = manuel.post("/compromisos", data={**d, "revision_id": r["revision_id"], "decision": "ok"},
+                    follow_redirects=False)
+    assert x.status_code == 303
+
+
+def test_formulario_invalido_responde_con_mensaje(manuel, db):
+    r = manuel.post("/api/ia/compromiso", data={**_form_comp(db), "area_id": "x"})
+    assert r.status_code == 422 and "area_id" in r.json()["mensaje"]

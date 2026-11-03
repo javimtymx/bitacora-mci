@@ -25,7 +25,7 @@ from ..models import (
 )
 from ..services import acciones, agente, catalogo, ia, seguimiento
 from ..services.util import auditar
-from .base import flash, ir, render, requiere_direccion, requiere_lider, usuario_actual
+from .base import flash, ir, render, requiere_direccion, requiere_lider, usuario_actual, OptInt, OptFloat
 
 router = APIRouter()
 
@@ -114,7 +114,7 @@ def acciones_ejecutar(request: Request, db: Session = Depends(get_db), u: Usuari
 @router.post("/acciones/nueva")
 def accion_nueva(request: Request, tipo: str = Form(...), titulo: str = Form(...), destinatarios: list[int] = Form([]),
                  asunto: str = Form(""), cuerpo: str = Form(""), instrucciones: str = Form(""),
-                 compromiso_id: int | None = Form(None), db: Session = Depends(get_db),
+                 compromiso_id: OptInt = Form(None), db: Session = Depends(get_db),
                  u: Usuario = Depends(requiere_lider)):
     if tipo not in ("correo", "recordatorio", "informe"):
         raise HTTPException(400)
@@ -180,7 +180,7 @@ def estrategias(request: Request, estado: str = "vigentes", db: Session = Depend
 
 @router.post("/estrategias")
 def crear_estrategia(request: Request, area_id: int = Form(...), nombre: str = Form(...), descripcion: str = Form(""),
-                     hipotesis: str = Form(""), mci_id: int | None = Form(None), responsable_id: int | None = Form(None),
+                     hipotesis: str = Form(""), mci_id: OptInt = Form(None), responsable_id: OptInt = Form(None),
                      seguimiento_: str = Form("semanal", alias="seguimiento"), activar: bool = Form(False),
                      db: Session = Depends(get_db), u: Usuario = Depends(requiere_lider)):
     est = Estrategia(area_id=area_id, nombre=nombre.strip()[:200], descripcion=descripcion, hipotesis=hipotesis,
@@ -228,7 +228,7 @@ def estado_estrategia(eid: int, request: Request, estado: str = Form(...), motiv
 
 @router.post("/estrategias/{eid}/ajuste")
 def ajuste_estrategia(eid: int, request: Request, descripcion: str = Form(...), motivo: str = Form(...),
-                      responsable_id: int | None = Form(None), db: Session = Depends(get_db),
+                      responsable_id: OptInt = Form(None), db: Session = Depends(get_db),
                       u: Usuario = Depends(requiere_lider)):
     """Cambia cómo se ejecuta la estrategia sin perder la versión anterior: queda en el evento."""
     est = db.get(Estrategia, eid)
@@ -320,7 +320,7 @@ def _etiqueta(db: Session, e: Excepcion) -> str:
 @router.post("/excepciones")
 def solicitar_excepcion(request: Request, objetivo: str = Form(...),
                         periodo_desde: date = Form(...), periodo_hasta: date = Form(...), categoria: str = Form(...),
-                        efecto: str = Form("excluir"), meta_ajustada: float | None = Form(None),
+                        efecto: str = Form("excluir"), meta_ajustada: OptFloat = Form(None),
                         justificacion: str = Form(...), visible_socio: bool = Form(False),
                         db: Session = Depends(get_db), u: Usuario = Depends(requiere_lider)):
     tipo_entidad, _, ent = objetivo.partition(":")

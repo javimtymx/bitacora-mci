@@ -1,5 +1,8 @@
 """Utilidades comunes de la capa web: sesión, permisos, plantillas y mensajes."""
 from __future__ import annotations
+from datetime import date
+
+from pydantic_core import core_schema
 
 import html
 import re
@@ -126,3 +129,27 @@ def ir(url: str) -> RedirectResponse:
 
 def tocar_acceso(db: Session, u: Usuario) -> None:
     u.ultimo_acceso = utcnow()
+
+
+# Los formularios HTML mandan "" cuando un select opcional queda en "Ninguna" o un número se deja vacío;
+# estos tipos lo convierten en None en lugar de rechazar el formulario.
+class _Opcional:
+    tipo: type = int
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, origen, handler):
+        return core_schema.no_info_before_validator_function(
+            lambda v: None if isinstance(v, str) and not v.strip() else v,
+            core_schema.nullable_schema(handler.generate_schema(cls.tipo)))
+
+
+class OptInt(_Opcional):
+    tipo = int
+
+
+class OptFloat(_Opcional):
+    tipo = float
+
+
+class OptDate(_Opcional):
+    tipo = date
