@@ -12,9 +12,22 @@ h1{margin:0;font-size:26px;font-weight:800;letter-spacing:-.01em}
 h2{margin:0;font-size:19px;font-weight:800}
 h3{margin:0;font-size:16px;font-weight:800}
 .app{display:flex;min-height:100vh}
-.rail{width:72px;flex:none;background:#fff;border-right:1px solid #E3E8EC;display:flex;flex-direction:column;align-items:center;padding:14px 0;gap:4px;position:sticky;top:0;height:100vh;overflow-y:auto}
+.rail{width:72px;flex:none;background:#fff;border-right:1px solid #E3E8EC;display:flex;flex-direction:column;align-items:center;padding:14px 0;gap:4px;position:sticky;top:0;height:100vh;overflow:visible;z-index:30}
 .rail a,.rail button{display:flex;flex-direction:column;align-items:center;gap:3px;width:62px;padding:8px 0;border-radius:10px;color:var(--ink3);text-decoration:none;font:700 10px 'Manrope',sans-serif;background:none;border:0;cursor:pointer;text-align:center}
-.rail a.on{background:var(--mint);color:var(--teal)}
+.rail a.on,.rail .grp.on>.gbtn{background:var(--mint);color:var(--teal)}
+.rail .grp{position:relative}
+.rail .grp:hover>.gbtn,.rail .grp:focus-within>.gbtn{background:#F2F6F8}
+.rail .grp.on:hover>.gbtn,.rail .grp.on:focus-within>.gbtn{background:var(--mint)}
+.rail .fly{display:none;position:absolute;left:62px;top:-6px;padding:6px 6px 6px 14px;z-index:40}
+.rail .fly.up{top:auto;bottom:-6px}
+.rail .fly::before{content:"";position:absolute;inset:0 0 0 8px;background:#fff;border:1px solid #E3E8EC;border-radius:12px;box-shadow:0 10px 30px rgba(16,40,56,.14);z-index:-1}
+.rail .grp:hover>.fly,.rail .grp:focus-within>.fly{display:block}
+.rail .fly .fh{font:800 11px 'Manrope',sans-serif;text-transform:uppercase;letter-spacing:.06em;color:var(--ink3);padding:6px 10px 4px}
+.rail .fly a{display:block;width:230px;padding:8px 10px;text-align:left;border-radius:8px}
+.rail .fly a b{display:block;font:700 13px 'Manrope',sans-serif;color:var(--ink)}
+.rail .fly a small{display:block;font:500 11px 'Manrope',sans-serif;color:var(--ink3);margin-top:1px}
+.rail .fly a.on{background:var(--mint)}
+.rail .fly a.on b{color:var(--teal)}
 .rail a:hover,.rail button:hover{background:#F2F6F8}
 .rail svg{width:20px;height:20px}
 .rail .logo{width:32px;height:32px;margin-bottom:6px}

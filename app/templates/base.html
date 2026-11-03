@@ -6,34 +6,61 @@
 <title>{% block title %}Bitácora MCI{% endblock %} · OneCore</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
-<link rel="stylesheet" href="/static/css/app.css?v=2">
+<link rel="stylesheet" href="/static/css/app.css?v=3">
 <link rel="icon" href="/static/logo.svg">
 </head>
 <body>
 <div class="app">
   <nav class="rail" aria-label="Menú principal">
     <img src="/static/logo.svg" class="logo" alt="OneCore">
-    <a href="/" class="{{ 'on' if nav=='inicio' }}">{{ icon('home') }}Tablero</a>
-    <a href="/mi-semana" class="{{ 'on' if nav=='mi-semana' }}">{{ icon('flag') }}Mi semana</a>
-    <a href="/compromisos" class="{{ 'on' if nav=='compromisos' }}">{{ icon('check') }}Compromisos</a>
-    <a href="/ideas" class="{{ 'on' if nav=='ideas' }}">{{ icon('idea') }}Ideas</a>
-    <a href="/estrategias" class="{{ 'on' if nav=='estrategias' }}">{{ icon('target') }}Estrategias</a>
-    {% if u and u.es_lider %}
-    <a href="/diagnostico" class="{{ 'on' if nav=='diagnostico' }}">{{ icon('spark') }}Diagnóstico</a>
-    <a href="/pm" class="{{ 'on' if nav=='pm' }}">{{ icon('cpu') }}PM virtual</a>
-    <a href="/voz-cliente" class="{{ 'on' if nav=='voz' }}">{{ icon('users') }}Voz cliente</a>
-    <a href="/semanal" class="{{ 'on' if nav=='semanal' }}">{{ icon('screen') }}Semanal</a>
-    <a href="/excepciones" class="{{ 'on' if nav=='excepciones' }}">{{ icon('shield') }}Excepciones</a>
-    {% endif %}
-    <a href="/circulo" class="{{ 'on' if nav=='circulo' }}">{{ icon('idea') }}Círculo</a>
-    <a href="/indicadores" class="{{ 'on' if nav=='indicadores' }}">{{ icon('chart') }}Indicadores</a>
-    <a href="/reportes" class="{{ 'on' if nav=='reportes' }}">{{ icon('down') }}Reportes</a>
-    {% if u and u.es_direccion %}
-    <a href="/socio" class="{{ 'on' if nav=='socio' }}">{{ icon('briefcase') }}Socio</a>
-    {% endif %}
+    {%- set lider = u and u.es_lider %}{% set dir = u and u.es_direccion %}
+    {%- set GRUPOS = [
+      ('tablero', 'Tablero', 'home', true, [
+        ('inicio', '/', 'Tablero semanal', 'Indicadores de todos y por área', true),
+        ('mi-semana', '/mi-semana', 'Mi semana', 'Mis compromisos de esta semana', true)]),
+      ('ejecucion', 'Ejecución', 'check', true, [
+        ('compromisos', '/compromisos', 'Compromisos', 'Seguimiento y remediaciones', true),
+        ('estrategias', '/estrategias', 'Estrategias', 'Palancas activas por MCI', true),
+        ('semanal', '/semanal', 'Junta semanal', 'Vista para presentar', lider),
+        ('excepciones', '/excepciones', 'Excepciones', 'Solicitudes y aprobaciones', lider)]),
+      ('ia', 'IA', 'spark', lider, [
+        ('diagnostico', '/diagnostico', 'Diagnóstico por área', 'Recomendaciones semanales', lider),
+        ('pm', '/pm', 'PM virtual', 'Pendientes y alertas', lider),
+        ('voz', '/voz-cliente', 'Voz del cliente', 'Sesiones 1:1 y objeciones', lider)]),
+      ('innovacion', 'Innovación', 'idea', true, [
+        ('ideas', '/ideas', 'Ideas', 'Propuestas del equipo', true),
+        ('circulo', '/circulo', 'Círculo de innovación', 'Iniciativas y votación', true)]),
+      ('datos', 'Datos', 'chart', true, [
+        ('indicadores', '/indicadores', 'Indicadores', 'Kárdex y captura semanal', true),
+        ('reportes', '/reportes', 'Reportes', 'Descargas en Excel', true),
+        ('socio', '/socio', 'Vista socio', 'Resumen ejecutivo', dir)]),
+    ] %}
+    {%- for gk, gt, gi, gvis, items in GRUPOS if gvis %}
+    {%- set ns = namespace(vis=[], activo=false) %}
+    {%- for it in items if it[4] %}{% set ns.vis = ns.vis + [it] %}{% if it[0] == nav %}{% set ns.activo = true %}{% endif %}{% endfor %}
+    {%- set vis, activo = ns.vis, ns.activo %}
+    <div class="grp{{ ' on' if activo }}">
+      <button type="button" class="gbtn" aria-haspopup="true">{{ icon(gi) }}{{ gt }}</button>
+      <div class="fly" role="menu">
+        <div class="fh">{{ gt }}</div>
+        {%- for k, href, t, d, ok in vis %}
+        <a href="{{ href }}" role="menuitem" class="{{ 'on' if nav==k }}"><b>{{ t }}</b><small>{{ d }}</small></a>
+        {%- endfor %}
+      </div>
+    </div>
+    {%- endfor %}
     <span class="sp"></span>
-    {% if u and u.es_direccion %}
-    <a href="/admin/usuarios" class="{{ 'on' if nav=='admin' }}">{{ icon('sliders') }}Configurar</a>
+    {% if dir %}
+    <div class="grp{{ ' on' if nav=='admin' }}">
+      <button type="button" class="gbtn" aria-haspopup="true">{{ icon('sliders') }}Configurar</button>
+      <div class="fly up" role="menu">
+        <div class="fh">Configurar</div>
+        <a href="/admin/usuarios" role="menuitem"><b>Usuarios</b><small>Altas, roles y permisos</small></a>
+        <a href="/admin/parametros" role="menuitem"><b>Parámetros</b><small>Reglas y automatizaciones</small></a>
+        <a href="/admin/catalogo" role="menuitem"><b>Catálogo estratégico</b><small>MCI, metas y medidas</small></a>
+        <a href="/admin/prompts" role="menuitem"><b>Especialistas IA</b><small>Prompt por área</small></a>
+      </div>
+    </div>
     {% endif %}
     <a href="/perfil">{{ icon('lock') }}Perfil</a>
     <form method="post" action="/logout" style="margin:0"><button type="submit">{{ icon('logout') }}Salir</button></form>
