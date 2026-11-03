@@ -2,7 +2,7 @@
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Entrar · Bitácora MCI</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
-<link rel="stylesheet" href="/static/css/app.css?v=1"><link rel="icon" href="/static/logo.svg"></head>
+<link rel="stylesheet" href="/static/css/app.css?v=2"><link rel="icon" href="/static/logo.svg"></head>
 <body><div class="login"><form class="card" method="post" action="/login">
   <div class="row"><img src="/static/logo.svg" width="36" alt=""><div><h1 style="font-size:22px">Bitácora MCI</h1><span class="muted small">OneCore · ejecución semanal 4DX</span></div></div>
   {% for f in flashes %}<div class="flash {{ f.k }}">{{ f.t }}</div>{% endfor %}

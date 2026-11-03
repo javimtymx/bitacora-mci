@@ -33,8 +33,8 @@ h3{margin:0;font-size:16px;font-weight:800}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:42px;padding:0 16px;border-radius:9px;font:700 14px 'Manrope',sans-serif;border:1.5px solid var(--ink);background:#fff;color:var(--ink);cursor:pointer;white-space:nowrap;text-decoration:none}
 .btn:hover{color:var(--ink);filter:brightness(.97)}
 .btn.dark{background:var(--ink);color:#fff}.btn.dark:hover{color:#fff}
-.btn.yellow{background:var(--yellow);border-color:var(--yellow)}
-.btn.red{background:#D7261E;border-color:#D7261E;color:#fff}
+.btn.yellow,.btn.yellow:hover{background:var(--yellow);border-color:var(--yellow);color:var(--ink)}
+.btn.red,.btn.red:hover{background:#D7261E;border-color:#D7261E;color:#fff}
 .btn.soft{border-color:var(--line2)}
 .btn.ghost{border-color:transparent;background:transparent}
 .btn.sm{height:34px;padding:0 12px;font-size:13px;border-radius:8px}
@@ -49,9 +49,10 @@ h3{margin:0;font-size:16px;font-weight:800}
 .pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;padding:5px 10px;border-radius:999px;background:var(--mint);color:var(--teal)}
 .ai{display:inline-flex;align-items:center;gap:6px;background:var(--teal);color:#fff;font-size:12px;font-weight:700;padding:5px 11px;border-radius:999px;white-space:nowrap}
 .ai svg{width:14px;height:14px}
-.btn.aibtn{background:var(--teal);border-color:var(--teal);color:#fff}
+.btn.aibtn,.btn.aibtn:hover{background:var(--teal);border-color:var(--teal);color:#fff}
 .cint{display:flex;flex-wrap:wrap;align-items:center;gap:14px;background:var(--teal);color:#fff;border-radius:10px;padding:12px 16px;font-size:14px}
-.cint a{color:#fff;font-weight:700}
+.cint a:not(.btn){color:#fff;font-weight:700}
+.cint a:not(.btn):hover{color:var(--mintic)}
 .cint .ic,.secic{width:34px;height:34px;border-radius:50%;background:var(--mintic);color:var(--teal);display:flex;align-items:center;justify-content:center;flex:none}
 .cint .ic svg,.secic svg{width:18px;height:18px}
 .cint .x{background:transparent;border:0;color:#fff;width:32px;height:32px;cursor:pointer;margin-left:auto}
