@@ -58,7 +58,7 @@ def informe_diario(db: Session) -> Informe:
                             "prioridad": a.get("prioridad") if a.get("prioridad") in ("alta", "media", "baja") else "media"})
         riesgos = [str(r)[:300] for r in (res.get("riesgos") or [])][:3]
         modelo = meta.get("modelo")
-    except ia.IANoDisponible:
+    except (ia.IANoDisponible, ValueError):
         resumen = f"Informe sin IA: {len(al)} alertas activas, {sum(1 for a in al if a.severidad == 3)} urgentes."
         acc, riesgos, modelo = [], [], None
     md = resumen + "\n\n" + "\n".join(f"- **{a['prioridad']}** · {a['area']}: {a['accion']}" for a in acc)

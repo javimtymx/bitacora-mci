@@ -53,6 +53,12 @@ def pm(request: Request, db: Session = Depends(get_db), u: Usuario = Depends(req
 
 @router.post("/pm/informe")
 def pm_generar(request: Request, db: Session = Depends(get_db), u: Usuario = Depends(requiere_lider)):
+    from datetime import timedelta
+    reciente = db.scalar(select(Informe).where(Informe.tipo == "pm_diario", Informe.creado >= utcnow() - timedelta(minutes=2))
+                         .order_by(Informe.creado.desc()).limit(1))
+    if reciente:  # doble clic u otra pestaña: no se gasta otra llamada a la IA
+        flash(request, "El informe se acaba de generar; te mostramos ese.")
+        return ir("/pm")
     inf = agente.informe_diario(db)
     inf.generado_por = u.id
     db.commit()
@@ -118,6 +124,14 @@ def accion_nueva(request: Request, tipo: str = Form(...), titulo: str = Form(...
                  u: Usuario = Depends(requiere_lider)):
     if tipo not in ("correo", "recordatorio", "informe"):
         raise HTTPException(400)
+    from datetime import timedelta
+    dup = db.scalar(select(AccionAgente).where(AccionAgente.creado_por == u.id, AccionAgente.tipo == tipo,
+                                               AccionAgente.titulo == titulo[:200],
+                                               AccionAgente.creado >= utcnow() - timedelta(minutes=2))
+                    .order_by(AccionAgente.creado.desc()).limit(1))
+    if dup:  # el mismo pedido llegó dos veces: se muestra el resultado del primero
+        flash(request, "Ese pedido ya se estaba atendiendo; te mostramos el resultado.")
+        return ir(f"/informes/{dup.informe_id}" if dup.informe_id else "/pm")
     a = acciones.crear(db, tipo=tipo, origen="usuario", titulo=titulo, destinatarios=destinatarios, asunto=asunto,
                        cuerpo=cuerpo, instrucciones=instrucciones or None,
                        entidad_tipo="compromiso" if compromiso_id else None, entidad_id=compromiso_id,

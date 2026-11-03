@@ -36,6 +36,13 @@ class FakeIA:
         r = self.respuestas.pop(0) if self.respuestas else {"veredicto": "ok", "observaciones": []}
         return r, {"modelo": "fake", "tin": 10, "tout": 5}
 
+    def pedir_texto(self, prompt, rapido=False, max_tokens=4000, system=None):
+        self.prompts.append(prompt)
+        r = self.respuestas.pop(0) if self.respuestas else "# Documento\n\nContenido"
+        if isinstance(r, dict):  # compatibilidad con pruebas que daban JSON
+            r = f"# {r.get('titulo', 'Documento')}\n\n{r.get('contenido_markdown', '')}"
+        return r, {"modelo": "fake", "tin": 10, "tout": 5}
+
     def investigar(self, prompt, max_busquedas=5, system=None):
         self.investigaciones.append(prompt)
         return ({"resumen": "Seguimiento en 48 h duplica la tasa de cita.", "hallazgos": ["dato 1"], "implicacion": "retomar"},

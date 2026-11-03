@@ -235,7 +235,7 @@ def generar(db: Session, area: Area, semana: str | None = None, usuario_id: int 
                 "\n".join(f"- {h}" for h in investigacion["hallazgos"]) + f"\nImplicación: {investigacion['implicacion']}"
             res2, meta = ia.cliente().pedir_json(INSTRUCCION.format(contexto=ctx2), max_tokens=2500, system=system)
             out = _normalizar(res2, prev_ids)
-        except ia.IANoDisponible as e:
+        except (ia.IANoDisponible, ValueError) as e:
             investigacion = {"pregunta": pregunta, "error": str(e)[:300]}
     for e in out["evaluacion"]:
         r = db.get(RecomendacionIA, e["id"])
@@ -282,6 +282,6 @@ def semanal_todas(db: Session) -> int:
         try:
             generar(db, a, sem)
             n += 1
-        except ia.IANoDisponible:
+        except (ia.IANoDisponible, ValueError):
             db.rollback()
     return n

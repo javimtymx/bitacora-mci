@@ -309,8 +309,8 @@ def generar_diagnostico(request: Request, area: str = Form(...), pregunta: str =
     try:
         diagnostico.generar(db, a, usuario_id=u.id, pregunta_manual=pregunta.strip() or None)
         flash(request, "Diagnóstico generado." + (" Incluye investigación profunda." if pregunta.strip() else ""))
-    except ia.IANoDisponible as e:
-        flash(request, f"La IA no está disponible: {str(e)[:160]}", "error")
+    except (ia.IANoDisponible, ValueError) as e:
+        flash(request, f"No se pudo generar el diagnóstico: {str(e)[:160]}", "error")
     return ir(f"/diagnostico?area={a.clave}")
 
 

@@ -62,19 +62,39 @@ class ClienteIA:
             self._cli = anthropic.Anthropic(api_key=self.s.anthropic_api_key, timeout=180)
         return self._cli
 
-    def pedir_json(self, prompt: str, rapido: bool = False, max_tokens: int = 1500,
-                   system: str | None = None) -> tuple[dict, dict]:
+    def _crear(self, modelo: str, max_tokens: int, system: str | None, prompt: str):
         cli = self._anthropic()
-        modelo = self.s.ia_modelo_rapido if rapido else self.s.ia_modelo
         try:
-            r = cli.messages.create(model=modelo, max_tokens=max_tokens, system=system or SYSTEM,
-                                    messages=[{"role": "user", "content": prompt}])
+            return cli.messages.create(model=modelo, max_tokens=max_tokens, system=system or SYSTEM,
+                                       messages=[{"role": "user", "content": prompt}])
         except Exception as e:  # red, límites o modelo inválido
             log.error("Anthropic falló (modelo %s): %s: %s", modelo, type(e).__name__, e)
             raise IANoDisponible(str(e)) from e
+
+    def _texto(self, prompt: str, rapido: bool, max_tokens: int, system: str | None) -> tuple[str, dict]:
+        """Pide texto; si la respuesta se corta por límite de tokens, repite una vez con el doble de espacio."""
+        modelo = self.s.ia_modelo_rapido if rapido else self.s.ia_modelo
+        r = self._crear(modelo, max_tokens, system, prompt)
+        if getattr(r, "stop_reason", "") == "max_tokens" and max_tokens < 8000:
+            log.warning("Respuesta cortada en %s tokens; se repite con %s", max_tokens, min(max_tokens * 2, 8000))
+            r = self._crear(modelo, min(max_tokens * 2, 8000), system, prompt)
         texto = "".join(b.text for b in r.content if getattr(b, "type", "") == "text")
-        meta = {"modelo": modelo, "tin": getattr(r.usage, "input_tokens", 0), "tout": getattr(r.usage, "output_tokens", 0)}
-        return extraer_json(texto), meta
+        meta = {"modelo": modelo, "tin": getattr(r.usage, "input_tokens", 0), "tout": getattr(r.usage, "output_tokens", 0),
+                "cortada": getattr(r, "stop_reason", "") == "max_tokens"}
+        return texto, meta
+
+    def pedir_json(self, prompt: str, rapido: bool = False, max_tokens: int = 1500,
+                   system: str | None = None) -> tuple[dict, dict]:
+        texto, meta = self._texto(prompt, rapido, max_tokens, system)
+        try:
+            return extraer_json(texto), meta
+        except json.JSONDecodeError as e:
+            log.error("JSON inválido de la IA (%s): %s", "cortado" if meta["cortada"] else "mal formado", e)
+            raise ValueError("La IA devolvió una respuesta incompleta. Intenta de nuevo.") from e
+
+    def pedir_texto(self, prompt: str, rapido: bool = False, max_tokens: int = 4000,
+                    system: str | None = None) -> tuple[str, dict]:
+        return self._texto(prompt, rapido, max_tokens, system)
 
     def investigar(self, prompt: str, max_busquedas: int = 5, system: str | None = None) -> tuple[dict, dict]:
         """Investigación con búsqueda web (herramienta de servidor de Anthropic). Regresa JSON + fuentes."""
@@ -120,11 +140,11 @@ def extraer_json(texto: str) -> dict:
     if m:
         t = m.group(1).strip()
     try:
-        return json.loads(t)
+        return json.loads(t, strict=False)
     except json.JSONDecodeError:
         i, j = t.find("{"), t.rfind("}")
         if i >= 0 and j > i:
-            return json.loads(t[i:j + 1])
+            return json.loads(t[i:j + 1], strict=False)
         raise
 
 
@@ -370,10 +390,11 @@ def informe_pm(db: Session, contexto: str) -> tuple[dict, dict]:
 </datos>
 
 JSON: {{"resumen":"3-4 frases: cómo va la ejecución y dónde está el mayor riesgo","acciones":[{{"persona":"código P# o vacío si es para un área","area":"nombre del área","accion":"acción concreta para esta semana","prioridad":"alta|media|baja"}}],"riesgos":["hasta 3"]}} con máximo 10 acciones."""
-    return cliente().pedir_json(prompt, max_tokens=1800)
+    return cliente().pedir_json(prompt, max_tokens=3000)
 
 
 def redactar_informe(db: Session, titulo: str, instrucciones: str, contexto: str) -> tuple[dict, dict]:
+    """Documentos largos: se piden en Markdown directo (no dentro de JSON) para que un texto largo no rompa el formato."""
     prompt = f"""Redacta un documento de trabajo para el equipo con base en las instrucciones y el contexto. Debe ser concreto, útil para actuar y no inventar datos: si falta información, márcala como [pendiente].
 
 <datos>
@@ -383,5 +404,15 @@ Contexto:
 {contexto}
 </datos>
 
-JSON: {{"titulo":"...","contenido_markdown":"el documento en Markdown, con secciones claras"}}"""
-    return cliente().pedir_json(prompt, max_tokens=2500)
+Responde solo con el documento en Markdown. La primera línea es el título con "# ". Usa secciones claras y, si hay acciones, una tabla con acción, responsable y fecha."""
+    texto, meta = cliente().pedir_texto(prompt, max_tokens=5000)
+    texto = texto.strip()
+    if not texto:
+        raise ValueError("La IA no devolvió contenido. Intenta de nuevo.")
+    tit = titulo
+    lineas = texto.splitlines()
+    if lineas and lineas[0].startswith("# "):
+        tit, texto = lineas[0][2:].strip() or titulo, "\n".join(lineas[1:]).strip()
+    if meta.get("cortada"):
+        texto += "\n\n> [pendiente] El documento quedó incompleto por su extensión; pide la parte faltante."
+    return {"titulo": tit, "contenido_markdown": texto}, meta

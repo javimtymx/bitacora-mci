@@ -134,3 +134,57 @@
     });
   });
 })();
+
+/* Evita envíos dobles: al enviar un formulario se bloquean sus botones y, si el proceso es largo (IA o correos),
+   se muestra un aviso que cubre la pantalla hasta que el servidor responde. */
+(() => {
+  const LARGO = /\/(pm\/informe|pm\/recordatorios|acciones\/(nueva|ejecutar)|diagnostico\/generar|consolidar|analizar)$|\/sesiones$/;
+  const MENSAJES = {
+    "pm/informe": "El PM virtual está generando el informe…",
+    "acciones/nueva": "El PM virtual está redactando el documento…",
+    "pm/recordatorios": "Preparando recordatorios…",
+    "acciones/ejecutar": "Ejecutando acciones programadas…",
+    "diagnostico/generar": "La IA está preparando el diagnóstico del área…",
+    "consolidar": "La IA está consolidando las iniciativas…",
+    "analizar": "La IA está analizando…",
+    "sesiones": "Cargando y analizando la sesión…",
+  };
+  const mensaje = (url) => {
+    for (const k in MENSAJES) if (url.includes(k)) return MENSAJES[k];
+    return "Procesando…";
+  };
+  function aviso(texto) {
+    const d = document.createElement("div");
+    d.className = "espera";
+    d.setAttribute("role", "status");
+    d.setAttribute("aria-live", "polite");
+    d.innerHTML = `<div class="caja"><span class="spin lg"></span><div><b></b><div class="small muted">Puede tardar hasta un minuto. No cierres ni recargues la página; te llevamos al resultado al terminar.</div></div></div>`;
+    d.querySelector("b").textContent = texto;
+    document.body.appendChild(d);
+  }
+  document.addEventListener("submit", (e) => {
+    const f = e.target;
+    if (e.defaultPrevented || (f.getAttribute("method") || "get").toLowerCase() !== "post" || f.hasAttribute("data-sin-bloqueo")) return;
+    if (f.dataset.enviando) { e.preventDefault(); return; }
+    f.dataset.enviando = "1";
+    const sub = e.submitter;
+    if (sub && sub.name) {  // un botón deshabilitado no viaja en el formulario: se copia su valor
+      const h = document.createElement("input");
+      h.type = "hidden"; h.name = sub.name; h.value = sub.value; f.appendChild(h);
+    }
+    const accion = new URL(sub?.getAttribute("formaction") || f.action, location.href).pathname;
+    const largo = LARGO.test(accion) || sub?.classList.contains("aibtn");
+    f.querySelectorAll("button, input[type=submit]").forEach((b) => { if (b.type !== "button") b.disabled = true; });
+    if (sub) { sub.dataset.txt = sub.innerHTML; sub.innerHTML = `<span class="spin"></span>${largo ? "Trabajando…" : "Guardando…"}`; }
+    if (largo) aviso(mensaje(accion));
+  });
+  // si el usuario regresa con el botón "atrás", la página vuelve a quedar usable
+  window.addEventListener("pageshow", (e) => {
+    if (!e.persisted) return;
+    document.querySelectorAll(".espera").forEach((x) => x.remove());
+    document.querySelectorAll("form[data-enviando]").forEach((f) => {
+      delete f.dataset.enviando;
+      f.querySelectorAll("button, input[type=submit]").forEach((b) => { b.disabled = false; if (b.dataset.txt) b.innerHTML = b.dataset.txt; });
+    });
+  });
+})();
