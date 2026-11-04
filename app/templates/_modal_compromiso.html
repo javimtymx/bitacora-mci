@@ -5,7 +5,7 @@
   {% if rec %}<input type="hidden" name="recomendacion_id" value="{{ rec.id }}">{% endif %}
   <div class="mh">
     <div class="row"><h2 id="t-nc">Nuevo compromiso</h2><span style="width:1px;height:20px;background:var(--line2)"></span>
-      <span class="muted" style="font-weight:600">Semana {{ num_semana(sem) }} · vence por omisión el {{ fmt_dia(viernes) }}</span></div>
+      <span class="muted" style="font-weight:600">Semana {{ num_semana(sem_nc or sem) }} · vence por omisión el {{ fmt_dia(viernes) }}</span></div>
     <button class="btn ghost" type="button" data-close aria-label="Cerrar" style="width:42px;padding:0">{{ icon('x') }}</button>
   </div>
   <div style="padding:18px 24px 4px"><div class="cint"><span class="ic">{{ icon('ia') }}</span>
@@ -15,7 +15,7 @@
     <div class="grid4">
       <div class="field"><label for="nc-area">Área</label>
         <select class="input" id="nc-area" name="area_id" data-area-filtro="nc-pred" data-revisable required>
-          {% for a in areas %}<option value="{{ a.id }}" {{ 'selected' if a.id == u.area_id }}>{{ a.nombre }}</option>{% endfor %}
+          {% for a in (areas_nc or areas) %}<option value="{{ a.id }}" {{ 'selected' if a.id == u.area_id }}>{{ a.nombre }}</option>{% endfor %}
         </select></div>
       <div class="field"><label for="nc-pred">Medida predictiva</label>
         <select class="input" id="nc-pred" name="predictiva_id" data-revisable required>

@@ -137,7 +137,17 @@ def tablero(request: Request, area: str = "todas", semana: str | None = None, db
                   if seguimiento.sin_remediacion(c) and (not sel or c.area_id == sel.id))
     cons = _consolidado_area(db, sel, sem, sems8) if sel else None
     resumen_areas = None if sel else _resumen_areas(db, areas, sem)
+    from .captura import _opciones_captura
+    opciones = _opciones_captura(db, u) if sel else {}
+    if opciones:
+        opciones["sem_nc"] = opciones.pop("sem")  # el formulario siempre registra en la semana en curso
+        opciones["areas_nc"] = opciones.pop("areas")  # el tablero ya usa "areas" para el filtro
+    n_arch = 0
+    if sel:
+        n_arch = len(list(db.scalars(select(Compromiso.id).execution_options(include_archivados=True)
+                                     .where(Compromiso.archivado.is_(True), Compromiso.area_id == sel.id))))
     return render(request, "tablero.html", u, "inicio", areas=areas, sel=sel, sem=sem, tarjetas=tarjetas,
+                  n_arch=n_arch, seg=seguimiento, **opciones,
                   cons=cons, resumen_areas=resumen_areas,
                   ganando=ganando, perdiendo=perdiendo, cumplidos_ant=sum(1 for c in cerrados if c.estado == "cumplido"),
                   cerrados_ant=len(cerrados), sem_ant=sem_ant, sin_rem=sin_rem, personas=personas, tiras=tiras,

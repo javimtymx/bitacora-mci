@@ -226,6 +226,13 @@ class CeldaPredictiva:
     sentido: str = "mayor"
     cumplidos: int = 0
     compromisos: int = 0
+    lista: list = field(default_factory=list)  # compromisos de esa predictiva en esa semana
+
+    @property
+    def falta(self) -> float | None:
+        if self.meta is None or self.sentido == "menor":
+            return None
+        return max(0.0, self.meta - (self.valor or 0.0))
 
     @property
     def estado(self) -> str:
@@ -259,7 +266,8 @@ def matriz_predictivas(db: Session, preds, sems: list[str], comps) -> list[tuple
             fila.append(CeldaPredictiva(semana=s, valor=meds.get((p.id, s)),
                                         meta=float(v.meta_semanal) if v and v.meta_semanal is not None else None,
                                         sentido=v.sentido if v else "mayor",
-                                        cumplidos=sum(1 for c in cs if c.estado == "cumplido"), compromisos=len(cs)))
+                                        cumplidos=sum(1 for c in cs if c.estado == "cumplido"), compromisos=len(cs),
+                                        lista=sorted(cs, key=lambda c: (c.estado != "abierto", c.fecha_limite))))
         vig = catalogo.version_vigente(p.versiones) if p.versiones else None
         out.append((p, vig, fila))
     return out

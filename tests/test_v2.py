@@ -284,7 +284,7 @@ def test_vista_consolidada_por_area(admin, db):
     t = admin.get("/?area=ventas").text
     assert "Palancas de Ventas" not in t  # palancas = medidas predictivas
     for txt in ("Metas y medidas predictivas · 8 semanas", "mci-row", "pred-row", "Citas por LinkedIn",
-                "Compromisos de la semana", "Voz del cliente · 6 semanas", "Ideas del área"):
+                "Nuevo compromiso", "Expandir todo", "Voz del cliente · 6 semanas", "Ideas del área"):
         assert txt in t, txt
     t = admin.get("/").text
     assert "Resumen por área" in t and "Ver área" in t
@@ -311,3 +311,22 @@ def test_ventas_por_frentes_con_panel_ayf_informativo(admin, mario, db):
     assert "CrossSelling · clientes actuales cotizados" in t_admin and "Panel AyF · informativo" in t_admin
     assert "Actual $130,000" in t_admin and "130,000" not in t_mario
     assert f'name="valor_{cs.id}"' in admin.get("/indicadores/captura").text
+
+
+def test_compromisos_dentro_de_cada_predictiva(admin, db):
+    from app.models import Area, Predictiva, Usuario
+    from datetime import timedelta
+    v = db.scalar(select(Area).where(Area.clave == "ventas"))
+    p = db.scalar(select(Predictiva).where(Predictiva.clave.like("ventas%")))
+    m = db.scalar(select(Usuario).where(Usuario.email == "mcoronado@onecore.mx"))
+    largo = "Revisar si SAFE permite descargar de forma masiva los reportes " * 6
+    db.add_all([Compromiso(semana=semana_iso(hoy()), area_id=v.id, responsable_id=m.id, autor_id=m.id, predictiva_id=p.id,
+                           texto=largo, fecha_limite=hoy() + timedelta(days=2)),
+                Compromiso(semana=indicadores.semanas(2)[0], area_id=v.id, responsable_id=m.id, autor_id=m.id,
+                           predictiva_id=p.id, texto="Compromiso de la semana pasada", fecha_limite=hoy() - timedelta(days=5))])
+    db.commit()
+    t = admin.get("/?area=ventas").text
+    assert f'data-sub="sub-{p.id}"' in t and f'id="sub-{p.id}"' in t and "Ver completo" in t
+    assert f'data-open="w-{p.id}-{indicadores.semanas(2)[0]}"' in t and "Compromiso de la semana pasada" in t
+    assert f'data-fill-nc-pred="{p.id}"' in t and 'id="nuevo-compromiso"' in t
+    assert "Compromisos de la semana</h2>" not in t

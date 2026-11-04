@@ -11,7 +11,7 @@
     const a = e.target.closest("[data-open]");
     if (a) {
       e.preventDefault();
-      for (const at of a.attributes) if (at.name.startsWith("data-fill-")) { const t = document.getElementById(at.name.slice(10)); if (t) t.value = at.value; }
+      for (const at of a.attributes) if (at.name.startsWith("data-fill-")) { const t = document.getElementById(at.name.slice(10)); if (t) { t.value = at.value; t.dispatchEvent(new Event("change", { bubbles: true })); } }
       abrir(a.dataset.open); return;
     }
     const c = e.target.closest("[data-close]"); if (c) { e.preventDefault(); cerrar(c.closest(".overlay")); return; }
@@ -207,5 +207,29 @@
       delete f.dataset.enviando;
       f.querySelectorAll("button, input[type=submit]").forEach((b) => { b.disabled = false; if (b.dataset.txt) b.innerHTML = b.dataset.txt; });
     });
+  });
+})();
+
+/* Tablero: compromisos dentro de cada medida predictiva */
+(() => {
+  const poner = (btn, abrir) => {
+    const fila = document.getElementById(btn.dataset.sub);
+    if (!fila) return;
+    fila.hidden = !abrir;
+    btn.setAttribute("aria-expanded", abrir ? "true" : "false");
+    btn.classList.toggle("on", abrir);
+    btn.textContent = btn.textContent.replace(/^[▸▾]/, abrir ? "▾" : "▸");
+  };
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-sub]");
+    if (b) { poner(b, b.getAttribute("aria-expanded") !== "true"); return; }
+    const t = e.target.closest("[data-sub-todos]");
+    if (t) { document.querySelectorAll("[data-sub]").forEach((x) => poner(x, t.dataset.subTodos === "1")); return; }
+    const m = e.target.closest("[data-ver-mas]");
+    if (m) {
+      const c = m.previousElementSibling;
+      const abierto = c.classList.toggle("abierto");
+      m.textContent = abierto ? "Ver menos" : "Ver completo";
+    }
   });
 })();

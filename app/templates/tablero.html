@@ -1,4 +1,4 @@
-{% extends "base.html" %}{% from "_ui.html" import icon, racha_tag, veredicto_tag, pct with context %}
+{% extends "base.html" %}{% from "_ui.html" import icon, racha_tag, veredicto_tag, pct, estado_comp with context %}
 {% block title %}Tablero semanal{% endblock %}
 {% block content %}
 <div class="top">
@@ -86,33 +86,56 @@
   {% else %}<span class="muted small">Aún no hay diagnóstico para esta área.</span>{% endif %}</section>
 </div>
 
-<section class="card pad"><div class="row between"><h2>Metas y medidas predictivas · 8 semanas</h2><div class="row" style="gap:10px"><span class="small muted">Cada meta con su resultado y, debajo, las predictivas que la mueven · valor vs meta · compromisos cumplidos / registrados</span>{% if u.es_lider %}<a class="btn sm soft" href="/indicadores/captura">{{ icon('plus', 15) }}Capturar</a>{% endif %}</div></div>
-  <div class="tbl"><table class="jer"><thead><tr><th>Meta (MCI) y sus medidas predictivas</th><th class="num">Meta</th>{% for s in cons.sems8|reverse %}<th class="num{{ ' actual' if loop.first }}">S{{ num_semana(s) }}{% if loop.first %}<div class="cap" style="font-size:10px">actual</div>{% endif %}</th>{% endfor %}</tr></thead>
+{% macro comp_item(c) -%}
+<div class="ci">
+  <div class="ci-est">{{ estado_comp(c, seg) }}{% if c.estado == 'abierto' %}<span class="muted small">{{ c.avance }}%</span>{% endif %}</div>
+  <div class="ci-txt"><div class="clamp" data-clamp>{{ c.texto }}</div>{% if c.texto|length > 150 %}<button class="mas" type="button" data-ver-mas>Ver completo</button>{% endif %}</div>
+  <div class="ci-per"><span class="av" aria-hidden="true">{{ c.responsable.nombre.split()[0][:1] }}{{ (c.responsable.nombre.split()[1:] or [''])[0][:1] }}</span><span>{{ c.responsable.nombre }}</span></div>
+  <div class="ci-fec small"><span class="muted">Vence</span><b>{{ fmt_dia(c.remediacion.nueva_fecha if c.remediacion else c.fecha_limite) }}</b></div>
+  <div class="ci-av"><span class="barra" aria-hidden="true"><span style="width:{{ c.avance }}%"></span></span><span class="small muted">{{ c.avance }}%</span></div>
+  <a class="lnk ci-ab" href="/compromisos/{{ c.id }}">Abrir</a>
+</div>
+{%- endmacro %}
+<section class="card pad" id="metas"><div class="row between" style="align-items:flex-start">
+  <div class="col" style="gap:4px"><h2>Metas y medidas predictivas · 8 semanas</h2><span class="small muted">Cada meta, las predictivas que la mueven y, al desplegar, los compromisos que atacan cada predictiva.</span></div>
+  <div class="row" style="gap:8px">
+    <a class="lnk small" href="/compromisos/archivados" style="margin-right:4px">{{ icon('doc', 14) }}Archivados ({{ n_arch }})</a>
+    <button class="btn sm soft" type="button" data-sub-todos="1">Expandir todo</button>
+    <button class="btn sm soft" type="button" data-sub-todos="0">Contraer todo</button>
+    {% if u.es_lider %}<a class="btn sm soft" href="/indicadores/captura">Capturar valores</a>{% endif %}
+    <button class="btn sm yellow" type="button" data-open="nuevo-compromiso" data-fill-nc-area="{{ sel.id }}" data-fill-nc-pred="">{{ icon('plus', 15) }}Nuevo compromiso</button>
+  </div></div>
+  <div class="row small muted" style="gap:16px;margin-top:-4px"><span><span class="tag g">2/5</span> valor vs meta</span><span><span class="chip">▸ 2 compromisos</span> desplegar</span><span><span class="hist">1/1 comp.</span> semanas anteriores</span><span><span class="sincomp">Sin compromiso</span> nadie empuja esta palanca</span></div>
+  <div class="tbl"><table class="jer"><thead><tr><th>Meta (MCI) y sus medidas predictivas</th><th class="num">Meta</th>{% for s in cons.sems8|reverse %}<th class="num{{ ' actual' if loop.first }}">S{{ num_semana(s) }}{% if loop.first %}<div class="cap" style="font-size:10px">{{ 'actual' if s == sem_nc else 'seleccionada' }}</div>{% endif %}</th>{% endfor %}</tr></thead>
   {% for g in cons.grupos %}<tbody>
     <tr class="mci-row"><td><div class="row" style="gap:8px;flex-wrap:nowrap"><span class="tag b" style="flex:none">MCI</span><b>{{ g.mci.nombre }}</b></div>
         <div class="muted small" style="margin-top:2px">{% if g.v and g.v.meta is not none %}Meta {{ valor(g.v.meta, g.v.unidad, g.dec) }}{{ ' · ' ~ g.v.periodicidad if g.v.periodicidad }}{% else %}Sin meta definida{% endif %} · {{ g.mci.dueno.nombre if g.mci.dueno else 'sin dueño' }} · <a class="lnk" href="/kardex/{{ g.mci.id }}">Kárdex</a></div></td>
       <td class="num small">{% if g.v and g.v.meta is not none %}{{ valor(g.v.meta, g.v.unidad, g.dec) }}{% else %}—{% endif %}</td>
       {% for pt in g.puntos|reverse %}<td class="num{{ ' actual' if loop.first }}">{% if pt.valor is not none %}<span class="tag {{ 'g' if pt.brecha is not none and pt.brecha >= 0 else 'r' if pt.brecha is not none else 'n' }}">{{ valor(pt.valor, '', g.dec) }}{% if pt.objetivo is not none %}/{{ valor(pt.objetivo, '', g.dec) }}{% endif %}</span>{% else %}<span class="muted">·</span>{% endif %}</td>{% endfor %}</tr>
-    {% for p, v, fila in g.filas %}<tr class="pred-row"><td class="small"><div class="row" style="gap:6px;flex-wrap:nowrap"><span class="rama" aria-hidden="true">{{ '└' if loop.last else '├' }}</span><b>{{ p.nombre }}</b>{% if p.requiere_evidencia %} <span class="tag n">evidencia</span>{% endif %}</div></td>
+    {% for p, v, fila in g.filas %}{% set act = fila[-1] %}
+    <tr class="pred-row"><td class="small"><div class="row" style="gap:6px;flex-wrap:nowrap"><span class="rama" aria-hidden="true">{{ '└' if loop.last else '├' }}</span><b>{{ p.nombre }}</b>{% if p.requiere_evidencia %} <span class="tag n">evidencia</span>{% endif %}</div></td>
       <td class="num small">{{ valor(v.meta_semanal, v.unidad, 1) if v and v.meta_semanal is not none else '—' }}</td>
-      {% for c in fila|reverse %}<td class="num{{ ' actual' if loop.first }}">{% if c.estado %}<span class="tag {{ c.estado }}">{{ valor(c.valor, '', 1) }}{% if c.meta is not none %}/{{ valor(c.meta, '', 1) }}{% endif %}</span>{% else %}<span class="muted">·</span>{% endif %}
-        {% if c.compromisos %}<div class="muted" style="font-size:11px;margin-top:2px" title="Compromisos cumplidos / registrados">{{ c.cumplidos }}/{{ c.compromisos }} comp.</div>{% endif %}</td>{% endfor %}</tr>
+      {% for c in fila|reverse %}<td class="num{{ ' actual' if loop.first }}">{% if c.estado %}<span class="tag {{ c.estado }}">{{ valor(c.valor, '', 1) }}{% if c.meta is not none %}/{{ valor(c.meta, '', 1) }}{% endif %}</span>{% elif not loop.first and not c.compromisos %}<span class="muted">·</span>{% endif %}
+        {% if loop.first %}
+          {% if c.compromisos %}<div><button class="chip" type="button" data-sub="sub-{{ p.id }}" aria-expanded="false" aria-controls="sub-{{ p.id }}">▸ {{ c.compromisos }} compromiso{{ 's' if c.compromisos != 1 }}</button></div>
+          {% elif c.semana == sem_nc %}<div><span class="sincomp">Sin compromiso</span></div><div><button class="add" type="button" data-open="nuevo-compromiso" data-fill-nc-area="{{ sel.id }}" data-fill-nc-pred="{{ p.id }}">+ Compromiso</button></div>
+          {% else %}<span class="muted">·</span>{% endif %}
+        {% elif c.compromisos %}<div><button class="hist" type="button" data-open="w-{{ p.id }}-{{ c.semana }}" title="Ver compromisos de la semana {{ num_semana(c.semana) }}">{{ c.cumplidos }}/{{ c.compromisos }} comp.</button></div>{% endif %}</td>{% endfor %}</tr>
+    {% if act.compromisos %}<tr class="sub-row" id="sub-{{ p.id }}" hidden><td colspan="10"><div class="subwrap">
+      {% for c in act.lista %}{{ comp_item(c) }}{% endfor %}
+      <div class="subfoot"><span>{% if act.falta is not none and act.falta > 0 %}Faltan {{ valor(act.falta, v.unidad if v else '', 1) }} para la meta de la semana.{% elif act.falta is not none %}Meta de la semana alcanzada.{% else %}&nbsp;{% endif %}</span>
+        {% if act.semana == sem_nc %}<button class="add" type="button" data-open="nuevo-compromiso" data-fill-nc-area="{{ sel.id }}" data-fill-nc-pred="{{ p.id }}">+ Compromiso para esta medida</button>{% endif %}</div>
+    </div></td></tr>{% endif %}
     {% else %}<tr class="pred-row"><td colspan="10" class="small muted"><span class="rama">└</span> Esta meta no tiene medidas predictivas. Agrégalas en Configurar → Catálogo.</td></tr>{% endfor %}
   </tbody>{% else %}<tbody><tr><td class="muted" colspan="10">Sin metas en esta área.</td></tr></tbody>{% endfor %}</table></div></section>
 
-<div class="grid2">
-<section class="card pad"><div class="row between"><h2>Compromisos de la semana</h2><a class="btn sm yellow" href="/compromisos#nuevo-compromiso">{{ icon('plus', 15) }}Nuevo</a></div>
-  <a class="lnk small" href="/compromisos/archivados" style="margin-top:-8px">{{ icon('doc', 14) }}Ver compromisos archivados</a>
-  <div class="tbl"><table><tbody>{% for c in cons.comps_sem %}<tr><td><a href="/compromisos/{{ c.id }}">{{ c.texto }}</a><div class="muted small">{{ c.responsable.nombre }} · {{ fmt_dia(c.fecha_limite) }}</div></td>
-    <td>{% if c.estado=='cumplido' %}<span class="tag g">Cumplido</span>{% elif c.estado=='no_cumplido' %}<span class="tag r">No cumplido</span>{% elif c.estado=='cancelado' %}<span class="tag n">Cancelado</span>{% else %}<span class="tag b">{{ c.avance }}%</span>{% endif %}</td></tr>
-  {% else %}<tr><td class="muted">Nadie del área ha registrado compromiso esta semana.</td></tr>{% endfor %}</tbody></table></div></section>
 <section class="card pad"><div class="row between"><h2>Voz del cliente · 6 semanas</h2>{% if u.es_lider %}<a class="lnk" href="/voz-cliente">{{ icon('eye', 15) }}Módulo</a>{% endif %}</div>
   <span class="small muted" style="margin-top:-8px">{{ cons.n_ses }} sesión(es) analizadas</span>
   {% for (cu, tema), n in cons.temas %}<div class="row between" style="padding:6px 0;border-bottom:1px solid var(--line);flex-wrap:nowrap"><span class="small"><span class="qtag cq-{{ cu }}" style="font-size:11px;padding:2px 8px">{{ cu }}</span> {{ tema }}</span><b class="small">{{ n }}</b></div>{% endfor %}
   {% if cons.tipos %}<div class="cap" style="margin-top:6px">Objeciones (veces · avanzó)</div>{% for t, v in cons.tipos %}<div class="row between small" style="padding:4px 0"><span class="tag n">{{ t }}</span><span>{{ v[0] }} · {{ v[1] }}</span></div>{% endfor %}{% endif %}
   {% if not cons.temas and not cons.tipos %}<span class="small muted">Sin sesiones con cliente cargadas en el periodo.</span>{% endif %}
   <a class="btn sm soft" href="/sesiones/nueva" style="align-self:flex-start">{{ icon('upload', 15) }}Cargar sesión</a></section>
-</div>
+
 
 <section class="card pad"><div class="row between"><h2>Ideas del área · 90 días</h2><a class="lnk" href="/ideas">{{ icon('eye', 15) }}Ideas</a></div>
   <div class="row small" style="gap:8px">{% for k, v in cons.ideas_estado.items() %}<span class="pill">{{ k.replace('_',' ') }} · {{ v }}</span>{% endfor %}</div>
@@ -131,3 +154,24 @@
   {% endfor %}</tbody></table></div>
 </section>
 {% endblock %}
+{% block modals %}{% if cons %}
+{% include "_modal_compromiso.html" %}
+{% for g in cons.grupos %}{% for p, v, fila in g.filas %}{% for c in fila[:-1] if c.compromisos %}
+<div class="overlay" id="w-{{ p.id }}-{{ c.semana }}"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="tw-{{ p.id }}-{{ c.semana }}">
+  <div class="mh"><div class="col" style="gap:2px"><span class="muted small">{{ g.mci.nombre }} · medida predictiva</span><h2 id="tw-{{ p.id }}-{{ c.semana }}">{{ p.nombre }} · Semana {{ num_semana(c.semana) }}</h2></div>
+    <button class="btn ghost" type="button" data-close aria-label="Cerrar" style="width:42px;padding:0">{{ icon('x') }}</button></div>
+  <div class="sec" style="border-top:0;gap:12px">
+    <div class="row small" style="gap:18px;background:#F6F8FA;border-radius:10px;padding:10px 14px">
+      <span>Resultado: <b>{% if c.valor is not none %}{{ valor(c.valor, '', 1) }}{% if c.meta is not none %} de {{ valor(c.meta, v.unidad if v else '', 1) }}{% endif %}{% else %}sin captura{% endif %}</b></span>
+      <span>Compromisos: <b>{{ c.cumplidos }} de {{ c.compromisos }} cumplidos</b></span></div>
+    {% for x in c.lista %}<article class="wk-item">
+      <div class="row between">{{ estado_comp(x, seg) }}<a class="lnk small" href="/compromisos/{{ x.id }}">Abrir CMP-{{ '%04d' % x.id }}</a></div>
+      <p class="wk-txt">{{ x.texto }}</p>
+      <div class="row small muted" style="gap:16px"><span>{{ x.responsable.nombre }}</span><span>Vencía {{ fmt_dia(x.fecha_limite) }}</span><span>Avance {{ x.avance }}%</span></div>
+      {% if x.remediacion %}<div class="wk-rem"><b>Remediación:</b> {{ x.remediacion.causa or x.remediacion.causa_categoria }} · nueva fecha {{ fmt_dia(x.remediacion.nueva_fecha) }} · <b>{{ x.remediacion.estado }}</b></div>{% endif %}
+    </article>{% endfor %}
+  </div>
+  <div class="mf"><button class="btn soft" type="button" data-close>Cerrar</button></div>
+</div></div>
+{% endfor %}{% endfor %}{% endfor %}
+{% endif %}{% endblock %}
