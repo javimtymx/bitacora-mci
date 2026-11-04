@@ -288,7 +288,6 @@
   });
 
   // ------------------------------------------------------------ mientras escribe: título y campos sugeridos
-  let espera = null;
   const lee = $("#tk-lee"), leeTxt = lee.innerHTML;
   async function sugerir() {
     const desc = campo("descripcion").value.trim();
@@ -323,8 +322,10 @@
       return;
     }
   }
-  campo("descripcion").addEventListener("input", () => { clienteDesdeRFC(); clearTimeout(espera); espera = setTimeout(sugerir, 1800); });
-  campo("descripcion").addEventListener("blur", () => { clearTimeout(espera); sugerir(); });
+  // GuardIA solo lee la descripción cuando el usuario sale del campo (o al levantar), no mientras escribe:
+  // así no se gastan tokens en cada pausa. El RFC se detecta localmente, sin IA.
+  campo("descripcion").addEventListener("input", clienteDesdeRFC);
+  campo("descripcion").addEventListener("blur", sugerir);
 
   $("#tk-titulo-ed").addEventListener("click", () => {
     const t = campo("titulo"); t.readOnly = false; st.tituloManual = true; t.focus(); t.select();

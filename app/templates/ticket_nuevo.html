@@ -30,7 +30,7 @@
       <span>Dónde (pantalla)</span><span>Qué pasó</span><span>Desde cuándo</span><span>Qué esperabas</span><span>Cliente y pedimento o RFC</span></div>
     <textarea class="input tkt-auto" id="tk-descripcion" name="descripcion" required minlength="15" rows="3"
       placeholder="Ej. Desde ayer, al cargar el layout en SAFE (Validación › Pedimentos por validar) me sale «valor en aduana inválido» en todas las partidas…"></textarea>
-    <span class="muted small" id="tk-lee">Mientras escribes, {{ guardia }} propone el título y llena lo que ya mencionaste.</span>
+    <span class="muted small" id="tk-lee">Al terminar la descripción, {{ guardia }} propone el título y llena lo que ya mencionaste.</span>
   </div>
   <div class="grid2">
     <div class="field"><label for="tk-titulo">Título <span class="iab">IA</span></label>
@@ -80,4 +80,4 @@
 </div>
 <script type="application/json" id="tk-datos">{{ {"catalogo": catalogo, "requeridos": requeridos, "campos": campos_req, "prompt_version": prompt_version, "ia": ia_ok} | tojson }}</script>
 {% endblock %}
-{% block scripts %}<script src="/static/js/ticket.js?v=6"></script>{% endblock %}
+{% block scripts %}<script src="/static/js/ticket.js?v=7"></script>{% endblock %}
