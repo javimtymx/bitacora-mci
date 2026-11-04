@@ -160,8 +160,9 @@ def compromisos(request: Request, scope: str = "mios", estado: str = "abiertos",
     r = db.get(RecomendacionIA, rec) if rec else None
     from ..models import SolicitudEliminacion
     elim = set(db.scalars(select(SolicitudEliminacion.compromiso_id).where(SolicitudEliminacion.estado == "pendiente")))
-    n_arch = sum(1 for c in db.scalars(_visibles(db, u, scope).execution_options(include_archivados=True)
-                                       .where(Compromiso.archivado.is_(True))))
+    from .archivo import archivo
+    ids = set(db.scalars(_visibles(db, u, scope).with_only_columns(Compromiso.id).execution_options(include_archivados=True)))
+    n_arch = sum(1 for c, _t in archivo(db, u) if c.id in ids)
     return render(request, "compromisos.html", u, "compromisos", lista=lista, scope=scope, estado=estado, elim=elim, n_arch=n_arch,
                   seg=seguimiento, pref_texto=(r.texto if r else texto[:1000]), rec=r, **_opciones_captura(db, u))
 

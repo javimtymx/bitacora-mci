@@ -144,8 +144,8 @@ def tablero(request: Request, area: str = "todas", semana: str | None = None, db
         opciones["areas_nc"] = opciones.pop("areas")  # el tablero ya usa "areas" para el filtro
     n_arch = 0
     if sel:
-        n_arch = len(list(db.scalars(select(Compromiso.id).execution_options(include_archivados=True)
-                                     .where(Compromiso.archivado.is_(True), Compromiso.area_id == sel.id))))
+        from .archivo import archivo
+        n_arch = len(archivo(db, u, sel.id))
     return render(request, "tablero.html", u, "inicio", areas=areas, sel=sel, sem=sem, tarjetas=tarjetas,
                   n_arch=n_arch, seg=seguimiento, **opciones,
                   cons=cons, resumen_areas=resumen_areas,

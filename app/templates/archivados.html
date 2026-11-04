@@ -1,14 +1,27 @@
 {% extends "base.html" %}{% from "_ui.html" import icon with context %}
 {% block title %}Compromisos archivados{% endblock %}
 {% block content %}
-<div class="top"><div class="col" style="gap:4px"><span class="muted small"><a href="/compromisos">Compromisos</a> · archivo</span><h1>Compromisos archivados</h1>
-  <span class="muted">Eliminados con autorización de un administrador. No cuentan en indicadores ni reportes; se conservan como registro.</span></div>
+<div class="top"><div class="col" style="gap:4px"><span class="muted small"><a href="/compromisos">Compromisos</a> · archivo</span><h1>Compromisos archivados{{ ' · ' ~ area.nombre if area }}</h1>
+  <span class="muted">Eliminados con autorización de un administrador y cancelados (por ejemplo, por la baja del responsable sin reasignar). No cuentan en indicadores; se conservan como registro.</span></div>
   {% if u.rol == 'admin' %}<a class="btn soft" href="/compromisos/eliminaciones">Solicitudes de eliminación</a>{% endif %}</div>
 <section class="card pad">
-  <div class="tbl"><table><thead><tr><th>Folio</th><th>Sem.</th><th>Área</th><th>Responsable</th><th>Compromiso</th><th>Causa</th><th>Autorizó</th><th>Archivado</th></tr></thead><tbody>
-  {% for c in lista %}{% set s = sol.get(c.id) %}<tr><td>CMP-{{ '%04d' % c.id }}</td><td>{{ num_semana(c.semana) }}</td><td>{{ c.area.nombre }}</td><td>{{ c.responsable.nombre }}</td>
-    <td class="small">{{ c.texto }}</td><td class="small">{{ s.motivo if s else '—' }}{% if s %}<div class="muted">Solicitó {{ s.solicitante.nombre }}</div>{% endif %}</td>
-    <td>{{ s.resolutor.nombre if s and s.resolutor else '—' }}</td><td>{{ fmt_fecha(c.archivado_en) }}</td></tr>
-  {% else %}<tr><td colspan="8" class="muted">No hay compromisos archivados.</td></tr>{% endfor %}</tbody></table></div>
+  <div class="row between">
+    <div class="row" style="gap:8px">
+      <a class="btn sm {{ 'dark' if not tipo else 'soft' }}" href="?area={{ area.clave if area }}">Todos ({{ n_elim + n_canc }})</a>
+      <a class="btn sm {{ 'dark' if tipo=='eliminado' else 'soft' }}" href="?area={{ area.clave if area }}&tipo=eliminado">Eliminados ({{ n_elim }})</a>
+      <a class="btn sm {{ 'dark' if tipo=='cancelado' else 'soft' }}" href="?area={{ area.clave if area }}&tipo=cancelado">Cancelados ({{ n_canc }})</a>
+    </div>
+    <form method="get" class="row"><input type="hidden" name="tipo" value="{{ tipo }}">
+      <select class="input" name="area" onchange="this.form.submit()" style="width:220px" aria-label="Área">
+        <option value="">Todas las áreas</option>{% for a in areas %}<option value="{{ a.clave }}" {{ 'selected' if area and area.id==a.id }}>{{ a.nombre }}</option>{% endfor %}</select></form>
+  </div>
+  <div class="tbl"><table><thead><tr><th>Folio</th><th>Tipo</th><th>Sem.</th><th>Área</th><th>Responsable</th><th>Compromiso</th><th>Causa</th><th>Autorizó</th><th>Fecha</th></tr></thead><tbody>
+  {% for c, t in lista %}{% set s = sol.get(c.id) %}<tr><td>CMP-{{ '%04d' % c.id }}</td>
+    <td><span class="tag {{ 'r' if t=='eliminado' else 'n' }}">{{ 'Eliminado' if t=='eliminado' else 'Cancelado' }}</span></td>
+    <td>{{ num_semana(c.semana) }}</td><td>{{ c.area.nombre }}</td><td>{{ c.responsable.nombre }}</td>
+    <td class="small">{{ c.texto }}</td>
+    <td class="small">{% if s %}{{ s.motivo }}<div class="muted">Solicitó {{ s.solicitante.nombre }}</div>{% elif t=='cancelado' %}{{ 'Baja del responsable' if not c.responsable.activo else 'Cancelado' }}{% else %}—{% endif %}</td>
+    <td>{{ s.resolutor.nombre if s and s.resolutor else '—' }}</td><td>{{ fmt_fecha(c.archivado_en or c.cerrado) }}</td></tr>
+  {% else %}<tr><td colspan="9" class="muted">No hay compromisos en el archivo{{ ' de ' ~ area.nombre if area }}.</td></tr>{% endfor %}</tbody></table></div>
 </section>
 {% endblock %}

@@ -112,10 +112,26 @@ def rechazar(sid: int, request: Request, comentario: str = Form(...), db: Sessio
     return ir("/compromisos/eliminaciones")
 
 
+def archivo(db: Session, u: Usuario, area_id: int | None = None) -> list[tuple[Compromiso, str]]:
+    """Archivo = eliminados con autorización de un admin + cancelados (p. ej., por baja del responsable)."""
+    from sqlalchemy import or_
+    q = select(Compromiso).execution_options(**TODOS).where(or_(Compromiso.archivado.is_(True),
+                                                                Compromiso.estado == "cancelado"))
+    if area_id:
+        q = q.where(Compromiso.area_id == area_id)
+    out = [(c, "eliminado" if c.archivado else "cancelado") for c in db.scalars(q) if _visible(u, c)]
+    return sorted(out, key=lambda x: x[0].archivado_en or x[0].cerrado or x[0].creado, reverse=True)
+
+
 @router.get("/compromisos/archivados")
-def archivados(request: Request, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
-    q = select(Compromiso).execution_options(**TODOS).where(Compromiso.archivado.is_(True))
-    lista = [c for c in db.scalars(q.order_by(Compromiso.archivado_en.desc())) if _visible(u, c)]
+def archivados(request: Request, area: str = "", tipo: str = "", db: Session = Depends(get_db),
+               u: Usuario = Depends(usuario_actual)):
+    from ..models import Area
+    a = db.scalar(select(Area).where(Area.clave == area)) if area else None
+    todos = archivo(db, u, a.id if a else None)
+    lista = [x for x in todos if not tipo or x[1] == tipo]
     sol = {s.compromiso_id: s for s in db.scalars(select(SolicitudEliminacion).execution_options(**TODOS)
                                                   .where(SolicitudEliminacion.estado == "aprobada"))}
-    return render(request, "archivados.html", u, "compromisos", lista=lista, sol=sol)
+    areas = list(db.scalars(select(Area).where(Area.activo.is_(True)).order_by(Area.nombre)))
+    return render(request, "archivados.html", u, "compromisos", lista=lista, sol=sol, area=a, areas=areas, tipo=tipo,
+                  n_elim=sum(1 for x in todos if x[1] == "eliminado"), n_canc=sum(1 for x in todos if x[1] == "cancelado"))

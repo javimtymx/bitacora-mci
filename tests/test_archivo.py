@@ -62,3 +62,22 @@ def test_rechazo_mantiene_el_compromiso(admin, manuel, db):
     db.expire_all()
     assert db.get(Compromiso, c.id) is not None and db.get(SolicitudEliminacion, s.id).estado == "rechazada"
     assert "Compromiso que sí va" in manuel.get("/compromisos").text
+
+
+def test_cancelados_aparecen_en_el_archivo_y_en_el_contador(admin, db):
+    from app.models import Area
+    mario = db.scalar(select(Usuario).where(Usuario.email == "mpineda@onecore.mx"))
+    ret = db.scalar(select(Area).where(Area.clave == "retencion"))
+    p = db.scalar(select(Predictiva).where(Predictiva.clave.like("ret%")))
+    c = Compromiso(semana=semana_iso(hoy()), area_id=ret.id, responsable_id=mario.id, autor_id=mario.id, predictiva_id=p.id,
+                   texto="Sesión 1:1 con la cuenta que renueva en diciembre", fecha_limite=hoy() + timedelta(days=2))
+    db.add(c)
+    db.commit()
+    r = admin.post(f"/admin/usuarios/{mario.id}/baja", data={"motivo": "Salida de la empresa", "reasignar_a": ""},
+                   follow_redirects=False)
+    assert r.status_code == 303
+    t = admin.get("/?area=retencion").text
+    assert "Archivados (1)" in t and "/compromisos/archivados?area=retencion" in t
+    a = admin.get("/compromisos/archivados?area=retencion").text
+    assert "renueva en diciembre" in a and "Cancelado" in a and "Baja del responsable" in a
+    assert "renueva en diciembre" not in admin.get("/compromisos/archivados?area=ventas").text
