@@ -50,7 +50,7 @@ MENUS = (
          ("/tickets-triage",), opt_in=True),
     Menu("tickets-tablero", "soporte", "Tablero de desarrollo", "Kanban de tickets en atención", "/tickets-tablero", "colaborador",
          ("/tickets-tablero",), opt_in=True),
-    Menu("tickets-config", "soporte", "Configurar GuardIA Ticket", "Qué pide GuardIA, catálogo y reglas", "/tickets-config",
+    Menu("tickets-config", "configurar", "Configurar GuardIA Ticket", "Qué pide GuardIA, catálogo y reglas", "/tickets-config",
          "colaborador", ("/tickets-config",), opt_in=True),
     Menu("indicadores", "datos", "Indicadores", "Kárdex y captura semanal", "/indicadores", "colaborador", ("/indicadores",)),
     Menu("reportes", "datos", "Reportes", "Descargas en Excel", "/reportes", "colaborador", ("/reportes",)),

@@ -39,7 +39,7 @@ def _areas(db: Session) -> list[Area]:
 def usuarios(request: Request, ver: str = "activos", db: Session = Depends(get_db), u: Usuario = Depends(requiere_direccion)):
     q = select(Usuario).where(Usuario.activo.is_(ver == "activos"))
     return render(request, "admin_usuarios.html", u, "admin", lista=list(db.scalars(q.order_by(Usuario.nombre))),
-                  areas=_areas(db), roles=ROLES, ver=ver, menus=accesos.MENUS, grupos=dict((g, t) for g, t, _ in accesos.GRUPOS),
+                  areas=_areas(db), roles=ROLES, ver=ver, menus=accesos.MENUS, grupos={**dict((g, t) for g, t, _ in accesos.GRUPOS), "configurar": "Configurar"},
                   por_rol=accesos.por_rol,
                   activos=list(db.scalars(select(Usuario).where(Usuario.activo.is_(True)).order_by(Usuario.nombre))))
 

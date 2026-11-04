@@ -27,15 +27,19 @@
     </div>
     {%- endfor %}
     <span class="sp"></span>
-    {% if dir %}
-    <div class="grp{{ ' on' if nav=='admin' }}">
+    {% set cfg_tk = u and puede_menu(u, 'tickets-config') %}
+    {% if dir or cfg_tk %}
+    <div class="grp{{ ' on' if nav in ('admin', 'tickets-config') }}">
       <button type="button" class="gbtn" aria-haspopup="true">{{ icon('sliders') }}Configurar</button>
       <div class="fly up" role="menu">
         <div class="fh">Configurar</div>
+        {% if dir %}
         <a href="/admin/usuarios" role="menuitem"><b>Usuarios</b><small>Altas, roles y permisos</small></a>
         <a href="/admin/parametros" role="menuitem"><b>Parámetros</b><small>Reglas y automatizaciones</small></a>
         <a href="/admin/catalogo" role="menuitem"><b>Catálogo estratégico</b><small>MCI, metas y medidas</small></a>
         <a href="/admin/prompts" role="menuitem"><b>Especialistas IA</b><small>Prompt por área</small></a>
+        {% endif %}
+        {% if cfg_tk %}<a href="/tickets-config" role="menuitem" class="{{ 'on' if nav=='tickets-config' }}"><b>Guard<span class="gia">IA</span> Ticket</b><small>Qué pide GuardIA, catálogo y reglas</small></a>{% endif %}
       </div>
     </div>
     {% endif %}

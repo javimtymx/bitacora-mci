@@ -88,6 +88,9 @@ def guardar(carpeta: str, nombre: str, contenido: bytes, tipo: str = "applicatio
                                      ServerSideEncryption="AES256")
         except Exception as e:  # noqa: BLE001
             log.error("No se pudo subir a S3 %s: %s", llave, e)
+            if "AccessDenied" in str(e) or "Forbidden" in str(e):
+                raise AlmacenError("S3 negó el permiso para guardar el archivo. Avisa a sistemas: falta permiso en IAM "
+                                   "para la carpeta de la Bitácora en el bucket.") from e
             raise AlmacenError("No se pudo guardar el archivo en el almacén (S3). Intenta de nuevo en un momento.") from e
         return PREFIJO_S3 + llave
     rel = f"{carpeta.strip('/')}/{uuid.uuid4().hex}_{re.sub(r'[^A-Za-z0-9._-]', '_', Path(nombre).name)[:120]}"
