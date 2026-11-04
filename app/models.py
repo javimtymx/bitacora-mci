@@ -883,3 +883,18 @@ class TicketRegla(Base):
 
     ticket: Mapped[Ticket | None] = relationship()
     autor: Mapped[Usuario] = relationship(foreign_keys=[propuesto_por])
+
+
+class TicketDiagnostico(Base):
+    """Diagnóstico de GuardIA sobre los tickets de un periodo, agrupado por área o por producto."""
+    __tablename__ = "ticket_diagnosticos"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    dimension: Mapped[str] = mapped_column(String(12))  # area | producto
+    dias: Mapped[int] = mapped_column(Integer, default=30)
+    estado: Mapped[str] = mapped_column(String(12), default="generando")  # generando | listo | error
+    resultado: Mapped[dict] = mapped_column(JSON, default=dict)  # {"general": {...}, "grupos": [{grupo, salud, ...}]}
+    modelo: Mapped[str] = mapped_column(String(60), default="")
+    generado_por: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+    creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+    autor: Mapped[Usuario | None] = relationship()

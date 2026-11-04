@@ -43,7 +43,7 @@
   <div class="sec"><input type="hidden" name="menus_form" value="1">
     <div class="row between"><b>Menús a los que tiene acceso</b><span class="muted small">Lo que desmarques desaparece de su menú y se bloquea su dirección.</span></div>
     {% if x.rol == 'admin' %}<span class="small muted">Los administradores ven todos los menús.</span>
-    {% else %}{% for g, gt in grupos.items() %}{% set its = [] %}{% for m in menus if m.grupo == g and por_rol(x.rol, m) %}{% set _ = its.append(m) %}{% endfor %}
+    {% else %}{% for g, gt in grupos.items() %}{% set its = [] %}{% for m in menus if m.grupo == g and (m.opt_in or por_rol(x.rol, m)) %}{% set _ = its.append(m) %}{% endfor %}
     {% if its %}<div class="cap" style="margin-top:4px">{{ gt }}</div>
     <div class="grid2" style="gap:2px 14px">{% for m in its %}<label class="check"><input type="checkbox" name="menus" value="{{ m.clave }}" {{ 'checked' if puede_menu(x, m.clave) }}><span>{{ m.titulo }}{% if m.opt_in %} <span class="muted small">· se otorga</span>{% endif %}</span></label>{% endfor %}</div>{% endif %}
     {% endfor %}

@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..db import get_db
 from ..models import (TICKET_CIERRES, TICKET_ESTADOS, TICKET_IMPACTOS, TICKET_TIPOS, Ticket, TicketAnexo,
-                      TicketPrompt, TicketRegla, Usuario, utcnow)
+                      TicketDiagnostico, TicketPrompt, TicketRegla, Usuario, utcnow)
 from ..services import accesos, almacen, correo, ia
 from ..services import tickets as tk
 from .base import OptInt, flash, ir, render, usuario_actual
@@ -386,3 +386,33 @@ def config_restaurar(version: int, request: Request, db: Session = Depends(get_d
     db.commit()
     flash(request, f"Se restauró la versión {version} como versión {p.version}.")
     return ir("/tickets-config")
+
+
+# ---------------------------------------------------------------- analítica y diagnóstico
+
+@router.get("/tickets-analitica")
+def analitica(request: Request, dias: int = 30, por: str = "area", db: Session = Depends(get_db),
+              u: Usuario = Depends(usuario_actual)):
+    from ..services import tickets_analitica as ta
+    dias = dias if dias in (7, 30, 90, 180) else 30
+    por = por if por in ta.DIMENSIONES else "area"
+    m = ta.metricas(db, dias, por)
+    diag = db.scalar(select(TicketDiagnostico).where(TicketDiagnostico.dimension == por)
+                     .order_by(TicketDiagnostico.creado.desc()).limit(1))
+    generando = bool(diag and diag.estado == "generando" and diag.creado >= utcnow() - timedelta(minutes=5))
+    maximo = max([s["levantados"] for s in m["semanas"]] + [s["cerrados"] for s in m["semanas"]] + [1])
+    return render(request, "tickets_analitica.html", u, "tickets-analitica", m=m, diag=diag, generando=generando,
+                  dimensiones=ta.DIMENSIONES, maximo=maximo)
+
+
+@router.post("/tickets-analitica/diagnostico")
+def analitica_diagnostico(request: Request, bg: BackgroundTasks, por: str = Form("area"), dias: int = Form(30),
+                          db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+    from ..services import tickets_analitica as ta
+    por = por if por in ta.DIMENSIONES else "area"
+    dias = dias if dias in (7, 30, 90, 180) else 30
+    d = TicketDiagnostico(dimension=por, dias=dias, generado_por=u.id)
+    db.add(d)
+    db.commit()
+    bg.add_task(ta.generar_en_fondo, d.id)
+    return ir(f"/tickets-analitica?dias={dias}&por={por}#diagnostico")

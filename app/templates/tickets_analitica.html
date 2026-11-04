@@ -1,0 +1,105 @@
+{% extends "base.html" %}{% from "_ui.html" import icon with context %}
+{% block title %}Analítica de tickets{% endblock %}
+{% block content %}
+{% set k = m.kpi %}
+{% macro pct(v) %}{{ '—' if v is none else v ~ '%' }}{% endmacro %}
+{% macro horas(h) %}{% if h is none %}—{% elif h < 1 %}&lt; 1 h{% elif h < 48 %}{{ h|round|int }} h{% else %}{{ (h / 24)|round(1) }} días{% endif %}{% endmacro %}
+<div class="top">
+  <div class="col" style="gap:4px"><span class="muted small">Soporte · Guard<span class="gia">IA</span> Ticket</span><h1>Analítica de tickets</h1></div>
+  <div class="row">
+    <div class="tabs">{% for d in (7, 30, 90, 180) %}<a href="?dias={{ d }}&por={{ m.dimension }}" class="{{ 'on' if m.dias == d }}">{{ d }} días</a>{% endfor %}</div>
+  </div>
+</div>
+
+<div class="tka-kpis">
+  <div class="card tka-k"><span class="lbl">Abiertos</span><b>{{ k.abiertos }}</b><span class="small"><span class="prio P1">P1</span> {{ k.p1 }} · <span class="prio P2">P2</span> {{ k.p2 }}</span></div>
+  <div class="card tka-k {{ 'mal' if k.vencidos }}"><span class="lbl">Vencidos</span><b>{{ k.vencidos }}</b><span class="small muted">abiertos fuera de su tiempo de atención</span></div>
+  <div class="card tka-k"><span class="lbl">En espera</span><b>{{ k.por_triage + k.info }}</b><span class="small muted">{{ k.por_triage }} por triage · {{ k.info }} esperando información</span></div>
+  <div class="card tka-k"><span class="lbl">Cumplimiento de SLA</span><b>{{ pct(k.sla_pct) }}</b><span class="small muted">de {{ k.cerrados }} cerrados en {{ m.dias }} días</span></div>
+  <div class="card tka-k"><span class="lbl">Resolución (mediana)</span><b class="tka-small">{% for p in ('P1','P2','P3','P4') if p in m.resolucion %}{{ p }} {{ horas(m.resolucion[p]) }}{{ ' · ' if not loop.last }}{% else %}—{% endfor %}</b><span class="small muted">desde que se levanta hasta el cierre</span></div>
+  <div class="card tka-k"><span class="lbl">Levantados / cerrados</span><b>{{ k.levantados }} / {{ k.cerrados }}</b><span class="small muted">en {{ m.dias }} días</span></div>
+</div>
+
+<div class="grid2" style="grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);align-items:start">
+  <section class="card pad">
+    <div class="row between"><h2>Tickets por semana</h2><span class="row small" style="gap:12px"><span class="tka-ley a"></span>Levantados <span class="tka-ley b"></span>Cerrados</span></div>
+    <div class="tka-bars" role="img" aria-label="Tickets levantados y cerrados por semana">
+      {% for s in m.semanas %}
+      <div class="tka-b"><div class="tka-pair">
+        <span class="a" style="height:{{ (100 * s.levantados / maximo)|round }}%" title="{{ s.levantados }} levantados"><i>{{ s.levantados or '' }}</i></span>
+        <span class="b" style="height:{{ (100 * s.cerrados / maximo)|round }}%" title="{{ s.cerrados }} cerrados"><i>{{ s.cerrados or '' }}</i></span></div>
+        <small>S{{ num_semana(s.semana) }}</small></div>
+      {% endfor %}
+    </div>
+  </section>
+  <section class="card pad">
+    <h2>Calidad de la captura</h2>
+    <div class="tka-calidad">
+      <div><b>{{ pct(k.completo_pct) }}</b><span>completos al levantar</span></div>
+      <div><b>{{ pct(k.incompleto_pct) }}</b><span>levantados sin un dato</span></div>
+      <div><b>{{ pct(k.sin_ia_pct) }}</b><span>sin GuardIA (no respondió)</span></div>
+      <div><b>{{ pct(k.regresados_pct) }}</b><span>regresados por falta de información</span></div>
+    </div>
+    <div class="small" style="border-top:1px solid var(--line);padding-top:10px">
+      <b>Calibración de GuardIA:</b> {{ pct(k.calibracion_pct) }} de las prioridades sugeridas se aceptaron sin cambio{% if k.triados_ia %} ({{ k.triados_ia }} tickets){% endif %}.</div>
+  </section>
+</div>
+
+<div class="grid3" style="align-items:start">
+  <section class="card pad"><h3>Dónde hay más incidencias</h3>
+    {% set mx = (m.modulos[0][1] if m.modulos else 1) %}
+    {% for lugar, n in m.modulos %}<div class="tka-fila"><span>{{ lugar }}</span><span class="tka-meter"><i style="width:{{ (100 * n / mx)|round }}%"></i></span><b>{{ n }}</b></div>
+    {% else %}<span class="muted small">Sin tickets en el periodo.</span>{% endfor %}</section>
+  <section class="card pad"><h3>Cómo se resolvieron</h3>
+    {% for tipo, n in m.cierres %}<div class="tka-fila"><span>{{ tipo }}</span><b>{{ n }}</b></div>
+    {% else %}<span class="muted small">Sin cierres en el periodo.</span>{% endfor %}</section>
+  <section class="card pad"><h3>Carga del equipo</h3>
+    {% for nombre, c in m.carga %}<div class="tka-fila"><span>{{ nombre }}</span><span class="small">{{ c.abiertos }} abierto{{ 's' if c.abiertos != 1 }}{% if c.p1 %} · <b style="color:var(--r-fg)">{{ c.p1 }} P1</b>{% endif %}{% if c.vencidos %} · <b style="color:var(--r-fg)">{{ c.vencidos }} vencido{{ 's' if c.vencidos != 1 }}</b>{% endif %}</span></div>
+    {% else %}<span class="muted small">Nadie tiene tickets abiertos.</span>{% endfor %}</section>
+</div>
+
+<section class="col" id="diagnostico" style="gap:16px" {% if generando %}data-auto-refresh="6"{% endif %}>
+  <div class="row between">
+    <div class="col" style="gap:2px"><h2 class="row" style="gap:8px">{{ icon('ia', 20) }}Diagnóstico por {{ 'área' if m.dimension == 'area' else 'producto' }}</h2>
+      <span class="muted small">{% if diag and diag.estado == 'listo' %}Generado {{ hora_local(diag.creado) }} por {{ diag.autor.nombre if diag.autor else 'GuardIA' }} · últimos {{ diag.dias }} días{% if diag.dias != m.dias %} (la página muestra {{ m.dias }}){% endif %}{% elif not diag %}Aún no hay diagnóstico; las cifras de cada grupo ya están abajo.{% endif %}</span></div>
+    <div class="row">
+      <div class="tabs">{% for kd, et in dimensiones.items() %}<a href="?dias={{ m.dias }}&por={{ kd }}#diagnostico" class="{{ 'on' if m.dimension == kd }}">{{ 'Por área' if kd == 'area' else 'Por producto' }}</a>{% endfor %}</div>
+      <form method="post" action="/tickets-analitica/diagnostico"><input type="hidden" name="por" value="{{ m.dimension }}"><input type="hidden" name="dias" value="{{ m.dias }}">
+        <button class="btn aibtn" type="submit" {{ 'disabled' if generando }}>{{ icon('ia') }}{{ 'Actualizar diagnóstico' if diag else 'Generar diagnóstico' }}</button></form>
+    </div>
+  </div>
+
+  {% if generando %}<div class="card pad row" style="gap:10px"><span class="spin lg"></span><span>{{ guardia }} está analizando los tickets de cada {{ 'área' if m.dimension == 'area' else 'producto' }}…</span></div>{% endif %}
+  {% set r = diag.resultado if diag and diag.estado == 'listo' else {} %}
+  {% if r.general %}
+  <div class="card pad tka-gen {{ r.general.salud }}">
+    <div class="row" style="gap:10px"><span class="tka-dot {{ r.general.salud }}"></span><b>Resumen para Dirección</b>
+      {% if r.origen == 'reglas' %}<span class="tag o" title="{{ r.error }}">Sin IA: resumen por reglas</span>{% endif %}</div>
+    <div>{{ r.general.resumen }}</div>
+    {% if r.general.prioridades %}<ol class="small" style="margin:0;padding-left:20px">{% for p in r.general.prioridades %}<li>{{ p }}</li>{% endfor %}</ol>{% endif %}
+  </div>
+  {% endif %}
+
+  {% set dx = {} %}{% for g in (r.grupos or []) %}{% set _ = dx.update({g.grupo: g}) %}{% endfor %}
+  <div class="tka-grupos">
+  {% for g in m.grupos %}{% set d = dx.get(g.grupo) %}
+    <article class="card pad tka-g">
+      <div class="row between"><h3 class="row" style="gap:8px">{% if d %}<span class="tka-dot {{ d.salud }}" title="{{ d.salud }}"></span>{% endif %}{{ g.grupo }}</h3>
+        <span class="small muted">{{ g.levantados }} levantados</span></div>
+      <div class="tka-mini">
+        <span><b>{{ g.abiertos }}</b> abiertos</span><span class="{{ 'mal' if g.vencidos }}"><b>{{ g.vencidos }}</b> vencidos</span>
+        <span><b>{{ g.p1p2 }}</b> P1–P2</span><span><b>{{ horas(g.mediana_h) }}</b> resolución</span>
+        <span><b>{{ pct(g.sla_pct) }}</b> SLA</span><span><b>{{ pct(g.regresados_pct) }}</b> regresados</span></div>
+      {% if g.lugares %}<div class="small muted">Dónde: {% for l, n in g.lugares %}{{ l }} ({{ n }}){{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}
+      {% if d %}
+        <div class="small">{{ d.resumen }}</div>
+        {% for titulo, lista in (('Patrones', d.patrones), ('Riesgos', d.riesgos), ('Qué hacer', d.recomendaciones)) if lista %}
+        <div class="small"><b>{{ titulo }}</b><ul style="margin:4px 0 0;padding-left:18px">{% for x in lista %}<li>{{ x }}</li>{% endfor %}</ul></div>{% endfor %}
+      {% endif %}
+    </article>
+  {% else %}
+    <div class="card pad muted">Sin tickets en los últimos {{ m.dias }} días.</div>
+  {% endfor %}
+  </div>
+</section>
+{% endblock %}

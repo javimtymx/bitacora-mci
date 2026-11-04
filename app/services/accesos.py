@@ -50,6 +50,8 @@ MENUS = (
          ("/tickets-triage",), opt_in=True),
     Menu("tickets-tablero", "soporte", "Tablero de desarrollo", "Kanban de tickets en atención", "/tickets-tablero", "colaborador",
          ("/tickets-tablero",), opt_in=True),
+    Menu("tickets-analitica", "soporte", "Analítica de tickets", "Indicadores y diagnóstico por área", "/tickets-analitica",
+         "direccion", ("/tickets-analitica",), opt_in=True),
     Menu("tickets-config", "configurar", "Configurar GuardIA Ticket", "Qué pide GuardIA, catálogo y reglas", "/tickets-config",
          "colaborador", ("/tickets-config",), opt_in=True),
     Menu("indicadores", "datos", "Indicadores", "Kárdex y captura semanal", "/indicadores", "colaborador", ("/indicadores",)),
@@ -87,8 +89,8 @@ def puede(u, clave: str) -> bool:
         return u is not None
     if u.rol == "admin":
         return True
-    if m.opt_in:
-        return clave in (getattr(u, "menus_extra", None) or [])
+    if m.opt_in:  # se otorga a cada persona; si el menú pide un rol (p. ej. Dirección), ese rol lo ve sin otorgarlo
+        return clave in (getattr(u, "menus_extra", None) or []) or (m.rol_min != "colaborador" and por_rol(u.rol, m))
     return por_rol(u.rol, m) and clave not in (u.menus_bloqueados or [])
 
 

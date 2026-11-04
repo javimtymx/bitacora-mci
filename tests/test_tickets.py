@@ -166,3 +166,42 @@ def test_menus_de_desarrollo_se_otorgan(admin, mario, db):
     assert mario.get("/tickets-tablero").status_code == 200
     assert mario.get("/tickets-config").status_code == 403
     assert m in tk.asignables(db)
+
+
+def test_analitica_y_diagnostico_por_area(admin, manuel, mario, db, fake):
+    from app.models import TicketDiagnostico
+    m = db.scalar(select(Usuario).where(Usuario.email == "mcoronado@onecore.mx"))
+    jm = db.scalar(select(Usuario).where(Usuario.email == "jmartinez@onecore.mx"))
+    t1 = tk.crear(db, m, _campos(referencia="1"), [], validacion="completo", faltantes=[], conversacion=[], prompt_version=None)
+    t2 = tk.crear(db, m, _campos(referencia="2", producto="CIVA"), [], validacion="sin_ia", faltantes=[], conversacion=[],
+                  prompt_version=None)
+    tk.triage(db, jm, t1, "P1", jm)
+    tk.cerrar(db, jm, t1, tipo_cierre="corregido", causa="Causa larga del problema", solucion="Solución aplicada en la validación")
+    tk.triage(db, jm, t2, "P2", jm)
+    db.commit()
+    assert manuel.get("/tickets-analitica").status_code == 403
+    assert mario.get("/tickets-analitica").status_code == 403
+    html = admin.get("/tickets-analitica").text
+    area = m.area.nombre
+    assert "Analítica de tickets" in html and area in html and "Generar diagnóstico" in html
+    assert "CIVA" in admin.get("/tickets-analitica?por=producto").text
+    fake.respuestas = [{"general": {"salud": "amarillo", "resumen": "Ventas concentra los errores de SAFE.",
+                                    "prioridades": ["Capacitar en carga de layout"]},
+                        "grupos": [{"grupo": area, "salud": "rojo", "resumen": "Dos tickets de validación.",
+                                    "patrones": ["Errores al cargar layout"], "riesgos": [], "recomendaciones": ["Regla de captura"]},
+                                   {"grupo": "Inventado", "salud": "verde"}]}]
+    admin.post("/tickets-analitica/diagnostico", data={"por": "area", "dias": 30})
+    d = db.scalar(select(TicketDiagnostico))
+    db.refresh(d)
+    assert d.estado == "listo" and d.resultado["origen"] == "ia"
+    assert [g["grupo"] for g in d.resultado["grupos"]] == [area] and d.resultado["grupos"][0]["salud"] == "rojo"
+    assert "Errores al cargar layout" in fake.prompts[-1] or area in fake.prompts[-1]
+    html = admin.get("/tickets-analitica").text
+    assert "Ventas concentra los errores de SAFE." in html and "Regla de captura" in html
+    # sin IA: diagnóstico por reglas
+    fake.respuestas = [ia.IANoDisponible("caído")]
+    fake.pedir_json = lambda *a, **k: (_ for _ in ()).throw(ia.IANoDisponible("caído"))
+    admin.post("/tickets-analitica/diagnostico", data={"por": "producto", "dias": 30})
+    d2 = db.scalar(select(TicketDiagnostico).where(TicketDiagnostico.dimension == "producto"))
+    db.refresh(d2)
+    assert d2.resultado["origen"] == "reglas" and {g["grupo"] for g in d2.resultado["grupos"]} == {"SAFE", "CIVA"}
