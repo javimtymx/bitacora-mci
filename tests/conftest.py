@@ -9,6 +9,7 @@ os.environ["DATABASE_URL"] = f"sqlite:///{DB}"
 os.environ["ANTHROPIC_API_KEY"] = "fake"
 os.environ["SMTP_DRY_RUN"] = "true"
 os.environ["TRANSCRIPCIONES_CLAVE"] = "q2Yl8b6c1v3f0WnJ8mXo0n2pP5wqJ0k9Z1s3bQyK6aE="
+os.environ["EVIDENCIAS_DIR"] = str(Path(__file__).parent / "_evidencias")
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from fastapi.testclient import TestClient  # noqa: E402

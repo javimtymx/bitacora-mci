@@ -19,6 +19,7 @@ DEFAULTS: dict[str, tuple[object, str, str]] = {
     "auto_recordatorio_remediacion": (True, "Enviar sin aprobación el recordatorio un día antes de la nueva fecha de una remediación.", "automatizacion"),
     "auto_recordatorio_sin_compromiso": (False, "Enviar sin aprobación el recordatorio a quien no ha registrado compromiso de la semana.", "automatizacion"),
     "auto_seguimiento_estrategias": (False, "Enviar sin aprobación el correo semanal de seguimiento a responsables de estrategias activas.", "automatizacion"),
+    "evidencia_cierre_obligatoria": (True, "Para cerrar un compromiso como cumplido se debe subir al menos un archivo de evidencia; GuardIA revisa si la evidencia demuestra el cumplimiento.", "evidencia"),
     "evidencia_sesion_obligatoria": (False, "Exigir transcripción verificada para cerrar como cumplido un compromiso cuya medida predictiva pide evidencia (sesiones 1:1, objeciones).", "evidencia"),
     "investigaciones_por_semana": (3, "Máximo de investigaciones profundas (búsqueda web) que la IA puede ejecutar por semana en toda la empresa.", "ia"),
     "auto_diagnostico_semanal": (True, "Generar cada lunes el diagnóstico de la IA para cada área.", "automatizacion"),

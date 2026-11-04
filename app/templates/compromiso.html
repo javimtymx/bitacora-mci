@@ -1,10 +1,11 @@
-{% extends "base.html" %}{% from "_ui.html" import icon, ai_badge, estado_comp, avance with context %}
+{% extends "base.html" %}{% from "_ui.html" import icon, ai_badge, estado_comp, avance with context %}{% import "_historial.html" as hist with context %}
 {% block title %}CMP-{{ '%04d' % c.id }}{% endblock %}
 {% block content %}
 <div class="top">
   <div class="col" style="gap:4px"><span class="muted small"><a href="/compromisos">Compromisos</a> · CMP-{{ '%04d' % c.id }} · semana {{ num_semana(c.semana) }}</span>
     <h1 style="font-size:22px;max-width:900px">{{ c.texto }}</h1></div>
-  <div class="row">{{ estado_comp(c, seg) }}</div>
+  <div class="row">{{ estado_comp(c, seg) }}{{ hist.boton('hist-comp', ediciones|length) }}
+    {% if puede and c.estado == 'abierto' %}<button class="btn sm soft" type="button" data-open="ed-comp">{{ icon('edit', 15) }}Editar</button>{% endif %}</div>
 </div>
 
 {% if sol_elim %}<div class="flash error" style="align-items:flex-start">{{ icon('alert', 18) }}<span style="flex:1"><b>Eliminación solicitada</b> por {{ sol_elim.solicitante.nombre }} el {{ fmt_fecha(sol_elim.creado) }}: «{{ sol_elim.motivo }}». El compromiso sigue activo hasta que un administrador lo autorice.</span>
@@ -27,7 +28,7 @@
         <input class="input" type="number" name="avance" min="0" max="100" step="5" value="{{ c.avance }}" style="width:100px" aria-label="Avance %">
         <input class="input" name="nota" placeholder="Nota breve (opcional)" style="width:260px">
         <button class="btn soft" type="submit">Guardar avance</button></form>
-      <form method="post" action="/compromisos/{{ c.id }}/cumplido"><button class="btn dark" type="submit">{{ icon('ok') }}Cumplido</button></form>
+      <button class="btn dark" type="button" data-open="cerrar">{{ icon('ok') }}Cumplido</button>
       <button class="btn red" type="button" data-open="remediar">No se cumplió</button>
     </div>
     {% elif puede and c.estado == 'no_cumplido' and (not c.remediacion or c.remediacion.estado != 'abierta') %}
@@ -74,6 +75,26 @@
       <span class="muted small">{{ a.tipo }} · {{ fmt_dia(a.programada_para) }}{% if a.informe_id %} · <a href="/informes/{{ a.informe_id }}">ver documento</a>{% endif %}</span>
     </div>{% else %}<span class="muted small">Sin actividades programadas.</span>{% endfor %}
   </section>
+  <section class="card pad"><div class="row between"><h3>Evidencias del compromiso</h3>{% if evid_obligatoria and c.estado == 'abierto' %}<span class="tag n">Obligatoria al cerrar</span>{% endif %}</div>
+    {% set d = c.cierre_detalle or {} %}
+    {% if c.cierre_veredicto == 'verificando' %}<div class="verif neutro" role="status" data-auto-refresh="6"><div class="row" style="gap:10px"><span class="spin"></span><b>{{ guardia }} está revisando la evidencia del cierre…</b></div></div>
+    {% elif c.cierre_veredicto == 'concluido' %}<div class="verif ok"><b>{{ icon('ok', 15) }} Evidencia consistente con el compromiso</b>{% if d.motivo %}<span>{{ d.motivo }}</span>{% endif %}</div>
+    {% elif c.cierre_veredicto in ('dudoso', 'no_corresponde') %}<div class="verif mal"><b>{{ icon('alert', 15) }} Cierre con sospecha: {{ 'la evidencia no corresponde al compromiso' if c.cierre_veredicto == 'no_corresponde' else 'no se ve concluido satisfactoriamente' }}</b>
+      {% if d.motivo %}<span>{{ d.motivo }}</span>{% endif %}
+      {% if d.falta %}<span><b>Falta demostrar:</b> {{ d.falta|join('; ') }}</span>{% endif %}
+      {% if d.cumple %}<span><b>Sí se ve:</b> {{ d.cumple|join('; ') }}</span>{% endif %}
+      <span class="small">Si subes evidencia adicional, {{ guardia }} vuelve a revisarlo.</span></div>
+    {% elif c.cierre_veredicto == 'sin_verificar' %}<div class="verif neutro"><b>Cierre sin verificar por la IA.</b>{% if d.error %}<span>{{ d.error }}</span>{% endif %}</div>{% endif %}
+    {% if d.comentario %}<div class="small"><b>Comentario de cierre:</b> {{ d.comentario }}</div>{% endif %}
+    {% for ev in c.evidencias %}<div class="evi"><div class="col" style="gap:2px;min-width:0"><a href="/evidencias/{{ ev.id }}">{{ icon('clip', 14) }} {{ ev.nombre }}</a>
+        <span class="small muted">{{ tamano(ev.bytes) }} · {{ ev.autor.nombre }} · {{ hora_local(ev.creado) }}</span></div>
+      {% if puede and c.estado == 'abierto' and (u.es_direccion or ev.subido_por == u.id) %}<form method="post" action="/evidencias/{{ ev.id }}/quitar" data-sin-bloqueo><button class="btn sm ghost" aria-label="Quitar {{ ev.nombre }}">{{ icon('x', 14) }}</button></form>{% endif %}</div>
+    {% else %}<span class="small muted">Aún no hay archivos. Sube la captura, el documento, el correo o el folio que demuestre lo hecho.</span>{% endfor %}
+    {% if puede and c.estado in ('abierto', 'cumplido') %}<form method="post" action="/compromisos/{{ c.id }}/evidencias" enctype="multipart/form-data" class="col" style="gap:8px">
+      <div class="drop"><input type="file" name="archivos" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.txt,.csv,.md,.eml,.docx,.xlsx,.pptx" aria-label="Archivos de evidencia" required></div>
+      <span class="small muted">PDF, imagen, Word, Excel, PowerPoint o texto · hasta 10 MB cada uno.</span>
+      <button class="btn soft sm" style="align-self:flex-start">{{ icon('upload', 15) }}Subir evidencia</button></form>{% endif %}
+  </section>
   <section class="card pad"><div class="row between"><h3>Evidencia de la sesión</h3>{% if pide_evidencia %}<span class="tag {{ 'r' if evidencia_obligatoria else 'n' }}">{{ 'Obligatoria' if evidencia_obligatoria else 'Recomendada' }}</span>{% endif %}</div>
     {% for s in sesiones %}<a class="lnk" href="/sesiones/{{ s.id }}">{{ icon('doc', 15) }}{{ 'Objeciones' if s.tipo=='objeciones' else '1:1' }} · {{ fmt_fecha(s.fecha) }} · {{ 'verificada' if s.evidencia_verificada else 'sin verificar' }}</a>
     {% else %}<span class="small muted">Si este compromiso fue una sesión con cliente, carga la transcripción: es la evidencia de ejecución y alimenta Voz del Cliente.</span>{% endfor %}
@@ -86,6 +107,38 @@
 {% endblock %}
 
 {% block modals %}
+{{ hist.modal('hist-comp', 'CMP-%04d' % c.id, ediciones, {'texto':'Compromiso','fecha_limite':'Fecha límite','responsable_id':'Responsable','predictiva_id':'Medida predictiva'},
+   {'responsable_id': nombres_usr, 'predictiva_id': nombres_pred}, nombres_usr) }}
+{% if puede and c.estado == 'abierto' %}
+<div class="overlay" id="ed-comp"><form class="modal" method="post" action="/compromisos/{{ c.id }}/editar" role="dialog" aria-modal="true" aria-labelledby="t-edc">
+  <div class="mh"><div class="row"><h2 id="t-edc">Editar compromiso</h2><span class="muted" style="font-weight:600">CMP-{{ '%04d' % c.id }} · la versión actual queda en el historial</span></div>
+    <button class="btn ghost" type="button" data-close aria-label="Cerrar" style="width:42px;padding:0">{{ icon('x') }}</button></div>
+  <div class="sec" style="border-top:0">
+    <div class="grid3">
+      <div class="field"><label for="edc-pred">Medida predictiva</label><select class="input" id="edc-pred" name="predictiva_id" required>
+        {% for p, v in preds.get(c.area_id, []) %}<option value="{{ p.id }}" {{ 'selected' if p.id == c.predictiva_id }}>{{ p.nombre }}</option>{% endfor %}</select></div>
+      <div class="field"><label for="edc-resp">Responsable</label><select class="input" id="edc-resp" name="responsable_id" required>
+        {% for r in responsables %}<option value="{{ r.id }}" {{ 'selected' if r.id == c.responsable_id }}>{{ r.nombre }}</option>{% endfor %}
+        {% if c.responsable not in responsables %}<option value="{{ c.responsable_id }}" selected>{{ c.responsable.nombre }}</option>{% endif %}</select></div>
+      <div class="field"><label for="edc-fecha">Fecha límite</label><input class="input" type="date" id="edc-fecha" name="fecha_limite" value="{{ c.fecha_limite.isoformat() }}" required></div>
+    </div>
+    <div class="field"><label for="edc-txt">Compromiso</label><textarea class="input" id="edc-txt" name="texto" required maxlength="1000" style="min-height:110px">{{ c.texto }}</textarea></div>
+    <div class="field"><label for="edc-mot">Motivo del cambio (opcional)</label><input class="input" id="edc-mot" name="motivo" maxlength="1000" placeholder="Ej. El cliente movió la reunión al jueves"></div>
+  </div>
+  <div class="mf"><button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn yellow">{{ icon('ok') }}Guardar cambios</button></div></form></div>
+<div class="overlay" id="cerrar"><form class="modal" method="post" action="/compromisos/{{ c.id }}/cumplido" enctype="multipart/form-data" role="dialog" aria-modal="true" aria-labelledby="t-cer">
+  <div class="mh"><div class="row"><h2 id="t-cer">Cerrar como cumplido</h2><span class="muted" style="font-weight:600">CMP-{{ '%04d' % c.id }}</span></div>
+    <button class="btn ghost" type="button" data-close aria-label="Cerrar" style="width:42px;padding:0">{{ icon('x') }}</button></div>
+  <div class="sec" style="border-top:0">
+    <div class="cint"><span class="ic">{{ icon('ia') }}</span><span style="flex:1">{{ guardia }} revisará si la evidencia demuestra lo prometido. Si tiene dudas, el compromiso se cierra igual pero queda marcado como <b>cierre con sospecha</b> para que el líder lo revise.</span></div>
+    <div class="small"><b>Compromiso:</b> {{ c.texto }}</div>
+    {% if c.evidencias %}<div class="small"><b>Ya cargados:</b> {% for ev in c.evidencias %}{{ ev.nombre }}{{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}
+    <div class="field"><label for="cer-arch">{{ 'Agregar más evidencia (opcional)' if c.evidencias or not evid_obligatoria else 'Evidencia del cumplimiento (obligatoria)' }}</label>
+      <div class="drop"><input type="file" id="cer-arch" name="archivos" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.txt,.csv,.md,.eml,.docx,.xlsx,.pptx" {{ 'required' if evid_obligatoria and not c.evidencias }}></div></div>
+    <div class="field"><label for="cer-com">Comentario de cierre</label><textarea class="input" id="cer-com" name="comentario" maxlength="1000" placeholder="Qué se entregó y dónde se puede verificar (folio, enlace, destinatarios)"></textarea></div>
+  </div>
+  <div class="mf"><button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn dark">{{ icon('ok') }}Cerrar como cumplido</button></div></form></div>
+{% endif %}
 {% if not sol_elim %}
 <div class="overlay" id="eliminar"><form class="modal sm" method="post" action="/compromisos/{{ c.id }}/eliminar" role="dialog" aria-modal="true" aria-labelledby="t-elim">
   <div class="mh"><h2 id="t-elim">Solicitar eliminación</h2><button class="btn ghost" type="button" data-close style="width:42px;padding:0" aria-label="Cerrar">{{ icon('x') }}</button></div>

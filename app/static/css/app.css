@@ -261,3 +261,21 @@ button:disabled{cursor:progress;opacity:.75}
 @media (max-width:860px){.tag-in,.pfila,.encaje{grid-template-columns:1fr}}
 
 [hidden]{display:none!important}
+
+/* historial de ediciones */
+.hist-btn{min-height:32px;padding:0 8px;gap:4px;color:var(--teal2)}
+.hist-it{border:1px solid #E3E8EC;border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.hist-campo{display:flex;flex-direction:column;gap:4px}
+.hist-ab{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.hist-a,.hist-d{font-size:13px;line-height:1.45;border-radius:8px;padding:8px 10px;white-space:pre-line;overflow-wrap:anywhere}
+.hist-a{background:#FDF1F0;border:1px solid #F3C9C5}
+.hist-d{background:#EEF8EE;border:1px solid #BFE3BF}
+.hist-a .cap,.hist-d .cap{display:block;margin-bottom:2px}
+/* evidencias */
+.evi{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+.evi a{font-weight:700;overflow-wrap:anywhere}
+.verif{border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;font-size:13px;line-height:1.5}
+.verif.ok{background:var(--g-bg);border:1px solid var(--g-bd);color:var(--g-fg)}
+.verif.mal{background:var(--r-bg);border:1px solid var(--r-bd);color:#7A1C16}
+.verif.neutro{background:#F2F4F6;border:1px solid #D5DCE2;color:var(--ink)}
+@media (max-width:860px){.hist-ab{grid-template-columns:1fr}}

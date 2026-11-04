@@ -80,9 +80,21 @@ def _meta_partes(v, unidad: str = "", dec: int = 1) -> tuple[str, str]:
     return num, u
 
 
+def _hora_local(dt) -> str:
+    """Las fechas se guardan en UTC; se muestran en hora de Ciudad de México (UTC-6, sin horario de verano)."""
+    from datetime import timedelta as _td
+    return (dt - _td(hours=6)).strftime("%d/%m/%Y %H:%M") if dt else "—"
+
+
+def _tamano(n: int) -> str:
+    n = n or 0
+    return f"{n} B" if n < 1024 else (f"{n / 1024:.0f} KB" if n < 1024 * 1024 else f"{n / 1024 / 1024:.1f} MB")
+
+
 TEMPLATES.env.globals.update(fmt_fecha=util.fmt_fecha, fmt_dia=util.fmt_dia, dias_desde=util.dias_desde,
                              num_semana=util.num_semana, md=md, valor=valor, menu_lateral=accesos.menu_lateral,
                              puede_menu=accesos.puede,
+                             hora_local=_hora_local, tamano=_tamano,
                              meta_partes=lambda v, unidad="", dec=1: _meta_partes(v, unidad, dec),
                              guardia=Markup('Guard<span class="gia" title="Inteligencia Artificial">IA</span> OneCore'))
 

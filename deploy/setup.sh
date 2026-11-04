@@ -24,6 +24,13 @@ python3 -m venv "$APP/.venv"
 chown -R bitacora:bitacora "$APP"
 chmod 600 "$APP/.env"
 
+# Evidencias de compromisos: fuera de $APP para que rsync --delete no las borre al actualizar
+EVID_DIR="$(grep -E '^EVIDENCIAS_DIR=' "$APP/.env" | cut -d= -f2- | tr -d '"' || true)"
+EVID_DIR="${EVID_DIR:-/var/lib/bitacora-mci/evidencias}"
+mkdir -p "$EVID_DIR"
+chown -R bitacora:bitacora "$(dirname "$EVID_DIR")"
+chmod 750 "$(dirname "$EVID_DIR")" "$EVID_DIR"
+
 # Migraciones
 sudo -u bitacora bash -c "cd $APP && set -a && . ./.env && set +a && .venv/bin/alembic upgrade head"
 

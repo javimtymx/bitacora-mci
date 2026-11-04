@@ -9,3 +9,4 @@ venv/
 logs/
 tests/test.sqlite3
 .pytest_cache/
+tests/_evidencias/

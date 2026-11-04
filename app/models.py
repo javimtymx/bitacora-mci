@@ -246,6 +246,9 @@ class Compromiso(Base):
     cerrado: Mapped[datetime | None] = mapped_column(DateTime)
     archivado: Mapped[bool] = mapped_column(Boolean, default=False, server_default=sa_false(), index=True)
     archivado_en: Mapped[datetime | None] = mapped_column(DateTime)
+    # verificación de GuardIA al cerrar: verificando | concluido | dudoso | no_corresponde | sin_verificar
+    cierre_veredicto: Mapped[str | None] = mapped_column(String(20))
+    cierre_detalle: Mapped[dict | None] = mapped_column(JSON)
 
     area: Mapped[Area] = relationship()
     responsable: Mapped[Usuario] = relationship(foreign_keys=[responsable_id])
@@ -254,6 +257,7 @@ class Compromiso(Base):
     predictiva_version: Mapped[PredictivaVersion | None] = relationship()
     estrategia: Mapped[Estrategia | None] = relationship()
     notas: Mapped[list["CompromisoNota"]] = relationship(order_by="CompromisoNota.creado")
+    evidencias: Mapped[list["EvidenciaArchivo"]] = relationship(order_by="EvidenciaArchivo.creado")
     remediaciones: Mapped[list["Remediacion"]] = relationship(
         back_populates="compromiso", order_by="Remediacion.creado"
     )
@@ -261,6 +265,37 @@ class Compromiso(Base):
     @property
     def remediacion(self) -> "Remediacion | None":
         return self.remediaciones[-1] if self.remediaciones else None
+
+
+class Edicion(Base):
+    """Historial de cambios de compromisos e ideas: qué cambió, quién y cuándo."""
+    __tablename__ = "ediciones"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    entidad: Mapped[str] = mapped_column(String(20), index=True)  # compromiso | idea
+    entidad_id: Mapped[int] = mapped_column(Integer, index=True)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"))
+    antes: Mapped[dict] = mapped_column(JSON)
+    despues: Mapped[dict] = mapped_column(JSON)
+    motivo: Mapped[str] = mapped_column(Text, default="")
+    creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    usuario: Mapped[Usuario] = relationship()
+
+
+class EvidenciaArchivo(Base):
+    """Archivo de evidencia de un compromiso. El contenido vive en disco (EVIDENCIAS_DIR), no en la base."""
+    __tablename__ = "evidencias_archivo"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    compromiso_id: Mapped[int] = mapped_column(ForeignKey("compromisos.id"), index=True)
+    nombre: Mapped[str] = mapped_column(String(255))
+    ruta: Mapped[str] = mapped_column(String(300))
+    tipo: Mapped[str] = mapped_column(String(120), default="")
+    bytes: Mapped[int] = mapped_column(Integer, default=0)
+    sha256: Mapped[str] = mapped_column(String(64), default="")
+    subido_por: Mapped[int] = mapped_column(ForeignKey("usuarios.id"))
+    creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    autor: Mapped[Usuario] = relationship()
 
 
 class SolicitudEliminacion(Base):

@@ -30,7 +30,7 @@ MENUS = (
     Menu("inicio", "tablero", "Tablero semanal", "Indicadores de todos y por área", "/", "colaborador", ("/kardex",)),
     Menu("mi-semana", "tablero", "Mi semana", "Mis compromisos de esta semana", "/mi-semana", "colaborador", ("/mi-semana",)),
     Menu("compromisos", "ejecucion", "Compromisos", "Seguimiento y remediaciones", "/compromisos", "colaborador",
-         ("/compromisos", "/api/ia/compromiso", "/api/ia/remediacion", "/remediaciones")),
+         ("/compromisos", "/api/ia/compromiso", "/api/ia/remediacion", "/remediaciones", "/evidencias")),
     Menu("semanal", "ejecucion", "Junta semanal", "Vista para presentar", "/semanal", "lider", ("/semanal",)),
     Menu("excepciones", "ejecucion", "Excepciones", "Solicitudes y aprobaciones", "/excepciones", "lider", ("/excepciones",)),
     Menu("diagnostico", "ia", "Diagnóstico por área", "Recomendaciones semanales", "/diagnostico", "lider",

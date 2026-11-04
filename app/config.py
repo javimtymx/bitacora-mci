@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     ia_herramienta_busqueda: str = "web_search_20250305"
 
     # Clave Fernet para cifrar transcripciones (python -c "from cryptography.fernet import Fernet;print(Fernet.generate_key().decode())")
+    evidencias_dir: str = "/var/lib/bitacora-mci/evidencias"
     transcripciones_clave: str = ""
 
     smtp_host: str = ""

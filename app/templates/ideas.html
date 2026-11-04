@@ -1,4 +1,4 @@
-{% extends "base.html" %}{% from "_ui.html" import icon, ai_badge, avance with context %}
+{% extends "base.html" %}{% from "_ui.html" import icon, ai_badge, avance with context %}{% import "_historial.html" as hist with context %}
 {% block title %}Ideas{% endblock %}
 {% block content %}
 <div class="top"><h1>Ideas de innovación</h1>
@@ -25,12 +25,28 @@
         {% for e in ['propuesta','validada','en_curso','implementada','descartada'] %}<option {{ 'selected' if e==i.estado }}>{{ e }}</option>{% endfor %}</select></form>
       {% else %}<span class="tag b">{{ i.estado.replace('_',' ') }}</span>{% endif %}</td>
     <td>{% if i.autor_id == u.id or u.es_lider %}<form method="post" action="/ideas/{{ i.id }}/avance" class="row" style="gap:6px;flex-wrap:nowrap"><input class="input" type="number" name="avance" min="0" max="100" step="10" value="{{ i.avance }}" style="width:76px;min-height:34px"><button class="btn sm soft">OK</button></form>{% else %}{{ avance(i.avance) }}{% endif %}</td>
-    <td></td></tr>
+    <td><div class="row" style="gap:2px;flex-wrap:nowrap">{{ hist.boton('hist-idea-' ~ i.id, n_ed.get(i.id, 0)) }}
+      {% if puede_editar_idea(u, i) %}<button class="btn sm ghost" type="button" data-open="ed-idea" aria-label="Editar idea" title="Editar"
+        data-fill-ei-id="{{ i.id }}" data-fill-ei-titulo="{{ i.titulo }}" data-fill-ei-problema="{{ i.problema }}" data-fill-ei-beneficio="{{ i.beneficio }}" data-fill-ei-area="{{ i.area_id }}" data-fill-ei-motivo="">{{ icon('edit', 15) }}</button>{% endif %}</div></td></tr>
   {% else %}<tr><td colspan="9" class="muted">Sin ideas registradas.</td></tr>{% endfor %}
   </tbody></table></div>
 </section>
 {% endblock %}
 {% block modals %}
+<div class="overlay" id="ed-idea"><form class="modal" method="post" action="/ideas/editar" role="dialog" aria-modal="true" aria-labelledby="t-edi">
+  <input type="hidden" id="ei-id" name="idea_id" value="">
+  <div class="mh"><div class="row"><h2 id="t-edi">Editar idea</h2><span class="muted" style="font-weight:600">La versión actual queda en el historial</span></div>
+    <button class="btn ghost" type="button" data-close aria-label="Cerrar" style="width:42px;padding:0">{{ icon('x') }}</button></div>
+  <div class="sec" style="border-top:0">
+    <div class="grid2" style="grid-template-columns:2fr 1fr">
+      <div class="field"><label for="ei-titulo">Título</label><input class="input" id="ei-titulo" name="titulo" required maxlength="200"></div>
+      <div class="field"><label for="ei-area">Área</label><select class="input" id="ei-area" name="area_id">{% for a in areas %}<option value="{{ a.id }}">{{ a.nombre }}</option>{% endfor %}</select></div></div>
+    <div class="field"><label for="ei-problema">Problema que resuelve</label><textarea class="input" id="ei-problema" name="problema" required style="min-height:120px"></textarea></div>
+    <div class="field"><label for="ei-beneficio">Beneficio esperado</label><textarea class="input" id="ei-beneficio" name="beneficio"></textarea></div>
+    <div class="field"><label for="ei-motivo">Motivo del cambio (opcional)</label><input class="input" id="ei-motivo" name="motivo" maxlength="1000" placeholder="Ej. Se complementa con lo que dijo el cliente en la sesión"></div>
+  </div>
+  <div class="mf"><button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn yellow">{{ icon('ok') }}Guardar cambios</button></div></form></div>
+{% for iid, eds in ediciones.items() %}{{ hist.modal('hist-idea-' ~ iid, 'Idea #' ~ iid, eds, {'titulo':'Título','problema':'Problema','beneficio':'Beneficio','area_id':'Área'}, {'area_id': areas_por_id}, {}) }}{% endfor %}
 <div class="overlay" id="nueva-idea">
 <form class="modal" method="post" action="/ideas" data-ia="/api/ia/idea" data-ia-tipo="idea" role="dialog" aria-modal="true" aria-labelledby="t-id">
   <input type="hidden" name="revision_id" value="">

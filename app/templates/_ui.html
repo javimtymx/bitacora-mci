@@ -31,6 +31,9 @@
  'lock':'M6 11h12v10H6z M8 11V7a4 4 0 0 1 8 0v4',
  'briefcase':'M3 7h18v13H3z M9 7V4h6v3 M3 13h18',
  'ia':'M8 8h8v8H8z M10 3.5v3 M14 3.5v3 M10 17.5v3 M14 17.5v3 M3.5 10h3 M3.5 14h3 M17.5 10h3 M17.5 14h3 M12 9.8l.7 1.5 1.5.7-1.5.7-.7 1.5-.7-1.5-1.5-.7 1.5-.7z',
+ 'edit':'M4 20h4L19 9l-4-4L4 16z M13.5 6.5l4 4',
+ 'hist':'M3 12a9 9 0 1 0 3-6.7 M3 4v5h5 M12 7v5l3 2',
+ 'clip':'M21 11l-8.5 8.5a5 5 0 0 1-7-7L14 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 7',
  'print':'M6 9V3h12v6 M6 18H4v-7h16v7h-2 M6 14h12v7H6z',
 } -%}
 <svg viewBox="0 0 24 24" {% if w %}width="{{ w }}" height="{{ w }}"{% endif %} fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{ P[n] }}"/></svg>
@@ -39,7 +42,7 @@
 {% macro ai_badge() -%}<span class="ai" title="GuardIA OneCore · IA = Inteligencia Artificial">{{ icon('ia') }}<span>Guard<span class="gia">IA</span> OneCore</span></span>{%- endmacro %}
 
 {% macro estado_comp(c, seg) -%}
-{%- if c.estado == 'cumplido' -%}<span class="tag g">Cumplido</span>
+{%- if c.estado == 'cumplido' -%}<span class="tag g">Cumplido</span>{%- if c.cierre_veredicto in ('dudoso', 'no_corresponde') %} <span class="tag r" title="GuardIA tiene dudas de que la evidencia demuestre el cumplimiento">Cierre con sospecha</span>{%- elif c.cierre_veredicto == 'verificando' %} <span class="tag n">Verificando evidencia</span>{%- endif -%}
 {%- elif c.estado == 'cancelado' -%}<span class="tag n">Cancelado</span>
 {%- elif c.estado == 'no_cumplido' -%}
   {%- if not c.remediacion -%}<span class="tag o">Sin remediación</span>

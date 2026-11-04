@@ -1,0 +1,22 @@
+{% macro boton(id, n) -%}
+{% if n %}<button class="btn sm ghost hist-btn" type="button" data-open="{{ id }}" title="Ver el historial de ediciones" aria-label="Ver {{ n }} edición(es) anteriores">{{ icon('hist', 15) }}<span>{{ n }}</span></button>{% endif %}
+{%- endmacro %}
+
+{% macro modal(id, titulo, ediciones, etiquetas, traducir, nombres_usr) -%}
+<div class="overlay" id="{{ id }}"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="t-{{ id }}">
+  <div class="mh"><div class="col" style="gap:2px"><span class="muted small">Historial de ediciones · la más reciente primero</span><h2 id="t-{{ id }}">{{ titulo }}</h2></div>
+    <button class="btn ghost" type="button" data-close aria-label="Cerrar" style="width:42px;padding:0">{{ icon('x') }}</button></div>
+  <div class="sec" style="border-top:0;gap:12px">
+  {% for e in ediciones %}<article class="hist-it">
+    <div class="row between small"><b>{{ e.usuario.nombre }}</b><span class="muted">{{ hora_local(e.creado) }}</span></div>
+    {% if e.motivo %}<div class="small"><b>Motivo:</b> {{ e.motivo }}</div>{% endif %}
+    {% for k, antes in e.antes.items() %}{% set t = traducir.get(k, {}) %}
+      <div class="hist-campo"><span class="cap">{{ etiquetas.get(k, k) }}</span>
+        <div class="hist-ab"><div class="hist-a"><span class="cap">Antes</span>{{ t.get(antes, antes) if t else antes }}</div>
+          <div class="hist-d"><span class="cap">Después</span>{{ t.get(e.despues[k], e.despues[k]) if t else e.despues[k] }}</div></div></div>
+    {% endfor %}
+  </article>{% else %}<span class="muted small">Sin ediciones.</span>{% endfor %}
+  </div>
+  <div class="mf"><button class="btn soft" type="button" data-close>Cerrar</button></div>
+</div></div>
+{%- endmacro %}

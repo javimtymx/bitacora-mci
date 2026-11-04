@@ -101,6 +101,7 @@ class ClienteIA:
         ultimo = None
         for intento in range(1, self.INTENTOS + 1):
             try:
+                # prompt puede ser texto o una lista de bloques (texto, imágenes, PDF)
                 return cli.messages.create(model=modelo, max_tokens=max_tokens, system=system or SYSTEM,
                                            messages=[{"role": "user", "content": prompt}], **extra)
             except Exception as e:  # noqa: BLE001
@@ -135,8 +136,9 @@ class ClienteIA:
         except json.JSONDecodeError as e:
             log.warning("JSON inválido de la IA (%s): %s; se pide de nuevo en formato compacto",
                         "cortado" if meta["cortada"] else "mal formado", e)
-        reparar = prompt + ("\n\nIMPORTANTE: devuelve SOLO un objeto JSON válido y completo, sin texto antes ni después. "
-                            "Sé breve: citas de máximo 30 palabras, frases cortas y no más elementos de los pedidos.")
+        aviso = ("\n\nIMPORTANTE: devuelve SOLO un objeto JSON válido y completo, sin texto antes ni después. "
+                 "Sé breve: citas de máximo 30 palabras, frases cortas y no más elementos de los pedidos.")
+        reparar = prompt + [{"type": "text", "text": aviso}] if isinstance(prompt, list) else prompt + aviso
         texto, meta = self._texto(reparar, rapido, max(meta.get("max_tokens", max_tokens), 4000), system)
         try:
             return extraer_json(texto), meta
