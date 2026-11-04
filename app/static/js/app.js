@@ -334,3 +334,9 @@
     }
   });
 })();
+
+/* pantallas que esperan un proceso en segundo plano: se recargan solas */
+(() => {
+  const el = document.querySelector("[data-auto-refresh]");
+  if (el) setTimeout(() => location.reload(), (parseInt(el.dataset.autoRefresh, 10) || 6) * 1000);
+})();

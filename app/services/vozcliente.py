@@ -256,14 +256,88 @@ def _int(x, lo=0, hi=1000):
         return lo
 
 
+UMBRAL_DOS_ETAPAS = 2500   # palabras: arriba de esto se sintetiza primero con el modelo rápido
+TRAMO = 2200               # palabras por tramo en la síntesis
+TRASLAPE = 120             # palabras que se repiten entre tramos para no cortar ideas
+
+OBJETIVO_SINTESIS = {
+    "retencion": "quejas, necesidades, elogios, riesgo de baja, uso del producto, precio y competencia",
+    "objeciones": "objeciones del prospecto y cómo respondió el vendedor, dolor, impacto, quién decide y siguiente paso",
+    "venta_nueva": "lo que valora el cliente, frustraciones, necesidades, productos que le interesaron, lo que se le ofreció, "
+                   "precio, competencia y siguiente paso",
+}
+
+
+def _tramos(texto: str) -> list[str]:
+    palabras = texto.split()
+    out, i = [], 0
+    while i < len(palabras):
+        out.append(" ".join(palabras[max(0, i - TRASLAPE):i + TRAMO]))
+        i += TRAMO
+    return out
+
+
+def sintetizar(s: SesionCliente, texto: str) -> tuple[str, list, dict]:
+    """Etapa 1 (modelo rápido): de cada tramo copia textualmente solo lo relevante. Lo que no aparezca tal cual
+    en la transcripción se descarta. Regresa el extracto, los participantes detectados y datos del proceso."""
+    tn = _norm(texto)
+    frags, participantes, fallas = [], [], 0
+    tramos = _tramos(texto)
+    for n, tr in enumerate(tramos, 1):
+        prompt = f"""Parte {n} de {len(tramos)} de la transcripción de una sesión con cliente de OneCore (software de cumplimiento aduanero).
+Copia TEXTUALMENTE (sin parafrasear, sin corregir) los fragmentos relevantes sobre: {OBJETIVO_SINTESIS.get(s.tipo, OBJETIVO_SINTESIS["retencion"])}; también acuerdos y compromisos con fecha.
+Cada fragmento: exacto, de 8 a 60 palabras, con el hablante si se identifica. Omite saludos y charla sin contenido.
+Anota nombres de participantes y correos si se mencionan.
+
+<datos>
+{tr}
+</datos>
+
+JSON: {{"fragmentos":[{{"hablante":"cliente|onecore|nombre","texto":"fragmento exacto"}}],"participantes":[{{"nombre":"...","email":"","lado":"cliente|onecore","rol":""}}]}} con máximo 25 fragmentos."""
+        try:
+            res, _meta = ia.cliente().pedir_json(prompt, rapido=True, max_tokens=4000)
+        except (ia.IANoDisponible, ValueError) as e:
+            fallas += 1
+            ultimo_error = e
+            continue
+        for f in (res.get("fragmentos") or [])[:30]:
+            t = str((f or {}).get("texto") or "").strip().strip("«»\"") if isinstance(f, dict) else ""
+            if t and cita_valida(t, tn) and t not in {x[1] for x in frags}:
+                frags.append((str(f.get("hablante") or "")[:40], t))
+        participantes += [p for p in (res.get("participantes") or []) if isinstance(p, dict)]
+    if fallas == len(tramos):
+        raise ultimo_error  # noqa: F821 - sin ningún tramo sintetizado no hay extracto
+    extracto = "\n".join(f"- [{h or '¿?'}] {t}" for h, t in frags)
+    return extracto, participantes, {"modo": "dos_etapas", "tramos": len(tramos), "tramos_fallidos": fallas,
+                                     "fragmentos": len(frags)}
+
+
 def analizar(db: Session, s: SesionCliente) -> SesionCliente:
     texto = leer_texto(s)
     if len(texto) > MAX_CHARS:
         texto = texto[:MAX_CHARS]
+    proceso = {"modo": "directo"}
+    detectados_sintesis = []
+    para_analizar = texto
+    if len(texto.split()) > UMBRAL_DOS_ETAPAS:
+        try:
+            extracto, detectados_sintesis, proceso = sintetizar(s, texto)
+            if proceso["fragmentos"] >= 5:
+                para_analizar = ("[Extracto: fragmentos textuales de la transcripción en orden, seleccionados por relevancia]\n"
+                                 + extracto)
+            else:
+                proceso = {"modo": "directo", "nota": "la síntesis encontró pocos fragmentos; se analizó completa"}
+        except (ia.IANoDisponible, ValueError):
+            proceso = {"modo": "directo", "nota": "la síntesis no respondió; se analizó la transcripción completa"}
+    s_cfg = ia.cliente().s if hasattr(ia.cliente(), "s") else None
+    proceso["modelo_sintesis"] = getattr(s_cfg, "ia_modelo_rapido", "") if proceso["modo"] == "dos_etapas" else ""
+    proceso["modelo_analisis"] = getattr(s_cfg, "ia_modelo", "")
     comp_txt = s.compromiso.texto if s.compromiso else ""
     temas = _temas_existentes(db, s.area_id)
     fn = {"objeciones": _prompt_objeciones, "venta_nueva": _prompt_venta_nueva}.get(s.tipo, _prompt_retencion)
-    res, meta = ia.cliente().pedir_json(fn(s, texto, comp_txt, temas), max_tokens=5000)
+    prompt = fn(s, para_analizar, comp_txt, temas) + ("\nCitas: fragmentos exactos y breves (máximo 40 palabras cada una); "
+                                              "frases cortas en todo lo demás.")
+    res, meta = ia.cliente().pedir_json(prompt, max_tokens=8000)
     tn = _norm(texto)
     descartadas = 0
     for h in list(s.hallazgos):
@@ -313,7 +387,8 @@ def analizar(db: Session, s: SesionCliente) -> SesionCliente:
         mapa = {h.cita: h.id for h in nuevos}
         for e in venta["encajes"]:
             e["hallazgo_id"] = mapa.get(e["cita"])
-    s.participantes_det = fusionar_participantes(s.participantes_det, res.get("participantes"))
+    s.participantes_det = fusionar_participantes(s.participantes_det,
+                                                 list(res.get("participantes") or []) + detectados_sintesis)
     ev = res.get("evidencia") if isinstance(res.get("evidencia"), dict) else {}
     rb = str(res.get("riesgo_baja") or "").lower()
     spin = res.get("spin") if isinstance(res.get("spin"), dict) else {}
@@ -332,6 +407,7 @@ def analizar(db: Session, s: SesionCliente) -> SesionCliente:
         "coaching": str(res.get("coaching") or "")[:800],
         "jtbd": [h for h in hallazgos_out if h["jtbd"]],
         "venta": venta,
+        "proceso": proceso,
         "modelo": meta.get("modelo"), "prompt_version": PROMPT_VERSION,
     }
     s.riesgo_baja = rb if rb in ("alto", "medio", "bajo") else ""
@@ -385,6 +461,47 @@ def _venta_nueva(res: dict, tn: str) -> tuple[dict, int, list]:
     return ({"interes_general": nivel(res.get("interes_general")), "valora": valora, "productos_interes": prods,
              "encajes": encajes, "ofertas": ofertas, "siguiente_paso": str(res.get("siguiente_paso") or "")[:400]},
             desc, nuevos)
+
+
+def analizar_en_fondo(sid: int) -> None:
+    """Corre el análisis fuera de la petición del navegador: si la conexión se cae, el análisis sigue."""
+    from ..db import SessionLocal
+    with SessionLocal() as db:
+        s = db.get(SesionCliente, sid)
+        if not s:
+            return
+        try:
+            analizar(db, s)
+        except Exception as e:  # noqa: BLE001 - cualquier falla queda registrada en la sesión
+            db.rollback()
+            s = db.get(SesionCliente, sid)
+            s.estado = "error"
+            s.resultado = {**(s.resultado or {}), "error": str(e)[:300] if isinstance(e, (ia.IANoDisponible, ValueError))
+                           else "Ocurrió un error inesperado al analizar. Intenta de nuevo."}
+            auditar(db, "analizar_error", "sesion_cliente", s.id, s.autor_id, error=str(e)[:300])
+            db.commit()
+
+
+def marcar_en_analisis(db: Session, s: SesionCliente) -> None:
+    s.estado = "analizando"
+    s.resultado = {k: v for k, v in (s.resultado or {}).items() if k != "error"} | {"desde": utcnow_iso()}
+    db.commit()
+
+
+def utcnow_iso() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def analisis_atorado(s: SesionCliente, minutos: int = 12) -> bool:
+    from datetime import datetime, timezone
+    if s.estado != "analizando":
+        return False
+    try:
+        desde = datetime.fromisoformat((s.resultado or {}).get("desde", ""))
+    except ValueError:
+        return True
+    return (datetime.now(timezone.utc) - desde).total_seconds() > minutos * 60
 
 
 # ---------------------------------------------------------------- agregados para el módulo

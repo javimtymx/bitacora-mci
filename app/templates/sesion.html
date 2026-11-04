@@ -7,7 +7,15 @@
   <div class="row">{{ ai_badge() }}{% if u.es_direccion or s.autor_id==u.id %}<a class="btn soft sm" href="/sesiones/{{ s.id }}/transcripcion">{{ icon('doc', 16) }}Transcripción</a>{% endif %}
   <form method="post" action="/sesiones/{{ s.id }}/analizar"><button class="btn soft sm">{{ icon('refresh', 16) }}Analizar de nuevo</button></form></div></div>
 
-{% if s.estado != 'analizada' %}<div class="flash error">La sesión aún no tiene análisis. Usa «Analizar de nuevo».</div>{% else %}
+{% if s.estado == 'analizando' and not atorado %}
+<div class="card pad" style="flex-direction:row;align-items:center;gap:16px" role="status" aria-live="polite" data-auto-refresh="6">
+  <span class="spin lg"></span><div class="col" style="gap:4px"><b>{{ guardia }} está analizando la sesión…</b>
+  <span class="small muted">{% if s.palabras > 2500 %}Es una transcripción larga ({{ s.palabras }} palabras): primero el modelo rápido extrae los fragmentos clave por tramos y después el modelo principal hace el análisis.{% else %}Suele tardar de 20 a 60 segundos.{% endif %} Si hay una falla de conexión, se reintenta solo. Esta pantalla se actualiza sola; puedes salir y volver después.</span></div></div>
+{% elif s.estado != 'analizada' %}
+<div class="flash error" style="align-items:flex-start">{{ icon('alert', 18) }}<span style="flex:1"><b>{{ 'El análisis tardó demasiado y se detuvo.' if atorado else 'No se pudo analizar la sesión.' }}</b>
+  {{ r.error or 'La transcripción está guardada; vuelve a intentarlo.' }}</span>
+  <form method="post" action="/sesiones/{{ s.id }}/analizar"><button class="btn sm dark">{{ icon('refresh', 15) }}Reintentar análisis</button></form></div>
+{% else %}
 {% if s.evidencia_verificada %}<div class="flash ok">{{ icon('ok', 18) }}<span><b>Evidencia verificada.</b> {{ r.evidencia.motivo }}</span></div>
 {% elif s.compromiso %}<div class="flash error">{{ icon('alert', 18) }}<span><b>Evidencia no verificada.</b> {{ r.evidencia.motivo or 'Falta el consentimiento del cliente.' }}</span></div>{% endif %}
 <div class="grid2" style="grid-template-columns:1.5fr 1fr">
@@ -17,6 +25,7 @@
     {% if r.sentimiento %}<span class="tag n">Sentimiento: {{ r.sentimiento }}</span>{% endif %}
     {% if s.citas_descartadas %}<span class="tag o" title="La IA propuso citas que no aparecen tal cual en la transcripción">{{ s.citas_descartadas }} cita{{ "s" if s.citas_descartadas != 1 }} descartada{{ "s" if s.citas_descartadas != 1 }}</span>{% endif %}</div>
   <p style="margin:0;line-height:1.65">{{ r.resumen }}</p>
+  {% if r.proceso %}<span class="small muted">{% if r.proceso.modo == 'dos_etapas' %}Análisis en dos etapas: {{ r.proceso.fragmentos }} fragmentos textuales de {{ r.proceso.tramos }} tramo(s) con {{ r.proceso.modelo_sintesis }}{{ ' (' ~ r.proceso.tramos_fallidos ~ ' tramo(s) sin respuesta)' if r.proceso.tramos_fallidos }}, después análisis con {{ r.proceso.modelo_analisis }}.{% else %}Análisis directo con {{ r.proceso.modelo_analisis }}{{ '. ' ~ r.proceso.nota if r.proceso.nota }}.{% endif %}</span>{% endif %}
 </section>
 {% if s.objeciones %}<section class="card pad"><h2>Objeciones y cómo se manejaron</h2>
   <div class="tbl"><table><thead><tr><th>Tipo</th><th>Lo que dijo</th><th>Manejo (LAER)</th><th>Respuesta</th><th>Resultado</th></tr></thead><tbody>

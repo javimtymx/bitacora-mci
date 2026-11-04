@@ -45,6 +45,23 @@ class IANoDisponible(Exception):
     pass
 
 
+def _mensaje_error(e: Exception | None) -> str:
+    """Mensaje claro para la persona, sin el detalle técnico."""
+    t = f"{type(e).__name__}: {e}" if e else ""
+    bajo = t.lower()
+    if "credit balance" in bajo or "billing" in bajo:
+        return "La cuenta de Anthropic no tiene saldo. Agrega créditos en console.anthropic.com."
+    if "authentication" in bajo or "api key" in bajo or "x-api-key" in bajo:
+        return "La llave de Anthropic no es válida. Revisa ANTHROPIC_API_KEY."
+    if "not_found" in bajo or "model" in bajo and "not found" in bajo:
+        return "El modelo configurado no existe para esta cuenta. Revisa IA_MODELO e IA_MODELO_RAPIDO."
+    if any(k in bajo for k in ("overloaded", "529", "ratelimit", "rate_limit", "429")):
+        return "El servicio de IA está saturado. Se reintentó varias veces; intenta de nuevo en unos minutos."
+    if any(k in bajo for k in ("connection", "timeout", "timed out")):
+        return "No hubo conexión estable con el servicio de IA. Se reintentó varias veces; intenta de nuevo en unos minutos."
+    return "La IA no respondió. Intenta de nuevo en un momento."
+
+
 class ClienteIA:
     def __init__(self):
         self.s = get_settings()
@@ -59,28 +76,55 @@ class ClienteIA:
             raise IANoDisponible("Falta ANTHROPIC_API_KEY")
         if self._cli is None:
             import anthropic
-            self._cli = anthropic.Anthropic(api_key=self.s.anthropic_api_key, timeout=180)
+            # los reintentos los controla _crear para poder registrarlos y esperar más entre intentos
+            self._cli = anthropic.Anthropic(api_key=self.s.anthropic_api_key, timeout=240, max_retries=0)
         return self._cli
 
-    def _crear(self, modelo: str, max_tokens: int, system: str | None, prompt: str):
+    INTENTOS = 4
+    ESPERAS = (3, 8, 20)  # segundos entre intentos ante fallas pasajeras
+    TOPE_TOKENS = 16000
+
+    @staticmethod
+    def _pasajera(e: Exception) -> bool:
+        """Red, tiempo agotado, límite de uso o saturación del servicio: vale la pena reintentar.
+        Llave inválida, falta de saldo o solicitud mal formada: no."""
+        nombre = type(e).__name__
+        if nombre in ("APIConnectionError", "APITimeoutError", "RateLimitError", "InternalServerError",
+                      "ServiceUnavailableError", "OverloadedError", "ConnectionError", "TimeoutError", "ReadTimeout"):
+            return True
+        estado = getattr(e, "status_code", None)
+        return estado in (408, 409, 429, 500, 502, 503, 504, 529)
+
+    def _crear(self, modelo: str, max_tokens: int, system: str | None, prompt: str, **extra):
+        import time
         cli = self._anthropic()
-        try:
-            return cli.messages.create(model=modelo, max_tokens=max_tokens, system=system or SYSTEM,
-                                       messages=[{"role": "user", "content": prompt}])
-        except Exception as e:  # red, límites o modelo inválido
-            log.error("Anthropic falló (modelo %s): %s: %s", modelo, type(e).__name__, e)
-            raise IANoDisponible(str(e)) from e
+        ultimo = None
+        for intento in range(1, self.INTENTOS + 1):
+            try:
+                return cli.messages.create(model=modelo, max_tokens=max_tokens, system=system or SYSTEM,
+                                           messages=[{"role": "user", "content": prompt}], **extra)
+            except Exception as e:  # noqa: BLE001
+                ultimo = e
+                if not self._pasajera(e) or intento == self.INTENTOS:
+                    break
+                espera = self.ESPERAS[min(intento - 1, len(self.ESPERAS) - 1)]
+                log.warning("Anthropic falló (intento %s de %s, modelo %s): %s: %s; reintento en %ss",
+                            intento, self.INTENTOS, modelo, type(e).__name__, e, espera)
+                time.sleep(espera)
+        log.error("Anthropic falló (modelo %s): %s: %s", modelo, type(ultimo).__name__, ultimo)
+        raise IANoDisponible(_mensaje_error(ultimo)) from ultimo
 
     def _texto(self, prompt: str, rapido: bool, max_tokens: int, system: str | None) -> tuple[str, dict]:
-        """Pide texto; si la respuesta se corta por límite de tokens, repite una vez con el doble de espacio."""
+        """Pide texto; si la respuesta se corta por límite de tokens, repite con el doble de espacio (hasta el tope)."""
         modelo = self.s.ia_modelo_rapido if rapido else self.s.ia_modelo
         r = self._crear(modelo, max_tokens, system, prompt)
-        if getattr(r, "stop_reason", "") == "max_tokens" and max_tokens < 8000:
-            log.warning("Respuesta cortada en %s tokens; se repite con %s", max_tokens, min(max_tokens * 2, 8000))
-            r = self._crear(modelo, min(max_tokens * 2, 8000), system, prompt)
+        while getattr(r, "stop_reason", "") == "max_tokens" and max_tokens < self.TOPE_TOKENS:
+            max_tokens = min(max_tokens * 2, self.TOPE_TOKENS)
+            log.warning("Respuesta cortada; se repite con %s tokens", max_tokens)
+            r = self._crear(modelo, max_tokens, system, prompt)
         texto = "".join(b.text for b in r.content if getattr(b, "type", "") == "text")
         meta = {"modelo": modelo, "tin": getattr(r.usage, "input_tokens", 0), "tout": getattr(r.usage, "output_tokens", 0),
-                "cortada": getattr(r, "stop_reason", "") == "max_tokens"}
+                "cortada": getattr(r, "stop_reason", "") == "max_tokens", "max_tokens": max_tokens}
         return texto, meta
 
     def pedir_json(self, prompt: str, rapido: bool = False, max_tokens: int = 1500,
@@ -89,8 +133,16 @@ class ClienteIA:
         try:
             return extraer_json(texto), meta
         except json.JSONDecodeError as e:
-            log.error("JSON inválido de la IA (%s): %s", "cortado" if meta["cortada"] else "mal formado", e)
-            raise ValueError("La IA devolvió una respuesta incompleta. Intenta de nuevo.") from e
+            log.warning("JSON inválido de la IA (%s): %s; se pide de nuevo en formato compacto",
+                        "cortado" if meta["cortada"] else "mal formado", e)
+        reparar = prompt + ("\n\nIMPORTANTE: devuelve SOLO un objeto JSON válido y completo, sin texto antes ni después. "
+                            "Sé breve: citas de máximo 30 palabras, frases cortas y no más elementos de los pedidos.")
+        texto, meta = self._texto(reparar, rapido, max(meta.get("max_tokens", max_tokens), 4000), system)
+        try:
+            return extraer_json(texto), meta
+        except json.JSONDecodeError as e:
+            log.error("JSON inválido de la IA tras reintento (%s): %s", "cortado" if meta["cortada"] else "mal formado", e)
+            raise ValueError("La IA devolvió una respuesta incompleta después de reintentar. Intenta de nuevo en un momento.") from e
 
     def pedir_texto(self, prompt: str, rapido: bool = False, max_tokens: int = 4000,
                     system: str | None = None) -> tuple[str, dict]:
@@ -100,16 +152,9 @@ class ClienteIA:
         """Investigación con búsqueda web (herramienta de servidor de Anthropic). Regresa JSON + fuentes."""
         if not self.s.ia_busqueda_web:
             raise IANoDisponible("La búsqueda web está desactivada (IA_BUSQUEDA_WEB=false).")
-        cli = self._anthropic()
+        r = self._crear(self.s.ia_modelo, 4000, system, prompt,
+                        tools=[{"type": self.s.ia_herramienta_busqueda, "name": "web_search", "max_uses": max_busquedas}])
         modelo = self.s.ia_modelo
-        try:
-            r = cli.messages.create(
-                model=modelo, max_tokens=4000, system=system or SYSTEM,
-                tools=[{"type": self.s.ia_herramienta_busqueda, "name": "web_search", "max_uses": max_busquedas}],
-                messages=[{"role": "user", "content": prompt}])
-        except Exception as e:
-            log.error("Anthropic falló en investigación (modelo %s): %s: %s", modelo, type(e).__name__, e)
-            raise IANoDisponible(str(e)) from e
         texto, fuentes = "", []
         for b in r.content:
             t = getattr(b, "type", "")

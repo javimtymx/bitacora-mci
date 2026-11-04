@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -51,11 +51,12 @@ def nueva(request: Request, compromiso: int | None = None, db: Session = Depends
 
 
 @router.post("/sesiones")
-async def crear_sesion(request: Request, tipo: str = Form(...), fecha: date = Form(...), participantes: str = Form(""),
+async def crear_sesion(request: Request, fondo: BackgroundTasks, tipo: str = Form(...), fecha: date = Form(...), participantes: str = Form(""),
                        cliente: str = Form(""), cliente_nombre: str = Form(""), compromiso_id: OptInt = Form(None),
                        area_id: OptInt = Form(None), consentimiento: bool = Form(False),
                        p_nombre: list[str] = Form([]), p_email: list[str] = Form([]), p_lado: list[str] = Form([]),
-                       archivo: UploadFile = File(...), db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+                       archivo: UploadFile = File(...), db: Session = Depends(get_db),
+                       u: Usuario = Depends(usuario_actual)):
     if tipo not in vozcliente.TIPOS_SESION:
         raise HTTPException(400)
     c = db.get(Compromiso, compromiso_id) if compromiso_id else None
@@ -87,13 +88,9 @@ async def crear_sesion(request: Request, tipo: str = Form(...), fecha: date = Fo
     db.flush()
     auditar(db, "cargar", "sesion_cliente", s.id, u.id, compromiso=s.compromiso_id, palabras=s.palabras)
     db.commit()
-    try:
-        vozcliente.analizar(db, s)
-        flash(request, "Sesión analizada." + (f" Se descartaron {s.citas_descartadas} citas que no aparecen tal cual en la transcripción." if s.citas_descartadas else ""))
-    except (ia.IANoDisponible, ValueError) as e:
-        s.estado = "error"
-        db.commit()
-        flash(request, f"La transcripción se guardó, pero la IA no pudo analizarla: {str(e)[:160]}. Reintenta desde la sesión.", "error")
+    vozcliente.marcar_en_analisis(db, s)
+    fondo.add_task(vozcliente.analizar_en_fondo, s.id)
+    flash(request, "Transcripción guardada. GuardIA la está analizando; esta pantalla se actualiza sola.")
     return ir(f"/sesiones/{s.id}")
 
 
@@ -103,7 +100,7 @@ def ver_sesion(sid: int, request: Request, db: Session = Depends(get_db), u: Usu
     if not s or not _puede_ver(u, s):
         raise HTTPException(404)
     return render(request, "sesion.html", u, "voz", s=s, cliente=etiqueta_cliente(u, s), cuadrantes=CUADRANTES,
-                  tipos=vozcliente.TIPOS_SESION, ve_personas=(u.puede_confidencial or u.es_direccion or s.autor_id == u.id),
+                  tipos=vozcliente.TIPOS_SESION, atorado=vozcliente.analisis_atorado(s), ve_personas=(u.puede_confidencial or u.es_direccion or s.autor_id == u.id),
                   puede_cerrar=bool(s.compromiso and puede_actuar(u, s.compromiso) and s.compromiso.estado == "abierto"))
 
 
@@ -137,15 +134,17 @@ def ver_transcripcion(sid: int, request: Request, db: Session = Depends(get_db),
 
 
 @router.post("/sesiones/{sid}/analizar")
-def reanalizar(sid: int, request: Request, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+def reanalizar(sid: int, request: Request, fondo: BackgroundTasks, db: Session = Depends(get_db),
+               u: Usuario = Depends(usuario_actual)):
     s = db.get(SesionCliente, sid)
     if not s or not _puede_ver(u, s):
         raise HTTPException(404)
-    try:
-        vozcliente.analizar(db, s)
-        flash(request, "Sesión analizada de nuevo.")
-    except (ia.IANoDisponible, ValueError) as e:
-        flash(request, f"La IA no pudo analizarla: {str(e)[:160]}", "error")
+    if s.estado == "analizando" and not vozcliente.analisis_atorado(s):
+        flash(request, "GuardIA ya está analizando esta sesión.")
+        return ir(f"/sesiones/{sid}")
+    vozcliente.marcar_en_analisis(db, s)
+    fondo.add_task(vozcliente.analizar_en_fondo, s.id)
+    flash(request, "GuardIA está analizando de nuevo la sesión.")
     return ir(f"/sesiones/{sid}")
 
 

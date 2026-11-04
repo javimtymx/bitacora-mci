@@ -606,7 +606,7 @@ class SesionCliente(Base):
     transcripcion: Mapped[str] = mapped_column(Text().with_variant(Text(length=4294967295), "mysql"))
     cifrada: Mapped[bool] = mapped_column(Boolean, default=False)
     palabras: Mapped[int] = mapped_column(Integer, default=0)
-    estado: Mapped[str] = mapped_column(String(20), default="cargada")  # cargada | analizada | error
+    estado: Mapped[str] = mapped_column(String(20), default="cargada")  # cargada | analizando | analizada | error
     resultado: Mapped[dict] = mapped_column(JSON, default=dict)
     riesgo_baja: Mapped[str] = mapped_column(String(10), default="")
     evidencia_verificada: Mapped[bool] = mapped_column(Boolean, default=False)
