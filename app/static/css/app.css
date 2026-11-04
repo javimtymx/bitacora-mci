@@ -191,3 +191,6 @@ button:disabled{cursor:progress;opacity:.75}
 .stale-aviso{grid-column:1/-1;width:100%;background:#FFF4D6;border:1px solid #F2D27A;color:#5C4300;border-radius:10px;padding:10px 12px;font-size:13px;line-height:1.45;margin-bottom:6px}
 .rail .fly .fh .gia{color:var(--teal2)}
 .rail .gbtn .gia{color:var(--teal2);font-weight:800}
+.jer th.actual,.jer td.actual{background:#FFFBE6;border-left:2px solid var(--yellow);border-right:2px solid var(--yellow)}
+.jer .mci-row td.actual{background:#FFF6CC}
+.jer th.actual{border-top:2px solid var(--yellow);border-radius:8px 8px 0 0}
