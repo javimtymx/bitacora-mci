@@ -246,3 +246,37 @@ def test_no_vuelve_a_pedir_lo_que_el_usuario_no_tiene(manuel, db, fake):
     r = manuel.post("/api/tickets/revisar", json={"campos": _campos(), "omitidos": ["referencia"], "mensaje": "En Agentes"}).json()
     assert [f["campo"] for f in r["faltan"]] == ["pantalla"]
     assert "NO tiene: pedimento, folio o archivo de ejemplo" in fake.prompts[-1]
+
+
+def test_correos_de_ticket_por_ses(manuel, admin, db, fake, monkeypatch):
+    from app.config import get_settings
+    from app.services import correo
+    enviados = []
+
+    class FakeSES:
+        def send_raw_email(self, Source, Destinations, RawMessage):
+            enviados.append((Destinations, RawMessage["Data"].decode("utf-8", "ignore")))
+
+    s = get_settings()
+    monkeypatch.setattr(s, "correo_proveedor", "ses")
+    monkeypatch.setattr(s, "smtp_dry_run", False)
+    correo.set_ses(FakeSES())
+    try:
+        fake.respuestas = [{"prioridad": "P2", "motivo": "x", "responsable": "jmartinez@onecore.mx"}]
+        r = manuel.post("/api/tickets/nuevo", data={**_campos(referencia="26 19 3001 6001234"), "validacion": "completo"})
+        tid = int(r.json()["url"].rsplit("/", 1)[1])
+        para = [d for d, _ in enviados]
+        assert ["mcoronado@onecore.mx"] in para and ["jmartinez@onecore.mx"] in para  # usuario + triage
+        assert any("recibido" in m and "Ver mi ticket" in m for _, m in enviados)
+        enviados.clear()
+        jm = db.scalar(select(Usuario).where(Usuario.email == "jmartinez@onecore.mx"))
+        admin.post(f"/tickets-triage/{tid}", data={"prioridad": "P2", "asignado_id": jm.id})
+        assert [d for d, _ in enviados] == [["mcoronado@onecore.mx"]]  # no se avisa a quien hizo la acción
+        enviados.clear()
+        admin.post(f"/tickets/{tid}/pedir-info", data={"pregunta": "Adjunta el layout que cargaste, por favor."})
+        assert enviados[0][0] == ["mcoronado@onecore.mx"] and "requerida" in enviados[0][1]
+        enviados.clear()
+        manuel.post(f"/tickets/{tid}/comentar", data={"texto": "Ya lo adjunté"})
+        assert enviados[0][0] == ["jmartinez@onecore.mx"]
+    finally:
+        correo.set_ses(None)

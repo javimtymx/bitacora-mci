@@ -247,6 +247,17 @@ def almacen_probar() -> None:
     print(almacen.probar())
 
 
+def correo_probar(para: str) -> None:
+    from .config import get_settings
+    from .services import correo
+    s = get_settings()
+    print(f"Proveedor: {s.correo_proveedor} · Remitente: {s.smtp_from} · Simulado: {s.smtp_dry_run}")
+    r = correo.enviar([para], "Prueba de correo · GuardIA OneCore",
+                      "Si lees esto, la Bitácora MCI ya puede enviar correos.\n- Tickets\n- Recordatorios", s.base_url,
+                      boton="Abrir la bitácora")
+    print(f"Resultado: {r}")
+
+
 def almacen_migrar(borrar_local: bool) -> None:
     """Sube a S3 las evidencias que quedaron en disco y las transcripciones guardadas en la base."""
     from .models import EvidenciaArchivo, SesionCliente
@@ -306,6 +317,8 @@ def main() -> None:
     sub.add_parser("ventas-auto")
     sub.add_parser("ventas-frentes")
     sub.add_parser("almacen-probar")
+    cp = sub.add_parser("correo-probar")
+    cp.add_argument("--para", required=True)
     m = sub.add_parser("almacen-migrar")
     m.add_argument("--borrar-local", action="store_true")
     a = sub.add_parser("crear-admin")
@@ -324,6 +337,8 @@ def main() -> None:
         ventas_auto_cmd()
     elif args.cmd == "ventas-frentes":
         ventas_frentes()
+    elif args.cmd == "correo-probar":
+        correo_probar(args.para)
     elif args.cmd == "almacen-probar":
         almacen_probar()
     elif args.cmd == "almacen-migrar":

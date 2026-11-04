@@ -37,7 +37,10 @@ class Settings(BaseSettings):
     smtp_user: str = ""
     smtp_password: str = ""
     smtp_from: str = "GuardIA OneCore <pm@onecore.mx>"
-    smtp_dry_run: bool = True
+    smtp_dry_run: bool = True  # true = no se envía ningún correo (aplica a SMTP y a SES)
+    # "smtp" o "ses". Con "ses" se usa la API de Amazon SES con las mismas llaves AWS del almacén.
+    correo_proveedor: str = "smtp"
+    ses_region: str = ""  # vacío = la misma región de S3
 
     zona_horaria: str = "America/Mexico_City"
 

@@ -35,18 +35,10 @@ def _exigir(u: Usuario, clave: str) -> None:
         raise HTTPException(403, "No tienes permiso para esta acción de tickets.")
 
 
-def _avisar(bg: BackgroundTasks, usuarios: list[Usuario | None], asunto: str, cuerpo: str, t: Ticket) -> None:
-    correos = [x.email for x in usuarios if x and x.activo and x.recibe_correos]
-    if not correos:
-        return
-    enlace = f"{get_settings().base_url.rstrip('/')}/tickets/{t.id}"
-
-    def _enviar():
-        try:
-            correo.enviar(correos, asunto, cuerpo, enlace)
-        except Exception as e:  # noqa: BLE001 - un correo fallido no debe afectar al ticket
-            log.warning("No se pudo avisar de %s: %s", t.folio, e)
-    bg.add_task(_enviar)
+def _avisar(bg: BackgroundTasks, evento: str, t: Ticket, u: Usuario | None, **x) -> None:
+    """Correos del ticket en segundo plano (ver services/tickets_correo.py)."""
+    from ..services import tickets_correo
+    bg.add_task(tickets_correo.en_fondo, evento, t.id, u.id if u else None, **x)
 
 
 async def _archivos(lista: list[UploadFile] | None) -> list[tuple[str, bytes]]:
@@ -133,6 +125,7 @@ async def api_nuevo(request: Request, bg: BackgroundTasks, descripcion: str = Fo
         db.rollback()
         return JSONResponse({"ok": False, "mensaje": str(e)}, status_code=400)
     bg.add_task(tk.triage_en_fondo, t.id)
+    _avisar(bg, "nuevo", t, u)
     flash(request, f"Ticket {t.folio} levantado. Te avisaremos por correo cuando haya novedades.")
     return JSONResponse({"ok": True, "url": f"/tickets/{t.id}", "folio": t.folio})
 
@@ -168,10 +161,11 @@ async def comentar(tid: int, request: Request, bg: BackgroundTasks, texto: str =
         db.rollback()
         flash(request, str(e), "error")
         return ir(f"/tickets/{tid}")
+    texto_aviso = texto.strip() or ("Adjuntó: " + ", ".join(n for n, _ in lista_) if lista_ else "")
     if era_info and t.estado != "info":
-        _avisar(bg, [t.asignado], f"{t.folio}: el usuario respondió", f"{u.nombre} respondió en «{t.titulo}».", t)
-    elif u.id != t.creado_por:
-        _avisar(bg, [t.autor], f"{t.folio}: nuevo comentario", f"{u.nombre} comentó en tu ticket «{t.titulo}».", t)
+        _avisar(bg, "respuesta", t, u, texto=texto_aviso)
+    else:
+        _avisar(bg, "comentario", t, u, texto=texto_aviso)
     return ir(f"/tickets/{tid}#hilo")
 
 
@@ -192,13 +186,16 @@ def descargar(aid: int, db: Session = Depends(get_db), u: Usuario = Depends(usua
 # ---------------------------------------------------------------- desarrollo
 
 @router.post("/tickets/{tid}/mover")
-def mover(tid: int, request: Request, estado: str = Form(...), db: Session = Depends(get_db),
+def mover(tid: int, request: Request, bg: BackgroundTasks, estado: str = Form(...), db: Session = Depends(get_db),
           u: Usuario = Depends(usuario_actual)):
     _exigir(u, "tickets-tablero")
     t = _ticket(db, tid, u)
     try:
+        antes = t.estado
         tk.mover(db, u, t, estado)
         db.commit()
+        if estado == "en_curso" and antes != "en_curso":
+            _avisar(bg, "en_curso", t, u)
     except tk.TicketInvalido as e:
         flash(request, str(e), "error")
     destino = request.headers.get("referer") or f"/tickets/{tid}"
@@ -216,8 +213,7 @@ def pedir_info(tid: int, request: Request, bg: BackgroundTasks, pregunta: str = 
     except tk.TicketInvalido as e:
         flash(request, str(e), "error")
         return ir(f"/tickets/{tid}")
-    _avisar(bg, [t.autor], f"{t.folio}: necesitamos más información",
-            f"{u.nombre} necesita más información para atender «{t.titulo}»:\n\n{pregunta.strip()}", t)
+    _avisar(bg, "pedir_info", t, u, pregunta=pregunta.strip())
     flash(request, "Se pidió la información al usuario." + (" Tu regla quedó para revisión en Configurar GuardIA Ticket." if r else ""))
     return ir(f"/tickets/{tid}")
 
@@ -243,13 +239,13 @@ def cerrar(tid: int, request: Request, bg: BackgroundTasks, tipo_cierre: str = F
     except tk.TicketInvalido as e:
         flash(request, str(e), "error")
         return ir(f"/tickets/{tid}")
-    _avisar(bg, [t.autor], f"{t.folio}: resuelto", f"Tu ticket «{t.titulo}» se cerró.\n\nSolución: {t.resolucion['solucion']}", t)
+    _avisar(bg, "cerrado", t, u)
     flash(request, f"{t.folio} cerrado. La solución queda disponible para tickets parecidos.")
     return ir(f"/tickets/{tid}")
 
 
 @router.post("/tickets/{tid}/reabrir")
-def reabrir(tid: int, request: Request, motivo: str = Form(""), db: Session = Depends(get_db),
+def reabrir(tid: int, request: Request, bg: BackgroundTasks, motivo: str = Form(""), db: Session = Depends(get_db),
             u: Usuario = Depends(usuario_actual)):
     t = _ticket(db, tid, u)
     if not (u.id == t.creado_por or accesos.puede(u, "tickets-tablero")):
@@ -257,6 +253,7 @@ def reabrir(tid: int, request: Request, motivo: str = Form(""), db: Session = De
     try:
         tk.reabrir(db, u, t, motivo)
         db.commit()
+        _avisar(bg, "reabierto", t, u, motivo=motivo.strip())
     except tk.TicketInvalido as e:
         flash(request, str(e), "error")
     return ir(f"/tickets/{tid}")
@@ -306,8 +303,7 @@ def triage_guardar(tid: int, request: Request, bg: BackgroundTasks, prioridad: s
     except tk.TicketInvalido as e:
         flash(request, str(e), "error")
         return ir("/tickets-triage")
-    if asignado and asignado.id != u.id:
-        _avisar(bg, [asignado], f"{t.folio} ({t.prioridad}) te fue asignado", f"Te asignaron «{t.titulo}».", t)
+    _avisar(bg, "triage", t, u)
     flash(request, f"{t.folio}: {t.prioridad}" + (f" para {asignado.nombre}" if asignado else "") + ".")
     return ir("/tickets-triage")
 
