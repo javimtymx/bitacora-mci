@@ -68,3 +68,18 @@ def test_prospecto_oculto_sin_permiso(mario, manuel, db, fake):
     t = mario.get(f"/sesiones/{s.id}")
     if t.status_code == 200:  # si su rol le permite ver la sesión, no ve el nombre del prospecto ni correos
         assert "Prospecto Secreto" not in t.text and "pruiz@cliente.com" not in t.text and f"Prospecto #{s.id:04d}" in t.text
+
+
+def test_idea_desde_voz_del_cliente_con_texto_completo_y_enlace(manuel, db, fake):
+    from app.models import Idea
+    fake.respuestas = [_res()]
+    manuel.post("/sesiones", data={"tipo": "venta_nueva", "fecha": hoy().isoformat(), "cliente_nombre": "Crown",
+                                   "consentimiento": "true"}, files={"archivo": ("v.txt", TX.encode("utf-8"), "text/plain")})
+    s = db.scalar(select(SesionCliente).where(SesionCliente.cliente_nombre == "Crown"))
+    h = db.scalar(select(Hallazgo).where(Hallazgo.sesion_id == s.id))
+    manuel.post(f"/hallazgos/{h.id}/idea")
+    i = db.scalar(select(Idea).order_by(Idea.id.desc()))
+    assert i.sesion_id == s.id
+    t = manuel.get("/ideas?filtro=mias").text
+    assert f'href="/sesiones/{s.id}"' in t and "Ver la sesión con el cliente" in t
+    assert h.cita in t  # el texto completo, sin recortar

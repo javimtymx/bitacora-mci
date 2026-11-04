@@ -17,7 +17,7 @@
   </div>
   <div class="tbl"><table><thead><tr><th>Idea</th><th>Autor</th><th>Origen</th><th>I/E</th><th>Cuadrante</th><th>Calidad</th><th>Estado</th><th>Avance</th><th></th></tr></thead><tbody>
   {% for i in lista %}<tr>
-    <td><b>{{ i.titulo }}</b><div class="muted small">{{ i.problema[:140] }}</div></td>
+    <td><b>{{ i.titulo }}</b><div class="muted small" style="white-space:pre-line;overflow-wrap:anywhere;margin-top:2px">{{ i.problema }}</div>{% if i.sesion_id %}<a class="lnk small" href="/sesiones/{{ i.sesion_id }}" style="margin-top:4px;display:inline-flex">{{ icon('users', 14) }}Ver la sesión con el cliente</a>{% endif %}</td>
     <td>{{ i.autor.nombre }}<div class="muted small">{{ i.area.nombre }}</div></td><td>{{ i.origen.replace('_',' ') }}</td>
     <td>{{ i.impacto or '—' }}/{{ i.esfuerzo or '—' }}</td><td>{{ i.cuadrante or '—' }}</td>
     <td>{% if i.fortaleza %}<span class="tag {{ 'g' if i.fortaleza=='fuerte' else 'o' if i.fortaleza=='media' else 'r' }}">{{ i.fortaleza }}</span>{% endif %}{% if i.duplicado_de %} <span class="tag n">posible duplicado</span>{% endif %}</td>

@@ -173,7 +173,8 @@ def hallazgo_a_idea(hid: int, request: Request, db: Session = Depends(get_db), u
     innov = db.scalar(select(Area).where(Area.clave == "innovacion"))
     i = Idea(autor_id=u.id, area_id=innov.id if innov else h.sesion.area_id, titulo=h.tema[:200],
              problema=f"Voz del cliente ({CUADRANTES.get(h.cuadrante, h.cuadrante)}): «{h.cita}»",
-             beneficio="", origen="objecion_cliente" if h.sesion.tipo in ("objeciones", "venta_nueva") else "queja")
+             beneficio="", origen="objecion_cliente" if h.sesion.tipo in ("objeciones", "venta_nueva") else "queja",
+             sesion_id=h.sesion_id)
     db.add(i)
     auditar(db, "hallazgo_a_idea", "hallazgo", h.id, u.id)
     db.commit()

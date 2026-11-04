@@ -341,6 +341,7 @@ class Idea(Base):
     cuadrante: Mapped[str | None] = mapped_column(String(30))
     fortaleza: Mapped[str | None] = mapped_column(String(10))
     duplicado_de: Mapped[int | None] = mapped_column(ForeignKey("ideas.id"))
+    sesion_id: Mapped[int | None] = mapped_column(ForeignKey("sesiones_cliente.id"))  # si nació de la voz del cliente
     creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     actualizado: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 

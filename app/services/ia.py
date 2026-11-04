@@ -296,7 +296,7 @@ Historial reciente del responsable (texto | estado | causa):
 </datos>
 
 JSON: {{"veredicto":"ok|mejorar|muy_debil|repetido|no_aplica","smart":{{"especifico":true,"medible":false,"alcanzable":true,"relevante":true,"tiempo":true}},"observaciones":["hasta 3 frases cortas: qué falta y cómo corregirlo"],"sugerencia":"el compromiso reescrito en una o dos frases, SMART: acción + cantidad o entregable + evidencia + fecha; vacío si es ok"}}"""
-    res, meta = cliente().pedir_json(prompt, rapido=True, max_tokens=900)
+    res, meta = cliente().pedir_json(prompt, rapido=True, max_tokens=2500)
     res = {"veredicto": _ver(res.get("veredicto")), "smart": _smart(res.get("smart")),
            "observaciones": _lista(res.get("observaciones")), "sugerencia": str(res.get("sugerencia") or "")[:600]}
     basica = debilidad_basica(texto)
@@ -324,7 +324,7 @@ Historial reciente del responsable:
 </datos>
 
 JSON: {{"opciones":[{{"texto":"compromiso SMART listo para usar","por_que":"una frase: qué lo hace medible y verificable"}}],"preguntas":["hasta 2 preguntas para precisarlo si falta un dato"]}} con 3 opciones de distinta ambición."""
-    res, meta = cliente().pedir_json(prompt, rapido=True, max_tokens=900)
+    res, meta = cliente().pedir_json(prompt, rapido=True, max_tokens=2500)
     ops = [{"texto": str(o.get("texto") or "")[:500], "por_que": str(o.get("por_que") or "")[:200]}
            for o in (res.get("opciones") or []) if isinstance(o, dict) and o.get("texto")][:3]
     return {"opciones": ops, "preguntas": _lista(res.get("preguntas"), 2)}, meta
@@ -370,7 +370,7 @@ Remediaciones cerradas del área (categoría · acción · resultado):
 </datos>
 
 JSON: {{"veredicto":"ok|mejorar|repetido|no_aplica","causa_categoria":"una de la lista","observaciones":["hasta 3"],"sugerencia":"remediación reescrita, concreta y con fecha; vacío si es ok","recomendacion_historica":"2-3 frases basadas en el historial","plan":[{{"tipo":"recordatorio|correo|informe","titulo":"...","dias":0,"para":"responsable|lider|direccion","asunto":"...","cuerpo":"texto del correo","instrucciones":"solo para informe: qué debe contener"}}]}}"""
-    res, meta = cliente().pedir_json(prompt, max_tokens=1800)
+    res, meta = cliente().pedir_json(prompt, max_tokens=4000)
     cat = str(res.get("causa_categoria") or "otra")
     plan = []
     for p in (res.get("plan") or [])[:3]:
@@ -426,7 +426,7 @@ Ideas existentes (id | título | estado):
 </datos>
 
 JSON: {{"impacto":1,"esfuerzo":1,"fortaleza":"fuerte|media|debil","observaciones":["hasta 3"],"preguntas":["hasta 3 preguntas para fortalecerla"],"duplicado_de":null}}"""
-    res, meta = cliente().pedir_json(prompt, max_tokens=900)
+    res, meta = cliente().pedir_json(prompt, max_tokens=2500)
 
     def _n(x):
         try:
@@ -474,7 +474,7 @@ Bitácora de la estrategia:
 </datos>
 
 JSON: {{"veredicto":"mantener|ajustar|pausar|escalar|declarar_exitosa","diagnostico":"3-4 frases","evidencia":["hasta 4 datos del histórico que lo sostienen"],"ajuste_sugerido":"qué cambiar, o vacío","siguiente_paso":"una acción concreta para esta semana"}}"""
-    res, meta = cliente().pedir_json(prompt, max_tokens=1200)
+    res, meta = cliente().pedir_json(prompt, max_tokens=3000)
     v = str(res.get("veredicto") or "mantener")
     res = {"veredicto": v if v in ("mantener", "ajustar", "pausar", "escalar", "declarar_exitosa") else "mantener",
            "diagnostico": str(res.get("diagnostico") or "")[:1500], "evidencia": _lista(res.get("evidencia")),
