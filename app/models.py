@@ -593,13 +593,15 @@ class SesionCliente(Base):
     """Sesión con cliente (1:1 de retención u objeciones de ventas). Es evidencia de ejecución y fuente de insights."""
     __tablename__ = "sesiones_cliente"
     id: Mapped[int] = mapped_column(primary_key=True)
-    tipo: Mapped[str] = mapped_column(String(20))  # retencion | objeciones
+    tipo: Mapped[str] = mapped_column(String(20))  # retencion | objeciones | venta_nueva
     area_id: Mapped[int] = mapped_column(ForeignKey("areas.id"))
     compromiso_id: Mapped[int | None] = mapped_column(ForeignKey("compromisos.id"), index=True)
     cliente_rfc: Mapped[str] = mapped_column(String(13), default="")
     cliente_nombre: Mapped[str] = mapped_column(String(255), default="")
     fecha: Mapped[date] = mapped_column(Date)
     participantes: Mapped[str] = mapped_column(String(300), default="")
+    # etiquetas de quién participó: [{"nombre","email","lado":"cliente|onecore","rol","origen":"captura|detectado"}]
+    participantes_det: Mapped[list | None] = mapped_column(JSON)
     consentimiento: Mapped[bool] = mapped_column(Boolean, default=False)
     transcripcion: Mapped[str] = mapped_column(Text().with_variant(Text(length=4294967295), "mysql"))
     cifrada: Mapped[bool] = mapped_column(Boolean, default=False)

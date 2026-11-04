@@ -2,7 +2,7 @@
 {% block title %}Voz del Cliente{% endblock %}
 {% block content %}
 <div class="top"><div class="col" style="gap:4px"><h1>Voz del Cliente</h1><span class="muted">Lo que dicen los clientes en las sesiones 1:1 de retención y en las sesiones de objeciones</span></div>
-  <div class="row"><nav class="seg" aria-label="Fuente"><a href="?semanas={{ semanas }}" class="{{ 'on' if not tipo }}">Todas</a><a href="?tipo=retencion&semanas={{ semanas }}" class="{{ 'on' if tipo=='retencion' }}">1:1 Retención</a><a href="?tipo=objeciones&semanas={{ semanas }}" class="{{ 'on' if tipo=='objeciones' }}">Objeciones</a></nav>
+  <div class="row"><nav class="seg" aria-label="Fuente"><a href="?semanas={{ semanas }}" class="{{ 'on' if not tipo }}">Todas</a><a href="?tipo=retencion&semanas={{ semanas }}" class="{{ 'on' if tipo=='retencion' }}">1:1 Retención</a><a href="?tipo=objeciones&semanas={{ semanas }}" class="{{ 'on' if tipo=='objeciones' }}">Objeciones</a><a href="?tipo=venta_nueva&semanas={{ semanas }}" class="{{ 'on' if tipo=='venta_nueva' }}">Venta nueva</a></nav>
   <form method="get"><input type="hidden" name="tipo" value="{{ tipo }}"><select class="input" name="semanas" onchange="this.form.submit()" style="width:170px" aria-label="Periodo">{% for n in [4,8,12,26,52] %}<option value="{{ n }}" {{ 'selected' if n==semanas }}>Últimas {{ n }} semanas</option>{% endfor %}</select></form>
   <a class="btn yellow" href="/sesiones/nueva">{{ icon('upload') }}Cargar sesión</a></div></div>
 <div class="card" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:14px 16px">
@@ -37,6 +37,6 @@
   {% for uid, v in evid.items() %}<tr><td><b>{{ nombres[uid].nombre }}</b></td><td class="num">{{ v[0] }}</td><td class="num">{{ v[1] }}</td></tr>{% else %}<tr><td colspan="3" class="muted">Sin sesiones ligadas.</td></tr>{% endfor %}</tbody></table></div></section>
 </div>
 <section class="card pad"><h2>Sesiones del periodo</h2><div class="tbl"><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Cliente</th><th>Riesgo</th><th>Evidencia</th><th></th></tr></thead><tbody>
-  {% for s in r.sesiones|sort(attribute='fecha', reverse=true) %}<tr><td>{{ fmt_fecha(s.fecha) }}</td><td>{{ 'Objeciones' if s.tipo=='objeciones' else '1:1 retención' }}</td>
+  {% for s in r.sesiones|sort(attribute='fecha', reverse=true) %}<tr><td>{{ fmt_fecha(s.fecha) }}</td><td>{{ 'Venta nueva' if s.tipo=='venta_nueva' else 'Objeciones' if s.tipo=='objeciones' else '1:1 retención' }}</td>
     <td>{{ (s.cliente_nombre or s.cliente_rfc or '—') if u.puede_confidencial else 'Cliente #%04d' % s.id }}</td><td>{{ s.riesgo_baja or '—' }}</td><td>{{ 'Verificada' if s.evidencia_verificada else '—' }}</td><td><a class="lnk" href="/sesiones/{{ s.id }}">Abrir</a></td></tr>{% endfor %}</tbody></table></div></section>
 {% endblock %}

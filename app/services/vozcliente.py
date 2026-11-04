@@ -161,6 +161,94 @@ JSON: {{"evidencia":{{"corresponde":true,"motivo":"..."}},"resumen":"3 frases","
 "acuerdos":[{{"quien":"nosotros|cliente","texto":"...","fecha":""}}]}}"""
 
 
+TIPOS_SESION = {"retencion": "1:1 de retención", "objeciones": "Sesión comercial con objeciones",
+                "venta_nueva": "Venta nueva · encaje de propuesta de valor"}
+
+# Portafolio contra el que se evalúa el encaje. Ajustable aquí mientras no viva en el Catálogo.
+PORTAFOLIO = [
+    ("Smart Files", "expediente documental de comercio exterior"),
+    ("SAFE", "validación de pedimentos antes del pago"),
+    ("Manifestación de Valor", "MVE y respaldo de valor en aduana"),
+    ("CIVA", "certificación IVA/IEPS y su control"),
+    ("Activos Fijos", "control de activo fijo IMMEX"),
+    ("Reconstrucción", "reconstrucción de operaciones y descargos"),
+    ("Análisis 360", "informe mensual de cumplimiento del cliente"),
+]
+EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,190}\.[A-Za-z]{2,}$")
+
+
+def limpiar_participantes(lista) -> list[dict]:
+    out, vistos = [], set()
+    for p in lista or []:
+        if not isinstance(p, dict):
+            continue
+        nombre = " ".join(str(p.get("nombre") or "").split())[:120]
+        email = str(p.get("email") or "").strip().lower()[:190]
+        if not nombre and not email:
+            continue
+        clave = (nombre.lower() or email)
+        if clave in vistos:
+            continue
+        vistos.add(clave)
+        lado = str(p.get("lado") or "cliente").lower()
+        out.append({"nombre": nombre or email.split("@")[0], "email": email if EMAIL_RE.match(email) else "",
+                    "lado": lado if lado in ("cliente", "onecore") else "cliente",
+                    "rol": str(p.get("rol") or "")[:80], "origen": str(p.get("origen") or "captura")[:12]})
+    return out[:30]
+
+
+def fusionar_participantes(actuales, detectados) -> list[dict]:
+    """Conserva lo capturado y agrega lo que la IA detectó en la transcripción (sin pisar correos ya escritos)."""
+    base = limpiar_participantes(actuales)
+    idx = {p["nombre"].lower(): p for p in base}
+    for d in limpiar_participantes([{**x, "origen": "detectado"} for x in (detectados or []) if isinstance(x, dict)]):
+        p = idx.get(d["nombre"].lower())
+        if p:
+            p["email"] = p["email"] or d["email"]
+            p["rol"] = p["rol"] or d["rol"]
+        else:
+            base.append(d)
+            idx[d["nombre"].lower()] = d
+    return base[:30]
+
+
+def _prompt_venta_nueva(s, texto, compromiso_txt, temas):
+    port = "\n".join(f"- {n}: {d}" for n, d in PORTAFOLIO)
+    return f"""Analiza la transcripción de una sesión de venta nueva de OneCore (software de cumplimiento aduanero y comercio exterior en México) con el lienzo de propuesta de valor.
+Lo valioso es lo que dijo el cliente y lo que se le ofreció. Cada elemento lleva una CITA TEXTUAL copiada exacta de la transcripción; sin cita, no se incluye.
+1. Qué valora el cliente (criterios de decisión, resultados que busca).
+2. Productos de OneCore que le interesaron o que reaccionó bien, con nivel de interés (alto|medio|bajo).
+3. Perfil del cliente: trabajos (lo que intenta lograr), frustraciones (dolores, riesgos, multas, retrabajo) y ganancias esperadas.
+   Para cada uno evalúa el encaje con nuestro portafolio:
+   - "cubierto": un módulo actual lo resuelve (di cuál);
+   - "parcial": lo resolvemos en parte (di qué falta);
+   - "sin_encaje": hoy no lo cubrimos; describe la oportunidad (producto o servicio que podríamos ofrecer).
+4. Ofertas: lo que nuestro equipo ofreció o propuso en la sesión (módulo, precio, piloto, demo), con cita.
+5. Participantes: nombres que aparezcan en la transcripción, su correo si se menciona, si son del cliente u OneCore y su rol.
+6. Siguiente paso acordado y acuerdos con responsable.
+7. Evidencia: di si la transcripción corresponde a la sesión comprometida.
+
+<datos>
+Portafolio actual de OneCore:
+{port}
+Compromiso que esta sesión debe cumplir: {compromiso_txt or "(sesión sin compromiso ligado)"}
+Fecha declarada: {s.fecha} · Participantes capturados: {s.participantes or "(no capturados)"}
+Temas existentes de clientes:
+{temas}
+Transcripción:
+{texto}
+</datos>
+
+JSON: {{"evidencia":{{"corresponde":true,"motivo":"..."}},"resumen":"3-4 frases","interes_general":"alto|medio|bajo",
+"valora":[{{"texto":"qué valora, en una frase","cita":"texto exacto"}}],
+"productos_interes":[{{"modulo":"nombre del portafolio","interes":"alto|medio|bajo","cita":"texto exacto"}}],
+"encajes":[{{"tipo":"frustracion|trabajo|ganancia","texto":"una frase","cita":"texto exacto","encaje":"cubierto|parcial|sin_encaje","modulo":"módulo que lo cubre o vacío","oportunidad":"si es parcial o sin_encaje: qué podríamos ofrecer"}}],
+"ofertas":[{{"oferta":"qué se ofreció","quien":"nombre de quien lo ofreció o vacío","cita":"texto exacto"}}],
+"participantes":[{{"nombre":"...","email":"","lado":"cliente|onecore","rol":""}}],
+"siguiente_paso":"...","acuerdos":[{{"quien":"nosotros|cliente","texto":"...","fecha":""}}]}}
+Máximo 8 elementos por lista y 12 encajes."""
+
+
 def _int(x, lo=0, hi=1000):
     try:
         return max(lo, min(hi, int(x)))
@@ -174,8 +262,8 @@ def analizar(db: Session, s: SesionCliente) -> SesionCliente:
         texto = texto[:MAX_CHARS]
     comp_txt = s.compromiso.texto if s.compromiso else ""
     temas = _temas_existentes(db, s.area_id)
-    prompt = (_prompt_objeciones if s.tipo == "objeciones" else _prompt_retencion)(s, texto, comp_txt, temas)
-    res, meta = ia.cliente().pedir_json(prompt, max_tokens=4000)
+    fn = {"objeciones": _prompt_objeciones, "venta_nueva": _prompt_venta_nueva}.get(s.tipo, _prompt_retencion)
+    res, meta = ia.cliente().pedir_json(fn(s, texto, comp_txt, temas), max_tokens=5000)
     tn = _norm(texto)
     descartadas = 0
     for h in list(s.hallazgos):
@@ -214,6 +302,18 @@ def analizar(db: Session, s: SesionCliente) -> SesionCliente:
         db.add(Objecion(sesion_id=s.id, tipo=tp if tp in TIPOS_OBJECION else "otra", cita=cita[:1500],
                         manejo=man if man in ("explorada", "sin_explorar", "no_manejada") else "sin_explorar",
                         respuesta=str(o.get("respuesta") or "")[:1000], avanzo=bool(o.get("avanzo"))))
+    venta = {}
+    if s.tipo == "venta_nueva":
+        venta, d, nuevos = _venta_nueva(res, tn)
+        descartadas += d
+        for h in nuevos:  # las frustraciones sin encaje alimentan Voz del Cliente, Ideas y el Círculo
+            db.add(h)
+            h.sesion_id = s.id
+        db.flush()
+        mapa = {h.cita: h.id for h in nuevos}
+        for e in venta["encajes"]:
+            e["hallazgo_id"] = mapa.get(e["cita"])
+    s.participantes_det = fusionar_participantes(s.participantes_det, res.get("participantes"))
     ev = res.get("evidencia") if isinstance(res.get("evidencia"), dict) else {}
     rb = str(res.get("riesgo_baja") or "").lower()
     spin = res.get("spin") if isinstance(res.get("spin"), dict) else {}
@@ -231,6 +331,7 @@ def analizar(db: Session, s: SesionCliente) -> SesionCliente:
                            for k in ("dolor", "impacto", "comprador", "siguiente_paso")} if s.tipo == "objeciones" else {},
         "coaching": str(res.get("coaching") or "")[:800],
         "jtbd": [h for h in hallazgos_out if h["jtbd"]],
+        "venta": venta,
         "modelo": meta.get("modelo"), "prompt_version": PROMPT_VERSION,
     }
     s.riesgo_baja = rb if rb in ("alto", "medio", "bajo") else ""
@@ -240,6 +341,50 @@ def analizar(db: Session, s: SesionCliente) -> SesionCliente:
     auditar(db, "analizar", "sesion_cliente", s.id, s.autor_id, citas_descartadas=descartadas)
     db.commit()
     return s
+
+
+def _venta_nueva(res: dict, tn: str) -> tuple[dict, int, list]:
+    """Normaliza el análisis de venta nueva; descarta lo que no tenga cita verificable."""
+    desc = 0
+
+    def ok(c):
+        nonlocal desc
+        c = str(c or "").strip().strip("«»\"")
+        if c and cita_valida(c, tn):
+            return c[:1200]
+        desc += 1
+        return None
+
+    def nivel(x):
+        x = str(x or "").lower()
+        return x if x in ("alto", "medio", "bajo") else "medio"
+
+    modulos = {n.lower(): n for n, _ in PORTAFOLIO}
+    valora = [{"texto": str(v.get("texto") or "")[:300], "cita": c} for v in (res.get("valora") or [])[:8]
+              if isinstance(v, dict) and (c := ok(v.get("cita")))]
+    prods = [{"modulo": modulos.get(str(v.get("modulo") or "").lower(), str(v.get("modulo") or "")[:80]),
+              "interes": nivel(v.get("interes")), "cita": c}
+             for v in (res.get("productos_interes") or [])[:8] if isinstance(v, dict) and (c := ok(v.get("cita")))]
+    encajes, nuevos = [], []
+    for v in (res.get("encajes") or [])[:12]:
+        if not isinstance(v, dict) or not (c := ok(v.get("cita"))):
+            continue
+        enc = str(v.get("encaje") or "").lower()
+        enc = enc if enc in ("cubierto", "parcial", "sin_encaje") else "parcial"
+        tipo = str(v.get("tipo") or "frustracion").lower()
+        tipo = tipo if tipo in ("frustracion", "trabajo", "ganancia") else "frustracion"
+        e = {"tipo": tipo, "texto": str(v.get("texto") or "")[:300], "cita": c, "encaje": enc,
+             "modulo": str(v.get("modulo") or "")[:80], "oportunidad": str(v.get("oportunidad") or "")[:300]}
+        encajes.append(e)
+        if enc != "cubierto":
+            nuevos.append(Hallazgo(cuadrante="producto", tema=(e["oportunidad"] or e["texto"])[:200] or "Oportunidad de producto",
+                                   cita=c, sentimiento="negativo" if tipo == "frustracion" else "neutral",
+                                   severidad="alta" if enc == "sin_encaje" else "media", tipo="necesidad", normativo=False))
+    ofertas = [{"oferta": str(v.get("oferta") or "")[:300], "quien": str(v.get("quien") or "")[:120], "cita": c}
+               for v in (res.get("ofertas") or [])[:8] if isinstance(v, dict) and (c := ok(v.get("cita")))]
+    return ({"interes_general": nivel(res.get("interes_general")), "valora": valora, "productos_interes": prods,
+             "encajes": encajes, "ofertas": ofertas, "siguiente_paso": str(res.get("siguiente_paso") or "")[:400]},
+            desc, nuevos)
 
 
 # ---------------------------------------------------------------- agregados para el módulo

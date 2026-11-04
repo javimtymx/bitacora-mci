@@ -8,14 +8,23 @@
   <div class="sech"><span class="secic">{{ icon('doc') }}</span>Cargar la transcripción de la sesión</div>
   <div class="grid2">
     <div class="field"><label for="s-tipo">Tipo de sesión</label><select class="input" id="s-tipo" name="tipo">
-      <option value="retencion" {{ 'selected' if tipo=='retencion' }}>1:1 de retención (voz del cliente)</option>
-      <option value="objeciones" {{ 'selected' if tipo=='objeciones' }}>Sesión comercial con objeciones</option></select></div>
+      {% for k, t in tipos.items() %}<option value="{{ k }}" {{ 'selected' if tipo==k }}>{{ t }}</option>{% endfor %}</select></div>
     {% if not c %}<div class="field"><label for="s-area">Área</label><select class="input" id="s-area" name="area_id">{% for a in areas %}<option value="{{ a.id }}" {{ 'selected' if a.id==u.area_id }}>{{ a.nombre }}</option>{% endfor %}</select></div>{% endif %}
-    <div class="field"><label for="s-cli">Cliente {{ icon('lock', 13) }} <span class="muted" style="font-weight:500">visible solo con permiso confidencial</span></label>
-      {% if clientes %}<select class="input" id="s-cli" name="cliente"><option value="">Elige el cliente</option>{% for rfc, n in clientes %}<option value="{{ rfc }}|{{ n }}">{{ n }} · {{ rfc }}</option>{% endfor %}</select>
-      {% else %}<input class="input" id="s-cli" name="cliente_nombre" placeholder="Nombre o prospecto">{% endif %}</div>
+    <div class="field" data-cli-catalogo {{ 'hidden' if tipo=='venta_nueva' }}><label for="s-cli">Cliente {{ icon('lock', 13) }} <span class="muted" style="font-weight:500">visible solo con permiso confidencial</span></label>
+      {% if clientes %}<select class="input" id="s-cli" name="cliente"><option value="">Elige el cliente (o escribe abajo si no está)</option>{% for rfc, n in clientes %}<option value="{{ rfc }}|{{ n }}">{{ n }} · {{ rfc }}</option>{% endfor %}</select>{% endif %}</div>
+    <div class="field" data-cli-prospecto><label for="s-pros" data-cli-etq>{{ 'Prospecto (empresa)' if tipo=='venta_nueva' else 'Cliente que no está en el catálogo' }} {{ icon('lock', 13) }}</label>
+      <input class="input" id="s-pros" name="cliente_nombre" maxlength="255" placeholder="Ej. Manufacturas del Norte, S.A. de C.V."></div>
     <div class="field"><label for="s-fecha">Fecha de la sesión</label><input class="input" type="date" id="s-fecha" name="fecha" value="{{ hoy.isoformat() }}" max="{{ hoy.isoformat() }}" required></div>
-    <div class="field"><label for="s-part">Participantes del cliente</label><input class="input" id="s-part" name="participantes" placeholder="Ej. Gerente de comercio exterior y analista"></div>
+  </div>
+  <div class="field" data-tags>
+    <label for="tg-n">Participantes <span class="muted" style="font-weight:500">· etiquetas con nombre y correo; GuardIA agrega los que encuentre en la transcripción</span></label>
+    <div class="tag-in">
+      <input class="input" id="tg-n" data-tg-nombre placeholder="Nombre" aria-label="Nombre del participante">
+      <input class="input" type="email" data-tg-email placeholder="correo@empresa.com (opcional)" aria-label="Correo del participante">
+      <select class="input" data-tg-lado aria-label="Lado"><option value="cliente">Cliente</option><option value="onecore">OneCore</option></select>
+      <button class="btn soft" type="button" data-tg-agregar>{{ icon('plus', 16) }}Agregar</button>
+    </div>
+    <div class="ptags" data-tg-lista></div>
   </div>
   <div class="field"><label for="s-arch">Transcripción (.txt, hasta 2 MB)</label><div class="drop"><input type="file" id="s-arch" name="archivo" accept=".txt,.vtt,.srt,.md,text/plain" required></div></div>
   <label class="check"><input type="checkbox" name="consentimiento" value="true" required><span>El cliente sabe que la sesión se grabó y que se usará para mejorar el servicio</span></label>

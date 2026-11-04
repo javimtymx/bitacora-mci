@@ -2,7 +2,7 @@
 {% block title %}Sesión con cliente{% endblock %}
 {% block content %}
 {% set r = s.resultado %}
-<div class="top"><div class="col" style="gap:4px"><span class="muted small">{{ 'Sesión de objeciones' if s.tipo=='objeciones' else '1:1 de retención' }} · {{ fmt_dia(s.fecha) }} · {{ s.palabras }} palabras · cargó {{ s.autor.nombre }}{% if s.compromiso %} · <a href="/compromisos/{{ s.compromiso.id }}">CMP-{{ '%04d' % s.compromiso.id }}</a>{% endif %}</span>
+<div class="top"><div class="col" style="gap:4px"><span class="muted small">{{ tipos.get(s.tipo, s.tipo) }} · {{ fmt_dia(s.fecha) }} · {{ s.palabras }} palabras · cargó {{ s.autor.nombre }}{% if s.compromiso %} · <a href="/compromisos/{{ s.compromiso.id }}">CMP-{{ '%04d' % s.compromiso.id }}</a>{% endif %}</span>
   <h1 style="font-size:24px">{{ cliente }}</h1></div>
   <div class="row">{{ ai_badge() }}{% if u.es_direccion or s.autor_id==u.id %}<a class="btn soft sm" href="/sesiones/{{ s.id }}/transcripcion">{{ icon('doc', 16) }}Transcripción</a>{% endif %}
   <form method="post" action="/sesiones/{{ s.id }}/analizar"><button class="btn soft sm">{{ icon('refresh', 16) }}Analizar de nuevo</button></form></div></div>
@@ -15,7 +15,7 @@
 <section class="card pad">
   <div class="row">{% if s.riesgo_baja %}<span class="tag {{ 'r' if s.riesgo_baja=='alto' else 'o' if s.riesgo_baja=='medio' else 'g' }}">Riesgo de baja: {{ s.riesgo_baja }}</span>{% endif %}
     {% if r.sentimiento %}<span class="tag n">Sentimiento: {{ r.sentimiento }}</span>{% endif %}
-    {% if s.citas_descartadas %}<span class="tag o" title="La IA propuso citas que no aparecen tal cual en la transcripción">{{ s.citas_descartadas }} citas descartadas</span>{% endif %}</div>
+    {% if s.citas_descartadas %}<span class="tag o" title="La IA propuso citas que no aparecen tal cual en la transcripción">{{ s.citas_descartadas }} cita{{ "s" if s.citas_descartadas != 1 }} descartada{{ "s" if s.citas_descartadas != 1 }}</span>{% endif %}</div>
   <p style="margin:0;line-height:1.65">{{ r.resumen }}</p>
 </section>
 {% if s.objeciones %}<section class="card pad"><h2>Objeciones y cómo se manejaron</h2>
@@ -25,15 +25,49 @@
     <td><span class="tag {{ 'g' if o.avanzo else 'r' }}">{{ 'Avanzó' if o.avanzo else 'Se estancó' }}</span></td></tr>{% endfor %}</tbody></table></div>
   {% if r.coaching %}<div class="sug" style="font-weight:500"><b>Coaching:</b> {{ r.coaching }}</div>{% endif %}
 </section>{% endif %}
-<section class="card pad"><h2>Hallazgos por cuadrante</h2>
+{% set vn = r.venta or {} %}
+{% if s.tipo == 'venta_nueva' and vn %}
+<section class="card pad"><div class="row between"><h2>Lo que valora el cliente</h2><span class="tag {{ 'g' if vn.interes_general=='alto' else 'o' if vn.interes_general=='medio' else 'n' }}">Interés {{ vn.interes_general }}</span></div>
+  {% for v in vn.valora %}<div class="col" style="gap:4px;padding:8px 0;border-bottom:1px solid var(--line)"><b>{{ v.texto }}</b><div class="quote small">«{{ v.cita }}»</div></div>
+  {% else %}<span class="small muted">Sin elementos con cita verificable.</span>{% endfor %}</section>
+<section class="card pad"><h2>Productos que le interesaron</h2>
+  <div class="tbl"><table><thead><tr><th>Módulo</th><th>Interés</th><th>Lo que dijo</th></tr></thead><tbody>
+  {% for v in vn.productos_interes %}<tr><td><b>{{ v.modulo }}</b></td><td><span class="tag {{ 'g' if v.interes=='alto' else 'o' if v.interes=='medio' else 'n' }}">{{ v.interes }}</span></td><td class="small" style="font-style:italic">«{{ v.cita }}»</td></tr>
+  {% else %}<tr><td colspan="3" class="muted small">No mostró interés claro en un módulo.</td></tr>{% endfor %}</tbody></table></div></section>
+<section class="card pad"><h2>Encaje con nuestra propuesta de valor</h2>
+  <span class="small muted" style="margin-top:-8px">Frustraciones, trabajos y ganancias del cliente contra lo que ya ofrecemos. Lo que no encaja es oportunidad de producto.</span>
+  <div class="encaje">
+    <div class="col" style="gap:8px"><div class="enc-h cub">{{ icon('ok', 16) }}Cubierto por OneCore ({{ vn.encajes|selectattr('encaje','equalto','cubierto')|list|length }})</div>
+      {% for e in vn.encajes if e.encaje == 'cubierto' %}<div class="enc-i"><div class="row between"><span class="tag n">{{ {"frustracion":"Frustración","trabajo":"Trabajo","ganancia":"Ganancia"}.get(e.tipo, e.tipo) }}</span>{% if e.modulo %}<span class="tag g">{{ e.modulo }}</span>{% endif %}</div><b>{{ e.texto }}</b><div class="quote small">«{{ e.cita }}»</div></div>
+      {% else %}<span class="small muted">Nada cubierto con cita verificable.</span>{% endfor %}</div>
+    <div class="col" style="gap:8px"><div class="enc-h sin">{{ icon('alert', 16) }}Sin encaje o parcial: oportunidad ({{ vn.encajes|rejectattr('encaje','equalto','cubierto')|list|length }})</div>
+      {% for e in vn.encajes if e.encaje != 'cubierto' %}<div class="enc-i"><div class="row between"><span class="tag n">{{ {"frustracion":"Frustración","trabajo":"Trabajo","ganancia":"Ganancia"}.get(e.tipo, e.tipo) }}</span><span class="tag {{ 'r' if e.encaje=='sin_encaje' else 'o' }}">{{ 'sin encaje' if e.encaje=='sin_encaje' else 'parcial' ~ (' · ' ~ e.modulo if e.modulo else '') }}</span></div>
+        <b>{{ e.texto }}</b><div class="quote small">«{{ e.cita }}»</div>{% if e.oportunidad %}<div class="small"><b>Oportunidad:</b> {{ e.oportunidad }}</div>{% endif %}
+        {% if e.hallazgo_id %}<form method="post" action="/hallazgos/{{ e.hallazgo_id }}/idea"><button class="btn sm soft">{{ icon('idea', 15) }}Enviar a Ideas</button></form>{% endif %}</div>
+      {% else %}<span class="small muted">Todo lo que mencionó lo cubre el portafolio actual.</span>{% endfor %}</div>
+  </div></section>
+<section class="card pad"><h2>Lo que se le ofreció</h2>
+  {% for v in vn.ofertas %}<div class="col" style="gap:4px;padding:8px 0;border-bottom:1px solid var(--line)"><b>{{ v.oferta }}</b>{% if v.quien and ve_personas %}<span class="small muted">Ofreció {{ v.quien }}</span>{% endif %}<div class="quote small">«{{ v.cita }}»</div></div>
+  {% else %}<span class="small muted">No se registró una oferta concreta en la sesión.</span>{% endfor %}
+  {% if vn.siguiente_paso %}<div class="sug" style="font-weight:500"><b>Siguiente paso:</b> {{ vn.siguiente_paso }}</div>{% endif %}</section>
+{% endif %}
+{% if s.tipo != 'venta_nueva' %}<section class="card pad"><h2>Hallazgos por cuadrante</h2>
   {% for h in s.hallazgos %}<div class="col" style="gap:6px;padding:10px 0;border-bottom:1px solid var(--line)">
     <div class="row between">{{ qtag(h.cuadrante, cuadrantes) }}<span class="small muted">{{ h.tipo }} · {{ h.sentimiento }} · severidad {{ h.severidad }}{{ ' · normativo' if h.normativo }}</span></div>
     <b>{{ h.tema }}</b><div class="quote small">«{{ h.cita }}»</div>
     {% if h.cuadrante=='producto' %}<form method="post" action="/hallazgos/{{ h.id }}/idea"><button class="btn sm soft">{{ icon('idea', 15) }}Enviar a Ideas</button></form>{% endif %}
   </div>{% else %}<span class="muted small">Sin hallazgos con cita verificable.</span>{% endfor %}
-</section>
+</section>{% endif %}
 </div>
 <div class="col" style="gap:20px">
+{% set pp = s.participantes_det or [] %}
+<section class="card pad"><div class="row between"><h3>Participantes</h3>{% if ve_personas %}<button class="btn sm soft" type="button" data-open="ed-part">Editar</button>{% endif %}</div>
+  {% if pp %}<div class="ptags">{% for p in pp %}<span class="ptag {{ p.lado }}" title="{{ p.rol }}{{ ' · detectado por GuardIA en la transcripción' if p.origen=='detectado' }}">
+    {% if ve_personas %}<b>{{ p.nombre }}</b>{% if p.email %}<a href="mailto:{{ p.email }}">{{ p.email }}</a>{% endif %}{% else %}<b>{{ 'Equipo OneCore' if p.lado=='onecore' else 'Participante del cliente' }}</b>{% endif %}
+    {% if p.rol %}<small>{{ p.rol }}</small>{% endif %}<small class="lado">{{ 'OneCore' if p.lado=='onecore' else 'Cliente' }}{{ ' · detectado' if p.origen=='detectado' }}</small></span>{% endfor %}</div>
+  {% else %}<span class="small muted">{{ s.participantes or 'Sin participantes registrados.' }}</span>{% endif %}
+  {% if not ve_personas and pp %}<span class="small muted">Los nombres y correos del cliente solo se muestran con permiso de datos confidenciales.</span>{% endif %}
+</section>
 {% if r.descubrimiento %}<section class="card pad"><h3>Descubrimiento del dolor</h3>
   {% for k, t in [('dolor','Dolor declarado'),('impacto','Impacto cuantificado'),('comprador','Comprador económico'),('siguiente_paso','Siguiente paso')] %}<div class="small"><b>{{ t }}:</b> {{ r.descubrimiento[k] or '—' }}</div>{% endfor %}</section>{% endif %}
 {% if r.spin %}<section class="card pad"><h3>Calidad de la conversación</h3>
@@ -46,3 +80,17 @@
 </div></div>
 {% endif %}
 {% endblock %}
+
+{% block modals %}{% if ve_personas %}
+<div class="overlay" id="ed-part"><form class="modal" method="post" action="/sesiones/{{ s.id }}/participantes" role="dialog" aria-modal="true" aria-labelledby="t-part">
+  <div class="mh"><h2 id="t-part">Participantes de la sesión</h2><button class="btn ghost" type="button" data-close aria-label="Cerrar" style="width:42px;padding:0">{{ icon('x') }}</button></div>
+  <div class="sec" style="border-top:0" data-filas>
+    <div class="pfila pcab"><span>Nombre</span><span>Correo</span><span>Lado</span><span>Rol</span><span></span></div>
+    {% for p in (s.participantes_det or []) %}<div class="pfila">
+      <input class="input" name="p_nombre" value="{{ p.nombre }}" aria-label="Nombre"><input class="input" type="email" name="p_email" value="{{ p.email }}" aria-label="Correo">
+      <select class="input" name="p_lado" aria-label="Lado"><option value="cliente" {{ 'selected' if p.lado=='cliente' }}>Cliente</option><option value="onecore" {{ 'selected' if p.lado=='onecore' }}>OneCore</option></select>
+      <input class="input" name="p_rol" value="{{ p.rol }}" aria-label="Rol"><button class="btn ghost" type="button" data-quitar-fila aria-label="Quitar">{{ icon('x', 16) }}</button></div>{% endfor %}
+    <button class="btn sm soft" type="button" data-agregar-fila style="align-self:flex-start">{{ icon('plus', 15) }}Agregar participante</button>
+  </div>
+  <div class="mf"><button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn yellow">{{ icon('ok') }}Guardar</button></div></form></div>
+{% endif %}{% endblock %}

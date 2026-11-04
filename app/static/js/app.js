@@ -78,8 +78,8 @@
     if (d.duplicado_titulo) h += `<div class="flash error small">Parece duplicada de «${esc(d.duplicado_titulo)}».</div>`;
     if (d.recomendacion_historica) h += `<div class="col"><span class="lbl">Lo que dice el histórico</span><div class="small" style="line-height:1.5">${esc(d.recomendacion_historica)}</div></div>`;
     if (d.smart) {
-      h += `<div class="smart res">${SMART.map(([k, t]) => `<span class="sm ${d.smart[k] ? "si" : "no"}">${d.smart[k] ? "✓" : "✕"} ${t}</span>`).join("")}</div>`;
-      $$("[data-smart] .sm", form).forEach((el) => { el.classList.remove("si", "no"); el.classList.add(d.smart[el.dataset.k] ? "si" : "no"); });
+      h += `<div class="smart res">${SMART.map(([k, t]) => `<span class="sk ${d.smart[k] ? "si" : "no"}">${d.smart[k] ? "✓" : "✕"} ${t}</span>`).join("")}</div>`;
+      $$("[data-smart] .sk", form).forEach((el) => { el.classList.remove("si", "no"); el.classList.add(d.smart[el.dataset.k] ? "si" : "no"); });
     }
     if (v === "muy_debil") h += `<div class="flash error small" style="margin:0">GuardIA no acepta este compromiso así. Usa la sugerencia o mejóralo y vuelve a revisarlo; puedes pedir ayuda con «Ayúdame a redactarlo».</div>`;
     $("[data-ia-izq]", form).innerHTML = h;
@@ -283,5 +283,54 @@
     } catch (err) {
       panel.innerHTML = `<span class="small">Sin conexión con el servidor.</span>`; panel.classList.remove("hidden");
     } finally { btn.disabled = false; btn.innerHTML = txt; }
+  });
+})();
+
+/* Sesiones con cliente: tipo (prospecto), participantes como etiquetas y edición */
+(() => {
+  const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const tipo = document.getElementById("s-tipo");
+  if (tipo) {
+    const aplicar = () => {
+      const vn = tipo.value === "venta_nueva";
+      const cat = document.querySelector("[data-cli-catalogo]");
+      if (cat) cat.hidden = vn;
+      const etq = document.querySelector("[data-cli-etq]");
+      if (etq) etq.firstChild.textContent = vn ? "Prospecto (empresa) " : "Cliente que no está en el catálogo ";
+      if (vn) { const sel = document.getElementById("s-cli"); if (sel) sel.value = ""; }
+    };
+    tipo.addEventListener("change", aplicar); aplicar();
+  }
+  document.querySelectorAll("[data-tags]").forEach((box) => {
+    const n = box.querySelector("[data-tg-nombre]"), em = box.querySelector("[data-tg-email]"),
+      lado = box.querySelector("[data-tg-lado]"), lista = box.querySelector("[data-tg-lista]");
+    const agregar = () => {
+      const nombre = n.value.trim(), correo = em.value.trim();
+      if (!nombre && !correo) { n.focus(); return; }
+      if (correo && !em.checkValidity()) { em.reportValidity(); return; }
+      const t = document.createElement("span");
+      t.className = "ptag " + lado.value;
+      t.innerHTML = `<b>${esc(nombre || correo.split("@")[0])}</b>${correo ? `<span>${esc(correo)}</span>` : ""}<small class="lado">${lado.value === "onecore" ? "OneCore" : "Cliente"}</small>
+        <button type="button" class="x" aria-label="Quitar ${esc(nombre)}">×</button>
+        <input type="hidden" name="p_nombre" value="${esc(nombre)}"><input type="hidden" name="p_email" value="${esc(correo)}"><input type="hidden" name="p_lado" value="${esc(lado.value)}">`;
+      lista.appendChild(t);
+      n.value = ""; em.value = ""; n.focus();
+    };
+    box.querySelector("[data-tg-agregar]").addEventListener("click", agregar);
+    [n, em].forEach((i) => i.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); agregar(); } }));
+    lista.addEventListener("click", (e) => { const x = e.target.closest(".x"); if (x) x.closest(".ptag").remove(); });
+  });
+  document.addEventListener("click", (e) => {
+    const q = e.target.closest("[data-quitar-fila]");
+    if (q) { q.closest(".pfila").remove(); return; }
+    const a = e.target.closest("[data-agregar-fila]");
+    if (a) {
+      const f = document.createElement("div");
+      f.className = "pfila";
+      f.innerHTML = `<input class="input" name="p_nombre" aria-label="Nombre"><input class="input" type="email" name="p_email" aria-label="Correo">
+        <select class="input" name="p_lado" aria-label="Lado"><option value="cliente">Cliente</option><option value="onecore">OneCore</option></select>
+        <input class="input" name="p_rol" aria-label="Rol"><button class="btn ghost" type="button" data-quitar-fila aria-label="Quitar">×</button>`;
+      a.before(f); f.querySelector("input").focus();
+    }
   });
 })();
