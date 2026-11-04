@@ -27,40 +27,39 @@
   <div class="field" data-req="descripcion">
     <label for="tk-descripcion">Describe qué pasa <span class="ast">*</span></label>
     <div class="tkt-guia"><span class="muted small">Para atenderte a la primera incluye:</span>
-      <span>Dónde (pantalla)</span><span>Qué pasó</span><span>Desde cuándo</span><span>Qué esperabas</span><span>Pedimento o archivo de ejemplo</span></div>
-    <textarea class="input" id="tk-descripcion" name="descripcion" required minlength="15" rows="4" style="padding:10px 12px;min-height:110px"
+      <span>Dónde (pantalla)</span><span>Qué pasó</span><span>Desde cuándo</span><span>Qué esperabas</span><span>Cliente y pedimento o RFC</span></div>
+    <textarea class="input tkt-auto" id="tk-descripcion" name="descripcion" required minlength="15" rows="3"
       placeholder="Ej. Desde ayer, al cargar el layout en SAFE (Validación › Pedimentos por validar) me sale «valor en aduana inválido» en todas las partidas…"></textarea>
-    <span class="muted small">El título lo pone {{ guardia }} con lo que escribas.</span>
+    <span class="muted small" id="tk-lee">Mientras escribes, {{ guardia }} propone el título y llena lo que ya mencionaste.</span>
   </div>
-  <input type="hidden" id="tk-titulo" name="titulo">
+  <div class="grid2">
+    <div class="field"><label for="tk-titulo">Título <span class="iab">IA</span></label>
+      <div class="tkt-titulo"><input class="input" id="tk-titulo" name="titulo" maxlength="200" readonly placeholder="GuardIA lo propone con tu descripción">
+        <button type="button" class="btn sm ghost" id="tk-titulo-ed" title="Editar título">{{ icon('edit', 15) }}</button></div></div>
+    <div class="field"><label for="tk-cliente">Cliente <span class="iab">IA</span></label>
+      <input class="input" id="tk-cliente" name="cliente" maxlength="200" placeholder="Razón social (RFC), si el caso es de un cliente"></div>
+  </div>
 
-  <div class="tkt-sep"><h3>Ayuda a resolverlo más rápido</h3><span class="muted small" id="tk-sep-nota">{{ guardia }} te dirá cuáles hacen falta según el tipo de ticket.</span></div>
+  <div class="tkt-sep"><h3>Ayuda a resolverlo más rápido</h3><span class="muted small" id="tk-sep-nota">Lo marcado como <span class="rec" style="margin:0">recomendado</span> es lo que suele hacer falta para este tipo de ticket; {{ guardia }} solo te preguntará lo necesario.</span></div>
   <div class="grid3">
     <div class="field" data-req="pantalla"><label for="tk-menu">Menú</label>
       <input class="input" id="tk-menu" name="menu" list="tk-l-menu" maxlength="120" placeholder="Ej. Validación"></div>
     <div class="field" data-req="pantalla"><label for="tk-pantalla">Pantalla</label>
       <input class="input" id="tk-pantalla" name="pantalla" list="tk-l-pantalla" maxlength="160" placeholder="Ej. Pedimentos por validar"></div>
-    <div class="field" data-req="referencia"><label for="tk-referencia">Pedimento, folio o archivo de ejemplo</label>
+    <div class="field" data-req="referencia"><label for="tk-referencia">Referencia: pedimento, RFC, patente o folio</label>
       <input class="input" id="tk-referencia" name="referencia" maxlength="300" placeholder="Ej. 26 19 3001 6001234"></div>
   </div>
   <div class="grid2">
     <div class="field" data-req="pasos"><label for="tk-pasos">Pasos para replicar</label>
-      <textarea class="input" id="tk-pasos" name="pasos" rows="3" style="padding:10px 12px;min-height:84px" placeholder="1. Entré a…&#10;2. Cargué…&#10;3. Di clic en…"></textarea></div>
-    <div class="col" style="gap:10px" data-req="esperado_obtenido">
-      <div class="field"><label for="tk-esperado">Qué esperabas</label><input class="input" id="tk-esperado" name="esperado" maxlength="1000"></div>
-      <div class="field"><label for="tk-obtenido">Qué obtuviste</label><input class="input" id="tk-obtenido" name="obtenido" maxlength="1000"></div>
-    </div>
-  </div>
-  <div class="grid2">
+      <textarea class="input tkt-auto" id="tk-pasos" name="pasos" rows="4" placeholder="1. Entré a…&#10;2. Cargué…&#10;3. Di clic en…&#10;Esperaba … y obtuve …"></textarea>
+      <span class="muted small">Incluye qué esperabas y qué obtuviste.</span></div>
     <div class="field" data-req="anexo"><label>Anexos</label>
-      <div class="tkt-files"><span class="muted small" id="tk-files-vacio">Captura, archivo o reporte. Máx. 10 MB cada uno.</span>
-        <span id="tk-files"></span>
-        <label class="btn sm soft" style="margin-left:auto">{{ icon('upload', 15) }}Adjuntar<input type="file" id="tk-archivos" multiple accept="{{ aceptar }}" hidden></label></div>
+    <div class="tkt-files"><span class="muted small" id="tk-files-vacio">Captura, archivo o reporte. Máx. 10 MB cada uno.</span>
+      <span id="tk-files"></span>
+      <label class="btn sm soft" style="margin-left:auto">{{ icon('upload', 15) }}Adjuntar<input type="file" id="tk-archivos" multiple accept="{{ aceptar }}" hidden></label></div>
     </div>
-    <div class="field"><label for="tk-cliente">Cliente (si es de un cliente)</label>
-      <input class="input" id="tk-cliente" name="cliente" maxlength="200"></div>
   </div>
-  <div class="row between" style="border-top:1px solid var(--line);padding-top:14px">
+  <div class="tkt-pie">
     <span class="muted small" id="tk-pie">Al levantarlo, GuardIA revisa que tenga lo necesario para atenderlo.</span>
     <button class="btn yellow" type="button" id="tk-levantar">{{ icon('ia') }}<span>Levantar ticket</span></button>
   </div>
@@ -81,4 +80,4 @@
 </div>
 <script type="application/json" id="tk-datos">{{ {"catalogo": catalogo, "requeridos": requeridos, "campos": campos_req, "prompt_version": prompt_version, "ia": ia_ok} | tojson }}</script>
 {% endblock %}
-{% block scripts %}<script src="/static/js/ticket.js?v=2"></script>{% endblock %}
+{% block scripts %}<script src="/static/js/ticket.js?v=6"></script>{% endblock %}

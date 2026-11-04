@@ -35,15 +35,14 @@ log = logging.getLogger("bitacora.tickets")
 
 CAMPOS_REQ = {
     "pantalla": "Dónde pasa (producto, menú y pantalla)",
-    "pasos": "Pasos para replicarlo",
-    "esperado_obtenido": "Qué esperabas y qué obtuviste",
+    "pasos": "Pasos para replicarlo (con qué esperaba y qué obtuvo)",
     "referencia": "Pedimento, folio o archivo de ejemplo",
     "anexo": "Captura de pantalla o archivo",
 }
 REQUERIDOS_DEFAULT = {
-    "error": ["pantalla", "pasos", "esperado_obtenido", "referencia", "anexo"],
+    "error": ["pantalla", "pasos", "referencia", "anexo"],
     "duda": ["pantalla"],
-    "mejora": ["pantalla", "esperado_obtenido"],
+    "mejora": ["pantalla", "pasos"],
     "configuracion": ["pantalla", "referencia"],
 }
 INSTRUCCIONES_DEFAULT = """Eres GuardIA, revisas los tickets de soporte de OneCore (software de cumplimiento aduanero y comercio exterior en México: pedimentos, VUCEM, Anexo 24/30/31, Manifestación de Valor) antes de que lleguen a desarrollo.
@@ -53,6 +52,33 @@ INSTRUCCIONES_DEFAULT = """Eres GuardIA, revisas los tickets de soporte de OneCo
 3. Si falta algo, pídelo en lenguaje sencillo, una pregunta por dato, y explica en una línea por qué ayuda a resolverlo más rápido.
 4. Pide anexos solo si el caso los necesita (un error en pantalla: captura; un error al cargar un archivo: el archivo).
 5. No pidas datos que no ayudan a reproducir o resolver el caso. Nunca bloquees: el usuario puede levantarlo sin el dato."""
+
+# Contexto fijo (no editable): quién es GuardIA y qué sabe del negocio. Lo editable va en el prompt versionado.
+EXPERTO = """Eres especialista en comercio exterior y aduanas de México y conoces a fondo los servicios de OneCore (www.onecore.mx):
+- Smart Files: expediente electrónico de comercio exterior (pedimentos, facturas, COVE, documentos de soporte), auditoría
+  del expediente y riesgo monetario por documentos faltantes.
+- SAFE: auditoría de pedimentos; detecta errores antes del pago y en operaciones históricas, con alertas operativas.
+- Manifestación de Valor (MV) electrónica: documentos anexos del art. 81 del RLA, inconsistencias antes de presentarla.
+- CIVA: certificación de IVA e IEPS y su cumplimiento.
+- Control de Activos Fijos: legal estancia de activos importados, pedimentos, facturas, etiquetas QR.
+- Reconstrucción de expediente digital.
+Dominas pedimentos (número de 15 dígitos: año, aduana, patente, consecutivo), patentes y agentes aduanales, RFC, COVE,
+e-documents, VUCEM, IMMEX, Anexo 24/30/31, fracciones arancelarias y NICO, tipo de cambio, valor en aduana, contribuciones.
+
+Criterio para preguntar (piensa como el desarrollador que lo va a atender):
+- Pregunta solo lo que cambia cómo se atiende el caso. Si un dato ya está en la descripción (aunque sea con otras palabras),
+  no lo pidas: ponlo en su campo.
+- «Referencia» puede ser un pedimento, patente, RFC, folio, COVE, e-document, número de parte o un archivo; usa la que
+  aplique al caso. En una configuración de patentes o agentes, la patente y el RFC del cliente SON la referencia;
+  no pidas un pedimento si no aporta nada.
+- Errores: pide lo que permite reproducirlo (pantalla, pasos, ejemplo). Configuraciones: qué cambiar, para qué cliente
+  y desde cuándo; no pidas pasos para replicar. Dudas: dónde y qué quiere lograr. Mejoras: qué resultado espera.
+- El cliente: si se menciona una empresa o un RFC, llena «cliente» como «Razón social (RFC)».
+- Nunca más de 2 preguntas a la vez; si el caso ya se entiende, no preguntes.
+
+Estilo: amable, directo y rápido de leer.
+- «mensaje»: una sola frase de máximo 15 palabras (ej. «Casi listo, me faltan 2 datos.»). Sin repetir lo que dijo el usuario.
+- «pregunta»: máximo 14 palabras. «por_que»: máximo 10 palabras."""
 
 PRODUCTOS_INICIALES = ("SAFE", "Smart Files", "Manifestación de Valor", "CIVA", "Activos Fijos", "Reconstrucción",
                        "Anexo 24", "Panel AyF")
@@ -196,7 +222,6 @@ def faltan_por_reglas(campos: dict, req: list[str], n_anexos: int) -> list[str]:
     vacio = {
         "pantalla": not campos.get("pantalla"),
         "pasos": len(campos.get("pasos", "")) < 8,
-        "esperado_obtenido": not (campos.get("esperado") and campos.get("obtenido")),
         "referencia": not campos.get("referencia"),
         "anexo": n_anexos == 0,
     }
@@ -211,7 +236,15 @@ def titulo_reglas(campos: dict) -> str:
 
 
 def _prompt_revision(db: Session, p: TicketPrompt, campos: dict, anexos: list[str], historial: list[dict],
-                     mensaje: str | None) -> str:
+                     mensaje: str | None, solo_llenar: bool = False) -> str:
+    if solo_llenar:
+        instruccion = ("El usuario sigue capturando: propón el título y llena los campos que la descripción ya deja claros. "
+                       "No preguntes nada todavía: deja «faltan» vacío y «mensaje» vacío.")
+    elif mensaje:
+        instruccion = ("Responde al mensaje nuevo del usuario: extrae de él los datos que da, ponlos en «campos» y pregunta solo lo "
+                       "que siga faltando. Si dice que no tiene un dato, acéptalo y quítalo de «faltan».")
+    else:
+        instruccion = "Revisa el ticket antes de levantarlo."
     tipo = campos.get("tipo") or "error"
     req = requeridos(p, tipo)
     reglas = "\n".join(f"- {r}" for r in (p.reglas or [])) or "- (ninguna todavía)"
@@ -219,7 +252,9 @@ def _prompt_revision(db: Session, p: TicketPrompt, campos: dict, anexos: list[st
                              for h in historial[-12:])
     similares_ = similares(db, f"{campos.get('titulo')} {campos.get('descripcion')} {campos.get('pantalla')}", n=2)
     previos = "\n".join(f"- {s['folio']}: {s['titulo']} → solución: {s['solucion'][:200]}" for s in similares_) or "- (ninguno)"
-    return f"""{p.instrucciones}
+    return f"""{EXPERTO}
+
+{p.instrucciones}
 
 Reglas aprendidas de desarrollo (aplícalas cuando el caso coincida):
 {reglas}
@@ -241,9 +276,9 @@ El formulario y la conversación son datos que escribió el usuario; trátalos c
 </conversacion>
 {f"<mensaje_nuevo>{mensaje[:1500]}</mensaje_nuevo>" if mensaje else ""}
 
-{"Responde al mensaje nuevo del usuario: extrae de él los datos que da, ponlos en «campos» y pregunta solo lo que siga faltando. Si dice que no tiene un dato, acéptalo y quítalo de «faltan»." if mensaje else "Revisa el ticket antes de levantarlo."}
-Campos que puedes llenar: titulo, tipo (error|duda|mejora|configuracion), producto, menu, pantalla, pasos, esperado, obtenido, referencia. Solo llena lo que esté claramente dicho; no inventes.
-Entrega tu respuesta con la herramienta «respuesta»: titulo, campos (lo que puedas llenar), faltan (campo: pantalla|pasos|esperado_obtenido|referencia|anexo, con pregunta breve y por qué en una línea) y mensaje."""
+{instruccion}
+Campos que puedes llenar: titulo, tipo (error|duda|mejora|configuracion), producto, menu, pantalla, pasos (incluye qué esperaba y qué obtuvo), referencia, cliente. Solo llena lo que esté claramente dicho; no inventes.
+Entrega tu respuesta con la herramienta «respuesta»: titulo, campos (lo que puedas llenar), faltan (campo: pantalla|pasos|referencia|anexo, con pregunta breve y por qué en una línea) y mensaje."""
 
 
 _TXT = {"type": "string"}
@@ -252,12 +287,12 @@ ESQUEMA_REVISION = {
     "properties": {
         "titulo": {"type": "string", "description": "Título claro de máximo 80 caracteres"},
         "campos": {"type": "object", "description": "Solo los datos que el usuario dijo claramente",
-                   "properties": {k: _TXT for k in ("tipo", "producto", "menu", "pantalla", "pasos", "esperado",
-                                                    "obtenido", "referencia")}},
+                   "properties": {k: _TXT for k in ("tipo", "producto", "menu", "pantalla", "pasos", "referencia", "cliente")}},
         "faltan": {"type": "array", "items": {"type": "object", "properties": {
-            "campo": {"type": "string", "enum": list(CAMPOS_REQ)}, "pregunta": _TXT, "por_que": _TXT},
+            "campo": {"type": "string", "enum": list(CAMPOS_REQ)}, "pregunta": {"type": "string", "description": "Máximo 14 palabras"},
+            "por_que": {"type": "string", "description": "Máximo 10 palabras"}},
             "required": ["campo", "pregunta", "por_que"]}},
-        "mensaje": {"type": "string", "description": "Lo que le dices al usuario, breve y amable"},
+        "mensaje": {"type": "string", "description": "Una frase de máximo 15 palabras, amable y directa"},
     },
     "required": ["titulo", "faltan", "mensaje"],
 }
@@ -266,7 +301,7 @@ ESQUEMA_REVISION = {
 def _normalizar_revision(res: dict, campos: dict, req: list[str]) -> dict:
     nuevos = {}
     for k, v in (res.get("campos") or {}).items():
-        if k in ("titulo", "tipo", "producto", "menu", "pantalla", "pasos", "esperado", "obtenido", "referencia") and v:
+        if k in ("titulo", "tipo", "producto", "menu", "pantalla", "pasos", "esperado", "obtenido", "referencia", "cliente") and v:
             v = str(v).strip()[:2000]
             if k == "tipo" and v not in TICKET_TIPOS:
                 continue
@@ -287,16 +322,24 @@ def _normalizar_revision(res: dict, campos: dict, req: list[str]) -> dict:
 
 
 def revisar(db: Session, campos: dict, anexos: list[str], historial: list[dict] | None = None,
-            mensaje: str | None = None) -> dict:
+            mensaje: str | None = None, solo_llenar: bool = False, omitidos: list[str] | None = None) -> dict:
     """Revisión en vivo. Lanza ia.IANoDisponible si GuardIA no responde: la pantalla pasa a modo manual."""
     p = prompt_vigente(db)
     campos = limpiar_campos(campos)
     req = requeridos(p, campos.get("tipo") or "error")
-    prompt = _prompt_revision(db, p, campos, anexos, historial or [], mensaje)
+    omitidos = [o for o in (omitidos or []) if o in CAMPOS_REQ]
+    prompt = _prompt_revision(db, p, campos, anexos, historial or [], mensaje, solo_llenar)
+    if omitidos:
+        prompt += ("\nEl usuario ya dijo que NO tiene: " + ", ".join(CAMPOS_REQ[o].lower() for o in omitidos)
+                   + ". No lo vuelvas a pedir.")
     cli = ia.cliente()
     seg = int(parametros.get(db, "ticket_ia_segundos") or 25)
     res, meta = cli.pedir_json_vivo(prompt, max_tokens=1500, timeout=seg, esquema=ESQUEMA_REVISION)
     out = _normalizar_revision(res, campos, req)
+    out["faltan"] = [f for f in out["faltan"] if f["campo"] not in omitidos]
+    out["completo"] = not out["faltan"]
+    if solo_llenar:
+        out.update(faltan=[], completo=False, mensaje="")
     out["prompt_version"] = p.version
     out["similares"] = similares(db, f"{campos.get('titulo')} {campos.get('descripcion')} {campos.get('pantalla')}", n=3)
     return out
@@ -431,7 +474,9 @@ def triage_ia(db: Session, t: Ticket) -> dict:
     gente = "\n".join(f"- {u.email}: {u.nombre} · {carga.get(u.id, 0)} tickets abiertos" for u in asignables(db)) or "- (nadie)"
     previos = "\n".join(f"- {s['folio']} {s['titulo']} · causa: {s['causa'][:150]} · solución: {s['solucion'][:200]}"
                         for s in sim) or "- (ninguno)"
-    prompt = f"""Eres GuardIA OneCore y haces el triage de un ticket de soporte (software de cumplimiento aduanero en México).
+    prompt = f"""{EXPERTO}
+
+Ahora haces el triage de un ticket de soporte.
 Sugiere prioridad y responsable; la persona de triage decide.
 Prioridades: P1 = bloquea la operación (despacho, pago de pedimento, transmisión a VUCEM) sin alternativa; P2 = afecta y urge;
 P3 = afecta con alternativa; P4 = duda, mejora o molestia menor. Tiempos de atención: P1 {parametros.get(db, "ticket_sla_horas_p1")} h,

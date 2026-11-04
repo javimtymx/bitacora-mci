@@ -228,3 +228,21 @@ def test_ia_en_vivo_usa_respuesta_estructurada(monkeypatch):
     assert res["titulo"] == 'Patente "1686" no administrada'
     assert llamadas[0]["tool_choice"] == {"type": "tool", "name": "respuesta"}
     assert llamadas[0]["tools"][0]["input_schema"]["properties"]["faltan"]["items"]["properties"]["campo"]["enum"][0] == "pantalla"
+
+
+def test_sugerencia_mientras_escribe_no_pregunta(manuel, db, fake):
+    fake.respuestas = [{"titulo": "Patente 1686 no administrada para Aduax",
+                        "campos": {"cliente": "MARY KAY COSMETICS DE MEXICO (MKC870629U5A)"},
+                        "faltan": [{"campo": "pantalla", "pregunta": "¿Dónde?", "por_que": "x"}], "mensaje": "hola"}]
+    r = manuel.post("/api/tickets/revisar", json={"campos": _campos(tipo="configuracion"), "solo_llenar": True}).json()
+    assert r["ok"] and r["faltan"] == [] and r["mensaje"] == "" and "MKC870629U5A" in r["campos"]["cliente"]
+    assert "No preguntes nada todavía" in fake.prompts[-1] and "www.onecore.mx" in fake.prompts[-1]
+    assert "cliente" in fake.esquemas[-1]["properties"]["campos"]["properties"]
+
+
+def test_no_vuelve_a_pedir_lo_que_el_usuario_no_tiene(manuel, db, fake):
+    fake.respuestas = [{"titulo": "T", "faltan": [{"campo": "referencia", "pregunta": "¿Pedimento?", "por_que": "x"},
+                                                  {"campo": "pantalla", "pregunta": "¿Dónde?", "por_que": "y"}], "mensaje": "Me faltan 2."}]
+    r = manuel.post("/api/tickets/revisar", json={"campos": _campos(), "omitidos": ["referencia"], "mensaje": "En Agentes"}).json()
+    assert [f["campo"] for f in r["faltan"]] == ["pantalla"]
+    assert "NO tiene: pedimento, folio o archivo de ejemplo" in fake.prompts[-1]

@@ -98,7 +98,8 @@ async def api_revisar(request: Request, db: Session = Depends(get_db), u: Usuari
     historial = [h for h in (datos.get("historial") or []) if isinstance(h, dict)][-20:]
     mensaje = str(datos.get("mensaje") or "").strip()[:2000] or None
     try:
-        r = tk.revisar(db, campos, anexos, historial, mensaje)
+        r = tk.revisar(db, campos, anexos, historial, mensaje, solo_llenar=bool(datos.get("solo_llenar")),
+                       omitidos=[str(x) for x in (datos.get("omitidos") or [])][:10])
     except ia.IANoDisponible as e:
         return JSONResponse({"ok": False, "sin_ia": True, "mensaje": str(e)})
     except Exception:  # noqa: BLE001 - cualquier falla de GuardIA lleva al modo manual, nunca bloquea

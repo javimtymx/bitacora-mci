@@ -9,9 +9,9 @@
   const form = $("#tk-form"), lay = $("#tk-lay"), panel = $("#tk-panel"), tab = $("#tk-tab");
   const msgs = $("#tk-msgs"), chat = $("#tk-chat"), btn = $("#tk-levantar"), btnTxt = $("#tk-levantar span");
   const input = $("#tk-archivos"), err = $("#tk-error");
-  const CAMPOS = ["descripcion", "producto", "menu", "pantalla", "tipo", "impacto", "titulo", "pasos", "esperado",
-                  "obtenido", "referencia", "cliente"];
-  const st = { modo: datos.ia ? "ia" : "manual", historial: [], faltan: [], completo: false, ocupado: false };
+  const CAMPOS = ["descripcion", "producto", "menu", "pantalla", "tipo", "impacto", "titulo", "pasos", "referencia", "cliente"];
+  const st = { modo: datos.ia ? "ia" : "manual", historial: [], faltan: [], completo: false, ocupado: false,
+               tituloManual: false, sugerido: "", leyendo: false, omitidos: new Set(), respondiendo: null };
   let archivos = new DataTransfer();
   const BORRADOR = "tk-borrador";
 
@@ -57,36 +57,63 @@
     Object.entries(nuevos || {}).forEach(([k, v]) => {
       const el = campo(k);
       if (!el || !v) return;
-      if (k === "titulo" || !el.value.trim()) {
+      if (k === "titulo" && st.tituloManual) return;
+      if (k === "titulo" || !el.value.trim() || el.dataset.auto === "1") {
+        el.dataset.auto = "1";
         el.value = v;
         el.classList.add("tkt-lleno");
         el.dispatchEvent(new Event("change", { bubbles: true }));
+        if (el.classList.contains("tkt-auto")) crecer(el);
       }
     });
     guardarBorrador();
   }
 
+  // cada pregunta trae sus propias decisiones: responder, adjuntar o «no lo tengo»
+  function tarjeta(f) {
+    const adj = f.campo === "anexo" || f.campo === "referencia";
+    return `<div class="tkt-q" data-campo="${esc(f.campo)}"><b>${esc(f.pregunta)}</b>` +
+      (f.por_que ? `<small>${esc(f.por_que)}</small>` : "") +
+      `<div class="tkt-quick">${f.campo !== "anexo" ? `<button type="button" data-q="resp">Responder</button>` : ""}` +
+      `${adj ? `<button type="button" data-q="adjuntar">📎 Adjuntar</button>` : ""}<button type="button" data-q="no">No lo tengo</button></div></div>`;
+  }
+  function cierre() {
+    return st.faltan.length
+      ? '<div class="tkt-quick tkt-fin"><button type="button" data-q="asi">Levantar así</button></div>'
+      : '<div class="tkt-quick tkt-fin"><button type="button" data-q="ya" class="si">Levantar ticket</button></div>';
+  }
   function pintarRespuesta(r) {
     llenar(Object.assign({}, r.campos, r.titulo ? { titulo: r.titulo } : {}));
     if (datos.prompt_version !== r.prompt_version && r.prompt_version) datos.prompt_version = r.prompt_version;
-    st.faltan = r.faltan || [];
+    st.faltan = (r.faltan || []).filter((f) => !st.omitidos.has(f.campo));
     st.completo = !st.faltan.length;
     marcar();
-    let html = esc(r.mensaje || (st.completo ? "Listo, tu ticket tiene lo necesario." : "Para que el equipo lo atienda a la primera me falta:"));
-    if (st.faltan.length) {
-      html += "<ul>" + st.faltan.map((f) => `<li><b>${esc(f.pregunta)}</b>${f.por_que ? `<div class="tkt-why">Por qué: ${esc(f.por_que)}</div>` : ""}</li>`).join("") + "</ul>";
-      const q = ['<div class="tkt-quick">'];
-      if (st.faltan.some((f) => f.campo === "anexo" || f.campo === "referencia")) q.push('<button type="button" data-q="adjuntar">📎 Adjuntar archivo</button>');
-      q.push('<button type="button" data-q="no">No lo tengo</button><button type="button" data-q="asi">Levantar así</button></div>');
-      html += q.join("");
-    } else {
-      html += '<div class="tkt-quick"><button type="button" data-q="ya">Levantar ticket</button></div>';
-    }
+    // las preguntas anteriores ya resueltas se marcan y solo queda un botón final vigente
+    $$(".tkt-fin", msgs).forEach((x) => x.remove());
+    $$(".tkt-q:not(.omitido)", msgs).forEach((c) => {
+      if (!st.faltan.some((f) => f.campo === c.dataset.campo)) { c.classList.add("hecho"); const q = $(".tkt-quick", c); if (q) q.innerHTML = "<small>✓ Respondido</small>"; }
+      else c.remove();
+    });
+    let html = esc(r.mensaje || (st.completo ? "Listo, ya tiene lo necesario." : "Me falta:"));
+    if (st.faltan.length) html += st.faltan.map(tarjeta).join("");
+    html += cierre();
     if ((r.similares || []).length) {
       html += '<div class="tkt-sim"><b>¿Es alguno de estos? Ya se resolvieron:</b>' + r.similares.map((s) =>
         `<a href="/tickets/${s.id}" target="_blank" rel="noopener">${esc(s.folio)} · ${esc(s.titulo)}</a><span>${esc((s.solucion || "").slice(0, 180))}</span>`).join("") + "</div>";
     }
     mensaje("g", html);
+    ocupado(false);
+  }
+  function omitir(campo, tarjetaEl) {
+    st.omitidos.add(campo);
+    st.faltan = st.faltan.filter((f) => f.campo !== campo);
+    if (tarjetaEl) { tarjetaEl.classList.add("omitido"); $(".tkt-quick", tarjetaEl).innerHTML = "<small>No lo tienes · el equipo lo sabrá</small>"; }
+    marcar();
+    st.completo = !st.faltan.length;
+    $$(".tkt-fin").forEach((x) => x.remove());
+    const ultimo = msgs.lastElementChild;
+    if (st.completo) mensaje("g", "Listo, ya puedes levantarlo." + cierre());
+    else if (ultimo) ultimo.insertAdjacentHTML("beforeend", cierre());
     ocupado(false);
   }
 
@@ -97,7 +124,8 @@
     try {
       const r = await fetch("/api/tickets/revisar", {
         method: "POST", headers: { "Content-Type": "application/json" }, signal: ctl.signal,
-        body: JSON.stringify(Object.assign({ campos: valores(), anexos: nombresAnexos(), historial: st.historial }, extra || {})),
+        body: JSON.stringify(Object.assign({ campos: valores(), anexos: nombresAnexos(), historial: st.historial,
+                                             omitidos: Array.from(st.omitidos) }, extra || {})),
       });
       if (r.status === 401) { error("Tu sesión expiró. Copia tu texto y vuelve a entrar."); return null; }
       const d = await r.json();
@@ -125,11 +153,15 @@
     if (!texto || st.ocupado) return;
     mensaje("u", esc(texto));
     chat.value = "";
+    const sobre = st.respondiendo;
+    st.respondiendo = null;
+    chat.placeholder = "Escribe aquí…";
+    const paraIA = sobre ? `Respuesta a «${sobre.pregunta}»: ${texto}` : texto;
     ocupado(true, "GuardIA responde…");
     const w = pensando();
-    const r = await llamar({ mensaje: texto });
+    const r = await llamar({ mensaje: paraIA });
     w.remove();
-    st.historial.push({ de: "u", t: texto });
+    st.historial.push({ de: "u", t: paraIA });
     if (!r) return;
     st.historial.push({ de: "g", t: r.mensaje || "" });
     pintarRespuesta(r);
@@ -137,14 +169,14 @@
 
   // ------------------------------------------------------------ modo manual (GuardIA no respondió)
   // marca en las etiquetas qué datos pide el tipo: «recomendado» con GuardIA, «*» obligatorio sin GuardIA
-  const MAPA = { pantalla: ["pantalla"], pasos: ["pasos"], esperado_obtenido: ["esperado", "obtenido"], referencia: ["referencia"] };
+  const MAPA = { pantalla: ["pantalla"], pasos: ["pasos"], referencia: ["referencia"] };
   function etiquetas(n) {
     const el = campo(n);
     return el ? [form.querySelector(`label[for="tk-${n}"]`)].filter(Boolean) : [];
   }
   function marcarTipo() {
     $$("[data-dyn]", form).forEach((x) => x.remove());
-    ["pantalla", "pasos", "esperado", "obtenido", "referencia"].forEach((n) => { campo(n).required = false; });
+    ["pantalla", "pasos", "referencia"].forEach((n) => { campo(n).required = false; });
     const tipo = campo("tipo").value;
     if (!tipo) return;
     (datos.requeridos[tipo] || []).forEach((c) => {
@@ -166,6 +198,7 @@
     st.modo = "manual"; st.faltan = []; st.completo = false;
     marcar(); cerrar(); tab.hidden = true;
     $("#tk-sinia").hidden = false;
+    campo("titulo").placeholder = "Se arma solo al levantarlo (o escríbelo tú)";
     $("#tk-sep-nota").innerHTML = 'Los marcados con <span class="ast">*</span> son obligatorios para este tipo de ticket.';
     $("#tk-pie").textContent = "Tu borrador se guarda en cada cambio. El equipo revisa tu ticket aunque GuardIA no esté.";
     requeridosManual();
@@ -179,8 +212,9 @@
     const fd = new FormData(form);
     fd.delete("archivos");
     Array.from(archivos.files).forEach((f) => fd.append("archivos", f, f.name));
+    if (st.omitidos.size && validacion === "completo") validacion = "incompleto";
     fd.append("validacion", validacion);
-    fd.append("faltantes", JSON.stringify(validacion === "incompleto" ? st.faltan.map((f) => f.campo) : []));
+    fd.append("faltantes", JSON.stringify(Array.from(new Set([...st.omitidos, ...(validacion === "incompleto" ? st.faltan.map((f) => f.campo) : [])]))));
     fd.append("conversacion", JSON.stringify(st.historial));
     fd.append("prompt_version", datos.prompt_version || "");
     ocupado(true, "Levantando…");
@@ -207,9 +241,14 @@
   msgs.addEventListener("click", (e) => {
     const b = e.target.closest("[data-q]");
     if (!b || st.ocupado) return;
-    const q = b.dataset.q;
+    const q = b.dataset.q, card = b.closest(".tkt-q"), campo_ = card && card.dataset.campo;
     if (q === "adjuntar") input.click();
-    else if (q === "no") conversar("No lo tengo");
+    else if (q === "no") omitir(campo_, card);
+    else if (q === "resp") {
+      st.respondiendo = { campo: campo_, pregunta: $("b", card).textContent };
+      chat.placeholder = "Tu respuesta: " + st.respondiendo.pregunta;
+      chat.focus();
+    }
     else if (q === "asi") enviar("incompleto");
     else if (q === "ya") enviar(st.faltan.length ? "incompleto" : "completo");
   });
@@ -248,6 +287,52 @@
     pintarArchivos();
   });
 
+  // ------------------------------------------------------------ mientras escribe: título y campos sugeridos
+  let espera = null;
+  const lee = $("#tk-lee"), leeTxt = lee.innerHTML;
+  async function sugerir() {
+    const desc = campo("descripcion").value.trim();
+    if (st.modo !== "ia" || st.ocupado || st.leyendo || desc.length < 40 || desc === st.sugerido) return;
+    st.leyendo = true; st.sugerido = desc;
+    lee.innerHTML = '<span class="spin" style="width:12px;height:12px;border-width:2px"></span> GuardIA está leyendo tu descripción…';
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 30000);
+    try {
+      const r = await fetch("/api/tickets/revisar", {
+        method: "POST", headers: { "Content-Type": "application/json" }, signal: ctl.signal,
+        body: JSON.stringify({ campos: valores(), anexos: nombresAnexos(), solo_llenar: true }),
+      });
+      const d = await r.json();
+      if (d.ok) { llenar(Object.assign({}, d.campos, d.titulo ? { titulo: d.titulo } : {})); cascada(); marcarTipo(); }
+    } catch (e) { /* la sugerencia es opcional: si falla, se revisa al levantar */ }
+    finally { clearTimeout(t); st.leyendo = false; lee.innerHTML = leeTxt; }
+  }
+  // RFC en la descripción → cliente al instante (GuardIA lo afina después con la razón social)
+  const RFC = /\b([A-ZÑ&]{3,4})\s?-?(\d{6})\s?-?([A-Z0-9]{3})\b/;
+  function clienteDesdeRFC() {
+    const c = campo("cliente");
+    if (c.value.trim() && c.dataset.auto !== "1") return;
+    for (const linea of campo("descripcion").value.split(/\n/)) {
+      const m = linea.toUpperCase().match(RFC);
+      if (!m) continue;
+      const rfc = m[1] + m[2] + m[3];
+      const resto = linea.slice(m.index + m[0].length).replace(/^[\s,:;\-–]+/, "").trim();
+      const nombre = /^[A-ZÁÉÍÓÚÑ0-9&.,\s]{4,120}$/.test(resto.toUpperCase()) && resto ? resto.replace(/\s{2,}/g, " ") : "";
+      const v = nombre ? `${nombre} (${rfc})` : rfc;
+      if (c.value !== v) { c.value = v; c.dataset.auto = "1"; c.classList.add("tkt-lleno"); }
+      return;
+    }
+  }
+  campo("descripcion").addEventListener("input", () => { clienteDesdeRFC(); clearTimeout(espera); espera = setTimeout(sugerir, 1800); });
+  campo("descripcion").addEventListener("blur", () => { clearTimeout(espera); sugerir(); });
+
+  $("#tk-titulo-ed").addEventListener("click", () => {
+    const t = campo("titulo"); t.readOnly = false; st.tituloManual = true; t.focus(); t.select();
+  });
+
+  function crecer(el) { el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight + 2, 320) + "px"; el.style.overflowY = el.scrollHeight > 320 ? "auto" : "hidden"; }
+  $$(".tkt-auto", form).forEach((el) => { el.addEventListener("input", () => crecer(el)); });
+
   // ------------------------------------------------------------ catálogo en cascada
   function opciones(id, lista) { $("#" + id).innerHTML = lista.map((x) => `<option value="${esc(x)}">`).join(""); }
   function cascada() {
@@ -264,6 +349,7 @@
       st.completo = false; ocupado(false);
     }
     e.target.classList.remove("tkt-lleno");
+    if (e.target.dataset) delete e.target.dataset.auto;
     guardarBorrador();
   });
 
@@ -274,6 +360,8 @@
     if (b) CAMPOS.forEach((n) => { if (b[n]) campo(n).value = b[n]; });
   } catch (e) { /* sin almacenamiento */ }
   cascada();
+  clienteDesdeRFC();
   marcarTipo();
+  $$(".tkt-auto", form).forEach(crecer);
   if (st.modo === "manual") manual(datos.ia ? "" : "La IA no está configurada en el servidor.");
 })();
