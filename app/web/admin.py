@@ -96,9 +96,12 @@ def editar_usuario(uid: int, request: Request, nombre: str = Form(...), rol: str
     x.nombre, x.rol, x.area_id = nombre.strip(), rol, area_id or None
     x.puede_confidencial, x.recibe_correos = puede_confidencial, recibe_correos
     if menus_form:
-        bloq = sorted(m.clave for m in accesos.MENUS if accesos.por_rol(rol, m) and m.clave not in menus)
+        bloq = sorted(m.clave for m in accesos.MENUS if not m.opt_in and accesos.por_rol(rol, m) and m.clave not in menus)
+        extra = sorted(m.clave for m in accesos.MENUS if m.opt_in and m.clave in menus)
         cambios["menus_bloqueados"] = (sorted(x.menus_bloqueados or []), bloq)
+        cambios["menus_otorgados"] = (sorted(x.menus_extra or []), extra)
         x.menus_bloqueados = bloq or None
+        x.menus_extra = extra or None
     auditar(db, "editar", "usuario", x.id, u.id, **{k: list(v) for k, v in cambios.items() if v[0] != v[1]})
     db.commit()
     flash(request, "Usuario actualizado.")

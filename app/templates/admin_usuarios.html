@@ -45,7 +45,7 @@
     {% if x.rol == 'admin' %}<span class="small muted">Los administradores ven todos los menús.</span>
     {% else %}{% for g, gt in grupos.items() %}{% set its = [] %}{% for m in menus if m.grupo == g and por_rol(x.rol, m) %}{% set _ = its.append(m) %}{% endfor %}
     {% if its %}<div class="cap" style="margin-top:4px">{{ gt }}</div>
-    <div class="grid2" style="gap:2px 14px">{% for m in its %}<label class="check"><input type="checkbox" name="menus" value="{{ m.clave }}" {{ 'checked' if puede_menu(x, m.clave) }}><span>{{ m.titulo }}</span></label>{% endfor %}</div>{% endif %}
+    <div class="grid2" style="gap:2px 14px">{% for m in its %}<label class="check"><input type="checkbox" name="menus" value="{{ m.clave }}" {{ 'checked' if puede_menu(x, m.clave) }}><span>{{ m.titulo }}{% if m.opt_in %} <span class="muted small">· se otorga</span>{% endif %}</span></label>{% endfor %}</div>{% endif %}
     {% endfor %}
     <span class="small muted">Si cambias el rol, guarda primero y vuelve a abrir para ver los menús del nuevo rol.</span>{% endif %}
   </div>

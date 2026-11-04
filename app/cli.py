@@ -242,6 +242,45 @@ def ventas_frentes() -> None:
           "Panel AYF queda como información en el tablero de Ventas.")
 
 
+def almacen_probar() -> None:
+    from .services import almacen
+    print(almacen.probar())
+
+
+def almacen_migrar(borrar_local: bool) -> None:
+    """Sube a S3 las evidencias que quedaron en disco y las transcripciones guardadas en la base."""
+    from .models import EvidenciaArchivo, SesionCliente
+    from .services import almacen
+    if not almacen.s3_activo():
+        raise SystemExit("Configura S3_BUCKET (y las llaves) en .env antes de migrar.")
+    ev_n = tr_n = err = 0
+    with SessionLocal() as db:
+        for ev in db.scalars(select(EvidenciaArchivo)):
+            if almacen.es_s3(ev.ruta):
+                continue
+            try:
+                contenido = almacen.leer(ev.ruta)
+                vieja = ev.ruta
+                ev.ruta = almacen.guardar(f"evidencias/{ev.compromiso_id}", ev.nombre, contenido, ev.tipo)
+                db.commit()
+                ev_n += 1
+                if borrar_local:
+                    almacen.borrar(vieja)
+            except almacen.AlmacenError as e:
+                err += 1
+                print(f"  evidencia {ev.id} ({ev.nombre}): {e}")
+        for s in db.scalars(select(SesionCliente).where(SesionCliente.transcripcion_ruta.is_(None))):
+            if not s.transcripcion:
+                continue
+            s.transcripcion_ruta = almacen.guardar("transcripciones", "transcripcion.enc" if s.cifrada else "transcripcion.txt",
+                                                   s.transcripcion.encode(), "text/plain")
+            s.transcripcion = ""
+            db.commit()
+            tr_n += 1
+    print(f"Migración a S3 lista. Evidencias: {ev_n}. Transcripciones: {tr_n}. Con error: {err}."
+          + ("" if borrar_local else " Los archivos en disco se conservaron; vuelve a correr con --borrar-local para quitarlos."))
+
+
 def crear_admin(email: str, nombre: str, password: str | None) -> None:
     password = password or getpass.getpass("Contraseña (mínimo 10 caracteres): ")
     if len(password) < 10:
@@ -266,6 +305,9 @@ def main() -> None:
     sub.add_parser("especialistas")
     sub.add_parser("ventas-auto")
     sub.add_parser("ventas-frentes")
+    sub.add_parser("almacen-probar")
+    m = sub.add_parser("almacen-migrar")
+    m.add_argument("--borrar-local", action="store_true")
     a = sub.add_parser("crear-admin")
     a.add_argument("--email", required=True)
     a.add_argument("--nombre", required=True)
@@ -282,6 +324,10 @@ def main() -> None:
         ventas_auto_cmd()
     elif args.cmd == "ventas-frentes":
         ventas_frentes()
+    elif args.cmd == "almacen-probar":
+        almacen_probar()
+    elif args.cmd == "almacen-migrar":
+        almacen_migrar(args.borrar_local)
     else:
         crear_admin(args.email, args.nombre, args.password)
 

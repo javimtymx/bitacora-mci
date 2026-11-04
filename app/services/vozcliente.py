@@ -36,21 +36,37 @@ def _fernet():
 
 
 def guardar_texto(s: SesionCliente, texto: str) -> None:
+    """Cifra la transcripción (si hay TRANSCRIPCIONES_CLAVE) y la guarda en S3; sin S3 queda en la base."""
+    from . import almacen
     f = _fernet()
     s.palabras = len(texto.split())
-    if f:
-        s.transcripcion, s.cifrada = f.encrypt(texto.encode()).decode(), True
+    dato, s.cifrada = (f.encrypt(texto.encode()).decode(), True) if f else (texto, False)
+    if almacen.s3_activo():
+        anterior = s.transcripcion_ruta
+        s.transcripcion_ruta = almacen.guardar("transcripciones", "transcripcion.enc" if s.cifrada else "transcripcion.txt",
+                                               dato.encode(), "text/plain")
+        s.transcripcion = ""
+        if anterior:
+            almacen.borrar(anterior)
     else:
-        s.transcripcion, s.cifrada = texto, False
+        s.transcripcion, s.transcripcion_ruta = dato, None
+
+
+def _dato(s: SesionCliente) -> str:
+    if s.transcripcion_ruta:
+        from . import almacen
+        return almacen.leer(s.transcripcion_ruta).decode()
+    return s.transcripcion
 
 
 def leer_texto(s: SesionCliente) -> str:
+    dato = _dato(s)
     if not s.cifrada:
-        return s.transcripcion
+        return dato
     f = _fernet()
     if not f:
         raise RuntimeError("La transcripción está cifrada y falta TRANSCRIPCIONES_CLAVE.")
-    return f.decrypt(s.transcripcion.encode()).decode()
+    return f.decrypt(dato.encode()).decode()
 
 
 def decodificar(raw: bytes) -> str:

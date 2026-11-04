@@ -146,6 +146,30 @@ class ClienteIA:
             log.error("JSON inválido de la IA tras reintento (%s): %s", "cortado" if meta["cortada"] else "mal formado", e)
             raise ValueError("La IA devolvió una respuesta incompleta después de reintentar. Intenta de nuevo en un momento.") from e
 
+    def pedir_json_vivo(self, prompt, max_tokens: int = 1200, timeout: int = 15,
+                        system: str | None = None) -> tuple[dict, dict]:
+        """Para pantallas donde el usuario espera la respuesta: modelo rápido, un solo intento y tiempo corto.
+        Si falla, el que llama cambia a modo manual en lugar de hacer esperar a la persona."""
+        if not self.disponible:
+            raise IANoDisponible("Falta ANTHROPIC_API_KEY")
+        import anthropic
+        if getattr(self, "_vivo", None) is None or self._vivo[0] != timeout:
+            self._vivo = (timeout, anthropic.Anthropic(api_key=self.s.anthropic_api_key, timeout=timeout, max_retries=0))
+        modelo = self.s.ia_modelo_rapido
+        try:
+            r = self._vivo[1].messages.create(model=modelo, max_tokens=max_tokens, system=system or SYSTEM,
+                                              messages=[{"role": "user", "content": prompt}])
+        except Exception as e:  # noqa: BLE001
+            log.warning("IA en vivo no respondió (modelo %s): %s: %s", modelo, type(e).__name__, e)
+            raise IANoDisponible(_mensaje_error(e)) from e
+        texto = "".join(b.text for b in r.content if getattr(b, "type", "") == "text")
+        meta = {"modelo": modelo, "tin": getattr(r.usage, "input_tokens", 0), "tout": getattr(r.usage, "output_tokens", 0)}
+        try:
+            return extraer_json(texto), meta
+        except json.JSONDecodeError as e:
+            log.warning("IA en vivo devolvió JSON inválido: %s", e)
+            raise IANoDisponible("La IA devolvió una respuesta incompleta.") from e
+
     def pedir_texto(self, prompt: str, rapido: bool = False, max_tokens: int = 4000,
                     system: str | None = None) -> tuple[str, dict]:
         return self._texto(prompt, rapido, max_tokens, system)

@@ -1,0 +1,388 @@
+"""GuardIA Ticket: captura híbrida, triage, tablero de desarrollo y configuración."""
+from __future__ import annotations
+
+import json
+import logging
+from datetime import timedelta
+from urllib.parse import quote
+
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import JSONResponse, Response
+from sqlalchemy import or_, select
+from sqlalchemy.orm import Session
+
+from ..config import get_settings
+from ..db import get_db
+from ..models import (TICKET_CIERRES, TICKET_ESTADOS, TICKET_IMPACTOS, TICKET_TIPOS, Ticket, TicketAnexo,
+                      TicketPrompt, TicketRegla, Usuario, utcnow)
+from ..services import accesos, almacen, correo, ia
+from ..services import tickets as tk
+from .base import OptInt, flash, ir, render, usuario_actual
+
+router = APIRouter()
+log = logging.getLogger("bitacora.web.tickets")
+
+
+def _ticket(db: Session, tid: int, u: Usuario) -> Ticket:
+    t = db.get(Ticket, tid)
+    if not t or not tk.puede_ver(u, t):
+        raise HTTPException(404, "Ticket no encontrado.")
+    return t
+
+
+def _exigir(u: Usuario, clave: str) -> None:
+    if not accesos.puede(u, clave):
+        raise HTTPException(403, "No tienes permiso para esta acción de tickets.")
+
+
+def _avisar(bg: BackgroundTasks, usuarios: list[Usuario | None], asunto: str, cuerpo: str, t: Ticket) -> None:
+    correos = [x.email for x in usuarios if x and x.activo and x.recibe_correos]
+    if not correos:
+        return
+    enlace = f"{get_settings().base_url.rstrip('/')}/tickets/{t.id}"
+
+    def _enviar():
+        try:
+            correo.enviar(correos, asunto, cuerpo, enlace)
+        except Exception as e:  # noqa: BLE001 - un correo fallido no debe afectar al ticket
+            log.warning("No se pudo avisar de %s: %s", t.folio, e)
+    bg.add_task(_enviar)
+
+
+async def _archivos(lista: list[UploadFile] | None) -> list[tuple[str, bytes]]:
+    out = []
+    for a in lista or []:
+        if a and a.filename:
+            out.append((a.filename, await a.read()))
+    return out
+
+
+# ---------------------------------------------------------------- usuario: mis tickets y alta
+
+@router.get("/tickets")
+def lista(request: Request, ver: str = "mios", estado: str = "abiertos", db: Session = Depends(get_db),
+          u: Usuario = Depends(usuario_actual)):
+    staff = tk.es_staff(u)
+    q = select(Ticket).order_by(Ticket.creado.desc())
+    if not (staff and ver == "todos"):
+        q = q.where(or_(Ticket.creado_por == u.id, Ticket.asignado_id == u.id))
+    if estado == "abiertos":
+        q = q.where(Ticket.estado != "cerrado")
+    elif estado == "cerrados":
+        q = q.where(Ticket.estado == "cerrado")
+    ts = db.scalars(q.limit(300)).all()
+    return render(request, "tickets.html", u, "tickets", ts=ts, ver=ver, estado=estado, staff=staff,
+                  estados=TICKET_ESTADOS, tipos=TICKET_TIPOS, vence_en=tk.vence_en)
+
+
+@router.get("/tickets/nuevo")
+def nuevo(request: Request, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+    p = tk.prompt_vigente(db)
+    cat = tk.catalogo(db)
+    db.commit()
+    req = {t: tk.requeridos(p, t) for t in TICKET_TIPOS}
+    return render(request, "ticket_nuevo.html", u, "tickets", catalogo=cat, requeridos=req, campos_req=tk.CAMPOS_REQ,
+                  tipos=TICKET_TIPOS, impactos=TICKET_IMPACTOS, prompt_version=p.version,
+                  ia_ok=ia.cliente().disponible, aceptar=",".join("." + e for e in tk.PERMITIDOS))
+
+
+@router.post("/api/tickets/revisar")
+async def api_revisar(request: Request, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+    """GuardIA revisa el formulario (y responde en el chat). Si no responde, la pantalla pasa a modo manual."""
+    try:
+        datos = await request.json()
+    except (json.JSONDecodeError, ValueError):
+        return JSONResponse({"ok": False, "mensaje": "Solicitud inválida."}, status_code=400)
+    campos = datos.get("campos") or {}
+    anexos = [str(x)[:200] for x in (datos.get("anexos") or [])][:20]
+    historial = [h for h in (datos.get("historial") or []) if isinstance(h, dict)][-20:]
+    mensaje = str(datos.get("mensaje") or "").strip()[:2000] or None
+    try:
+        r = tk.revisar(db, campos, anexos, historial, mensaje)
+    except ia.IANoDisponible as e:
+        return JSONResponse({"ok": False, "sin_ia": True, "mensaje": str(e)})
+    except Exception:  # noqa: BLE001 - cualquier falla de GuardIA lleva al modo manual, nunca bloquea
+        log.exception("Revisión de ticket falló")
+        return JSONResponse({"ok": False, "sin_ia": True, "mensaje": "GuardIA no respondió."})
+    db.commit()  # el prompt inicial y el catálogo pudieron crearse
+    return JSONResponse({"ok": True, **r})
+
+
+@router.post("/api/tickets/nuevo")
+async def api_nuevo(request: Request, bg: BackgroundTasks, descripcion: str = Form(""), producto: str = Form(""),
+                    menu: str = Form(""), pantalla: str = Form(""), tipo: str = Form(""), impacto: str = Form(""),
+                    titulo: str = Form(""), pasos: str = Form(""), esperado: str = Form(""), obtenido: str = Form(""),
+                    referencia: str = Form(""), cliente: str = Form(""), validacion: str = Form("sin_ia"),
+                    faltantes: str = Form("[]"), conversacion: str = Form("[]"), prompt_version: OptInt = Form(None),
+                    archivos: list[UploadFile] | None = File(None),
+                    db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+    campos = dict(descripcion=descripcion, producto=producto, menu=menu, pantalla=pantalla, tipo=tipo, impacto=impacto,
+                  titulo=titulo, pasos=pasos, esperado=esperado, obtenido=obtenido, referencia=referencia, cliente=cliente)
+    try:
+        falt = [str(x) for x in json.loads(faltantes or "[]")][:10]
+        conv = [h for h in json.loads(conversacion or "[]") if isinstance(h, dict)][-30:]
+    except (json.JSONDecodeError, TypeError):
+        falt, conv = [], []
+    try:
+        t = tk.crear(db, u, campos, await _archivos(archivos), validacion=validacion, faltantes=falt,
+                     conversacion=[{"de": str(h.get("de"))[:2], "t": str(h.get("t", ""))[:2000]} for h in conv],
+                     prompt_version=prompt_version)
+        db.commit()
+    except tk.TicketInvalido as e:
+        db.rollback()
+        return JSONResponse({"ok": False, "mensaje": str(e)}, status_code=400)
+    bg.add_task(tk.triage_en_fondo, t.id)
+    flash(request, f"Ticket {t.folio} levantado. Te avisaremos por correo cuando haya novedades.")
+    return JSONResponse({"ok": True, "url": f"/tickets/{t.id}", "folio": t.folio})
+
+
+@router.get("/tickets/{tid}")
+def detalle(tid: int, request: Request, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+    t = _ticket(db, tid, u)
+    staff = tk.es_staff(u)
+    sim = tk.similares(db, f"{t.titulo} {t.descripcion} {t.pantalla}", excluir_id=t.id) if staff else []
+    return render(request, "ticket.html", u, "tickets", t=t, staff=staff, sim=sim,
+                  triage=accesos.puede(u, "tickets-triage"), dev=accesos.puede(u, "tickets-tablero"),
+                  estados=TICKET_ESTADOS, tipos=TICKET_TIPOS, impactos=TICKET_IMPACTOS, cierres=TICKET_CIERRES,
+                  campos_req=tk.CAMPOS_REQ, asignables=tk.asignables(db) if staff else [], vence_en=tk.vence_en,
+                  aceptar=",".join("." + e for e in tk.PERMITIDOS))
+
+
+@router.post("/tickets/{tid}/comentar")
+async def comentar(tid: int, request: Request, bg: BackgroundTasks, texto: str = Form(""),
+                   archivos: list[UploadFile] | None = File(None),
+                   db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+    t = _ticket(db, tid, u)
+    era_info = t.estado == "info"
+    try:
+        lista_ = await _archivos(archivos)
+        for nombre, contenido in lista_:
+            tk.guardar_anexo(db, t, nombre, contenido, u)
+        if texto.strip() or not lista_:
+            tk.comentar(db, u, t, texto or "")
+        elif era_info and u.id == t.creado_por:
+            tk.comentar(db, u, t, "Adjunté " + ", ".join(n for n, _ in lista_) + ".")
+        db.commit()
+    except tk.TicketInvalido as e:
+        db.rollback()
+        flash(request, str(e), "error")
+        return ir(f"/tickets/{tid}")
+    if era_info and t.estado != "info":
+        _avisar(bg, [t.asignado], f"{t.folio}: el usuario respondió", f"{u.nombre} respondió en «{t.titulo}».", t)
+    elif u.id != t.creado_por:
+        _avisar(bg, [t.autor], f"{t.folio}: nuevo comentario", f"{u.nombre} comentó en tu ticket «{t.titulo}».", t)
+    return ir(f"/tickets/{tid}#hilo")
+
+
+@router.get("/anexos-ticket/{aid}")
+def descargar(aid: int, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+    a = db.get(TicketAnexo, aid)
+    if not a or not tk.puede_ver(u, a.ticket):
+        raise HTTPException(404, "Archivo no encontrado.")
+    try:
+        contenido = almacen.leer(a.ruta)
+    except almacen.AlmacenError as e:
+        raise HTTPException(404, str(e)) from e
+    return Response(contenido, media_type=a.tipo or "application/octet-stream",
+                    headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(a.nombre)}",
+                             "X-Content-Type-Options": "nosniff"})
+
+
+# ---------------------------------------------------------------- desarrollo
+
+@router.post("/tickets/{tid}/mover")
+def mover(tid: int, request: Request, estado: str = Form(...), db: Session = Depends(get_db),
+          u: Usuario = Depends(usuario_actual)):
+    _exigir(u, "tickets-tablero")
+    t = _ticket(db, tid, u)
+    try:
+        tk.mover(db, u, t, estado)
+        db.commit()
+    except tk.TicketInvalido as e:
+        flash(request, str(e), "error")
+    destino = request.headers.get("referer") or f"/tickets/{tid}"
+    return ir(destino if "/tickets" in destino else f"/tickets/{tid}")
+
+
+@router.post("/tickets/{tid}/pedir-info")
+def pedir_info(tid: int, request: Request, bg: BackgroundTasks, pregunta: str = Form(""), regla: str = Form(""),
+               db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+    _exigir(u, "tickets-tablero")
+    t = _ticket(db, tid, u)
+    try:
+        r = tk.pedir_info(db, u, t, pregunta, regla)
+        db.commit()
+    except tk.TicketInvalido as e:
+        flash(request, str(e), "error")
+        return ir(f"/tickets/{tid}")
+    _avisar(bg, [t.autor], f"{t.folio}: necesitamos más información",
+            f"{u.nombre} necesita más información para atender «{t.titulo}»:\n\n{pregunta.strip()}", t)
+    flash(request, "Se pidió la información al usuario." + (" Tu regla quedó para revisión en Configurar GuardIA Ticket." if r else ""))
+    return ir(f"/tickets/{tid}")
+
+
+@router.post("/tickets/{tid}/paquete")
+def paquete(tid: int, request: Request, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+    _exigir(u, "tickets-tablero")
+    t = _ticket(db, tid, u)
+    tk.generar_paquete(db, t)
+    db.commit()
+    return ir(f"/tickets/{tid}#paquete")
+
+
+@router.post("/tickets/{tid}/cerrar")
+def cerrar(tid: int, request: Request, bg: BackgroundTasks, tipo_cierre: str = Form(""), causa: str = Form(""),
+           solucion: str = Form(""), modulos: str = Form(""), db: Session = Depends(get_db),
+           u: Usuario = Depends(usuario_actual)):
+    _exigir(u, "tickets-tablero")
+    t = _ticket(db, tid, u)
+    try:
+        tk.cerrar(db, u, t, tipo_cierre=tipo_cierre, causa=causa, solucion=solucion, modulos=modulos)
+        db.commit()
+    except tk.TicketInvalido as e:
+        flash(request, str(e), "error")
+        return ir(f"/tickets/{tid}")
+    _avisar(bg, [t.autor], f"{t.folio}: resuelto", f"Tu ticket «{t.titulo}» se cerró.\n\nSolución: {t.resolucion['solucion']}", t)
+    flash(request, f"{t.folio} cerrado. La solución queda disponible para tickets parecidos.")
+    return ir(f"/tickets/{tid}")
+
+
+@router.post("/tickets/{tid}/reabrir")
+def reabrir(tid: int, request: Request, motivo: str = Form(""), db: Session = Depends(get_db),
+            u: Usuario = Depends(usuario_actual)):
+    t = _ticket(db, tid, u)
+    if not (u.id == t.creado_por or accesos.puede(u, "tickets-tablero")):
+        raise HTTPException(403, "No puedes reabrir este ticket.")
+    try:
+        tk.reabrir(db, u, t, motivo)
+        db.commit()
+    except tk.TicketInvalido as e:
+        flash(request, str(e), "error")
+    return ir(f"/tickets/{tid}")
+
+
+@router.get("/tickets-tablero")
+def tablero(request: Request, persona: OptInt = None, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+    q = select(Ticket).where(or_(Ticket.estado.in_(("pendiente", "en_curso", "revision", "info")),
+                                 Ticket.cerrado_en >= utcnow() - timedelta(days=7)))
+    if persona:
+        q = q.where(Ticket.asignado_id == persona)
+    orden = {"P1": 0, "P2": 1, "P3": 2, "P4": 3}
+    ts = sorted(db.scalars(q).all(), key=lambda t: (orden.get(t.prioridad or "", 4), t.sla_vence or t.creado))
+    columnas = [(e, TICKET_ESTADOS[e], [t for t in ts if t.estado == e])
+                for e in ("pendiente", "en_curso", "revision", "info", "cerrado")]
+    n_nuevos = len(db.scalars(select(Ticket.id).where(Ticket.estado == "nuevo")).all())
+    return render(request, "tickets_tablero.html", u, "tickets-tablero", columnas=columnas, persona=persona,
+                  gente=tk.asignables(db), vence_en=tk.vence_en, n_nuevos=n_nuevos, tipos=TICKET_TIPOS)
+
+
+# ---------------------------------------------------------------- triage
+
+@router.get("/tickets-triage")
+def triage_lista(request: Request, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+    nuevos = db.scalars(select(Ticket).where(Ticket.estado == "nuevo").order_by(Ticket.creado)).all()
+    recientes = db.scalars(select(Ticket).where(Ticket.triage_en.is_not(None)).order_by(Ticket.triage_en.desc()).limit(15)).all()
+    gente = tk.asignables(db)
+    hace = utcnow() - timedelta(minutes=3)
+    esperando = {t.id for t in nuevos if not t.ia_triage and (t.creado >= hace or t.actualizado >= hace)}
+    return render(request, "tickets_triage.html", u, "tickets-triage", nuevos=nuevos, recientes=recientes, gente=gente,
+                  esperando=esperando,
+                  nombres={g.id: g.nombre for g in gente}, tipos=TICKET_TIPOS, impactos=TICKET_IMPACTOS,
+                  campos_req=tk.CAMPOS_REQ, estados=TICKET_ESTADOS)
+
+
+@router.post("/tickets-triage/{tid}")
+def triage_guardar(tid: int, request: Request, bg: BackgroundTasks, prioridad: str = Form(""),
+                   asignado_id: OptInt = Form(None), nota: str = Form(""), db: Session = Depends(get_db),
+                   u: Usuario = Depends(usuario_actual)):
+    t = _ticket(db, tid, u)
+    asignado = db.get(Usuario, asignado_id) if asignado_id else None
+    if asignado and asignado not in tk.asignables(db):
+        raise HTTPException(400, "Esa persona no atiende tickets.")
+    try:
+        tk.triage(db, u, t, prioridad, asignado, nota)
+        db.commit()
+    except tk.TicketInvalido as e:
+        flash(request, str(e), "error")
+        return ir("/tickets-triage")
+    if asignado and asignado.id != u.id:
+        _avisar(bg, [asignado], f"{t.folio} ({t.prioridad}) te fue asignado", f"Te asignaron «{t.titulo}».", t)
+    flash(request, f"{t.folio}: {t.prioridad}" + (f" para {asignado.nombre}" if asignado else "") + ".")
+    return ir("/tickets-triage")
+
+
+@router.post("/tickets-triage/{tid}/ia")
+def triage_regenerar(tid: int, request: Request, bg: BackgroundTasks, db: Session = Depends(get_db),
+                     u: Usuario = Depends(usuario_actual)):
+    t = _ticket(db, tid, u)
+    t.ia_triage, t.actualizado = {}, utcnow()
+    db.commit()
+    bg.add_task(tk.triage_en_fondo, t.id)
+    return ir("/tickets-triage")
+
+
+# ---------------------------------------------------------------- configuración
+
+@router.get("/tickets-config")
+def config(request: Request, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+    p = tk.prompt_vigente(db)
+    tk.catalogo(db)
+    db.commit()
+    versiones = db.scalars(select(TicketPrompt).order_by(TicketPrompt.version.desc()).limit(20)).all()
+    reglas = db.scalars(select(TicketRegla).where(TicketRegla.estado == "pendiente").order_by(TicketRegla.creado)).all()
+    return render(request, "tickets_config.html", u, "tickets-config", p=p, versiones=versiones, reglas=reglas,
+                  tipos=TICKET_TIPOS, campos_req=tk.CAMPOS_REQ, catalogo_txt=tk.catalogo_texto(db),
+                  metricas=tk.regresados_por_version(db))
+
+
+@router.post("/tickets-config/prompt")
+async def config_prompt(request: Request, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+    form = await request.form()
+    req = {t: [c for c in tk.CAMPOS_REQ if form.get(f"req_{t}_{c}")] for t in TICKET_TIPOS}
+    try:
+        p = tk.nueva_version(db, u, instrucciones=str(form.get("instrucciones") or ""),
+                             reglas=str(form.get("reglas") or "").splitlines(), requeridos_=req,
+                             motivo=str(form.get("motivo") or ""))
+        db.commit()
+        flash(request, f"Versión {p.version} activa: GuardIA ya revisa los tickets nuevos con estas instrucciones.")
+    except tk.TicketInvalido as e:
+        db.rollback()
+        flash(request, str(e), "error")
+    return ir("/tickets-config")
+
+
+@router.post("/tickets-config/catalogo")
+def config_catalogo(request: Request, catalogo: str = Form(""), db: Session = Depends(get_db),
+                    u: Usuario = Depends(usuario_actual)):
+    n = tk.guardar_catalogo(db, u, catalogo)
+    db.commit()
+    flash(request, f"Catálogo guardado: {n} líneas.")
+    return ir("/tickets-config#catalogo")
+
+
+@router.post("/tickets-config/reglas/{rid}")
+def config_regla(rid: int, request: Request, accion: str = Form(...), texto: str = Form(""),
+                 db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+    r = db.get(TicketRegla, rid)
+    if not r or r.estado != "pendiente":
+        raise HTTPException(404, "Solicitud no encontrada.")
+    if accion == "aprobar":
+        p = tk.aprobar_regla(db, u, r, texto)
+        flash(request, f"Regla agregada: versión {p.version} del prompt activa.")
+    else:
+        r.estado, r.resuelto_por, r.resuelto_en = "descartada", u.id, utcnow()
+        flash(request, "Solicitud descartada.")
+    db.commit()
+    return ir("/tickets-config")
+
+
+@router.post("/tickets-config/restaurar/{version}")
+def config_restaurar(version: int, request: Request, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+    v = db.scalar(select(TicketPrompt).where(TicketPrompt.version == version))
+    if not v:
+        raise HTTPException(404, "Versión no encontrada.")
+    p = tk.nueva_version(db, u, instrucciones=v.instrucciones, reglas=list(v.reglas or []),
+                         requeridos_=v.requeridos or tk.REQUERIDOS_DEFAULT, motivo=f"Se restauró la versión {version}")
+    db.commit()
+    flash(request, f"Se restauró la versión {version} como versión {p.version}.")
+    return ir("/tickets-config")

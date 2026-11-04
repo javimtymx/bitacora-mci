@@ -1,0 +1,65 @@
+{% extends "base.html" %}{% from "_ui.html" import icon with context %}
+{% block title %}Configurar GuardIA Ticket{% endblock %}
+{% block content %}
+<div class="top">
+  <div class="col" style="gap:4px"><span class="muted small">Soporte · Configurar</span><h1>Qué pide Guard<span class="gia">IA</span> al levantar un ticket</h1></div>
+  <span class="tag b">Versión {{ p.version }} · activa desde {{ hora_local(p.creado) }}</span>
+</div>
+
+<form method="post" action="/tickets-config/prompt" class="grid2" style="grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);align-items:start">
+  <section class="card pad">
+    <div class="row between"><h2>Instrucciones</h2><span class="muted small">Cómo revisa y cómo pide los datos</span></div>
+    <textarea class="input" name="instrucciones" required minlength="40" style="padding:12px;min-height:300px;font:500 13px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace">{{ p.instrucciones }}</textarea>
+    <div class="field"><label for="cfg-reglas">Reglas aprendidas de desarrollo (una por línea)</label>
+      <textarea class="input" id="cfg-reglas" name="reglas" style="padding:12px;min-height:120px;font:500 13px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace"
+        placeholder="En errores de carga de layout pide siempre el archivo.&#10;En SAFE pide el número de pedimento y la aduana.">{{ (p.reglas or [])|join('\n') }}</textarea>
+      <span class="muted small">GuardIA las aplica cuando el caso coincide. Las que proponen los desarrolladores al pedir más información llegan abajo para aprobarse.</span></div>
+  </section>
+  <div class="col" style="gap:20px">
+    <section class="card pad">
+      <h2>Datos requeridos por tipo</h2>
+      <div class="tbl"><table class="tkt-req"><thead><tr><th>Dato</th>{% for k, v in tipos.items() %}<th>{{ v }}</th>{% endfor %}</tr></thead><tbody>
+      {% for c, etiqueta in campos_req.items() %}<tr><td>{{ etiqueta }}</td>
+        {% for k in tipos %}<td><input type="checkbox" name="req_{{ k }}_{{ c }}" value="1" aria-label="{{ etiqueta }} en {{ tipos[k] }}" {{ 'checked' if c in (p.requeridos or {}).get(k, []) }}></td>{% endfor %}</tr>{% endfor %}
+      </tbody></table></div>
+      <span class="muted small">Esto le dice a GuardIA qué revisar; las instrucciones dicen cómo pedirlo. Si GuardIA no responde, el formulario manual exige estos datos (salvo anexos).</span>
+    </section>
+    <section class="card pad">
+      <div class="field"><label for="cfg-motivo">Motivo del cambio</label><input class="input" id="cfg-motivo" name="motivo" required maxlength="500" placeholder="Ej. Pedir RFC del proveedor en Manifestación de Valor"></div>
+      <button class="btn yellow" type="submit">{{ icon('ok') }}Guardar versión {{ p.version + 1 }}</button>
+    </section>
+  </div>
+</form>
+
+<section class="card pad">
+  <div class="row between"><h2>Solicitudes de desarrollo</h2>{% if reglas %}<span class="tag o">{{ reglas|length }} por revisar</span>{% endif %}</div>
+  {% for r in reglas %}
+  <form method="post" action="/tickets-config/reglas/{{ r.id }}" class="col" style="gap:8px;border:1px solid var(--line);border-radius:12px;padding:12px 14px">
+    <span class="small"><b>{{ r.autor.nombre }}</b>{% if r.ticket %} · <a href="/tickets/{{ r.ticket.id }}">{{ r.ticket.folio }}</a>{% endif %} · {{ hora_local(r.creado) }}</span>
+    <textarea class="input" name="texto" rows="2" style="padding:10px 12px" aria-label="Regla propuesta">{{ r.texto }}</textarea>
+    <div class="row" style="gap:8px"><button class="btn sm dark" name="accion" value="aprobar">{{ icon('ok', 15) }}Agregar al prompt</button>
+      <button class="btn sm soft" name="accion" value="descartar" formnovalidate>Descartar</button></div>
+  </form>
+  {% else %}<span class="muted small">Sin solicitudes. Nacen del botón «Pedir más información» de un ticket: quien lo atiende propone la regla para que no vuelva a pasar.</span>{% endfor %}
+</section>
+
+<section class="card">
+  <div style="padding:18px 22px 0" class="row between"><h2>Versiones</h2><span class="muted small">Tickets regresados = a los que desarrollo tuvo que pedir más información.</span></div>
+  <div class="tbl"><table><thead><tr><th>Versión</th><th>Cambio</th><th>Por</th><th>Fecha</th><th>Tickets</th><th>Regresados</th><th></th></tr></thead><tbody>
+  {% for x in versiones %}{% set m = metricas.get(x.version) %}
+    <tr><td><b>{{ x.version }}</b>{% if x.version == p.version %} <span class="tag g">Activa</span>{% endif %}</td><td>{{ x.motivo }}</td>
+      <td>{{ x.autor.nombre if x.autor else 'Sistema' }}</td><td class="small">{{ hora_local(x.creado) }}</td>
+      <td>{{ m[0] if m else 0 }}</td><td>{% if m and m[0] %}{{ (100 * m[1] / m[0])|round|int }}%{% else %}—{% endif %}</td>
+      <td>{% if x.version != p.version %}<form method="post" action="/tickets-config/restaurar/{{ x.version }}"><button class="btn sm ghost" type="submit">Restaurar</button></form>{% endif %}</td></tr>
+  {% endfor %}
+  </tbody></table></div>
+</section>
+
+<form class="card pad" method="post" action="/tickets-config/catalogo" id="catalogo">
+  <div class="row between"><h2>Catálogo de producto › menú › pantalla</h2><span class="muted small">Una línea por pantalla</span></div>
+  <textarea class="input" name="catalogo" style="padding:12px;min-height:220px;font:500 13px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace"
+    placeholder="SAFE › Validación › Pedimentos por validar&#10;Smart Files › Expedientes › Búsqueda">{{ catalogo_txt }}</textarea>
+  <div class="row between"><span class="muted small">El usuario elige de esta lista al levantar el ticket y GuardIA la usa para ubicar el problema. Lo que quites deja de ofrecerse; los tickets viejos no cambian.</span>
+    <button class="btn dark" type="submit">{{ icon('ok') }}Guardar catálogo</button></div>
+</form>
+{% endblock %}

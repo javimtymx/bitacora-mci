@@ -63,6 +63,7 @@ class Usuario(Base):
     puede_confidencial: Mapped[bool] = mapped_column(Boolean, default=False)
     recibe_correos: Mapped[bool] = mapped_column(Boolean, default=True)
     menus_bloqueados: Mapped[list | None] = mapped_column(JSON)  # claves de menú que Dirección le quitó
+    menus_extra: Mapped[list | None] = mapped_column(JSON)  # menús por otorgamiento que Dirección le dio
     creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     ultimo_acceso: Mapped[datetime | None] = mapped_column(DateTime)
     baja_en: Mapped[datetime | None] = mapped_column(DateTime)
@@ -283,7 +284,7 @@ class Edicion(Base):
 
 
 class EvidenciaArchivo(Base):
-    """Archivo de evidencia de un compromiso. El contenido vive en disco (EVIDENCIAS_DIR), no en la base."""
+    """Archivo de evidencia de un compromiso. El contenido vive en el almacén (S3 o disco), no en la base."""
     __tablename__ = "evidencias_archivo"
     id: Mapped[int] = mapped_column(primary_key=True)
     compromiso_id: Mapped[int] = mapped_column(ForeignKey("compromisos.id"), index=True)
@@ -641,6 +642,7 @@ class SesionCliente(Base):
     consentimiento: Mapped[bool] = mapped_column(Boolean, default=False)
     transcripcion: Mapped[str] = mapped_column(Text().with_variant(Text(length=4294967295), "mysql"))
     cifrada: Mapped[bool] = mapped_column(Boolean, default=False)
+    transcripcion_ruta: Mapped[str | None] = mapped_column(String(300))  # "s3:<llave>" cuando vive en S3
     palabras: Mapped[int] = mapped_column(Integer, default=0)
     estado: Mapped[str] = mapped_column(String(20), default="cargada")  # cargada | analizando | analizada | error
     resultado: Mapped[dict] = mapped_column(JSON, default=dict)
@@ -753,3 +755,131 @@ def _ocultar_archivados(st):
     if st.is_select and not st.is_column_load and not st.is_relationship_load \
             and not st.execution_options.get("include_archivados", False):
         st.statement = st.statement.options(_wlc(Compromiso, lambda c: c.archivado.is_(False), include_aliases=True))
+
+
+# ---------------------------------------------------------------- GuardIA Ticket
+
+TICKET_TIPOS = {"error": "Error", "duda": "Duda", "mejora": "Mejora", "configuracion": "Configuración"}
+TICKET_IMPACTOS = {"bloquea": "Bloquea la operación", "afecta": "Afecta pero hay forma de seguir", "menor": "Molestia menor"}
+TICKET_ESTADOS = {"nuevo": "Por triage", "pendiente": "Pendiente", "en_curso": "En curso", "revision": "En revisión",
+                  "info": "Esperando información", "cerrado": "Cerrado"}
+TICKET_CIERRES = {"corregido": "Corregido en código", "configuracion": "Ajuste de configuración o datos",
+                  "capacitacion": "Uso / capacitación", "no_reproducible": "No se pudo reproducir",
+                  "duplicado": "Duplicado", "backlog": "Pasa a backlog de mejoras"}
+
+
+class TicketCatalogo(Base):
+    """Producto › menú › pantalla. Sirve para que el usuario ubique el problema y la IA lo clasifique."""
+    __tablename__ = "ticket_catalogo"
+    __table_args__ = (UniqueConstraint("producto", "menu", "pantalla"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    producto: Mapped[str] = mapped_column(String(80))
+    menu: Mapped[str] = mapped_column(String(120), default="")
+    pantalla: Mapped[str] = mapped_column(String(160), default="")
+    activo: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class TicketPrompt(Base):
+    """Instrucciones de GuardIA para revisar un ticket al levantarlo. Versionado: cada ticket guarda con cuál se revisó."""
+    __tablename__ = "ticket_prompts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    version: Mapped[int] = mapped_column(Integer, unique=True)
+    instrucciones: Mapped[str] = mapped_column(Text)
+    reglas: Mapped[list] = mapped_column(JSON, default=list)       # reglas aprendidas de desarrollo
+    requeridos: Mapped[dict] = mapped_column(JSON, default=dict)   # {tipo: [campo, ...]}
+    motivo: Mapped[str] = mapped_column(Text, default="")
+    creado_por: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+    creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    autor: Mapped[Usuario | None] = relationship()
+
+
+class Ticket(Base):
+    __tablename__ = "tickets"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    titulo: Mapped[str] = mapped_column(String(200))
+    descripcion: Mapped[str] = mapped_column(Text)
+    tipo: Mapped[str] = mapped_column(String(20), default="error")
+    impacto: Mapped[str] = mapped_column(String(20), default="afecta")
+    producto: Mapped[str] = mapped_column(String(80), default="")
+    menu: Mapped[str] = mapped_column(String(120), default="")
+    pantalla: Mapped[str] = mapped_column(String(160), default="")
+    cliente: Mapped[str] = mapped_column(String(200), default="")
+    referencia: Mapped[str] = mapped_column(String(300), default="")  # pedimento, folio o archivo de ejemplo
+    pasos: Mapped[str] = mapped_column(Text, default="")
+    esperado: Mapped[str] = mapped_column(Text, default="")
+    obtenido: Mapped[str] = mapped_column(Text, default="")
+    estado: Mapped[str] = mapped_column(String(20), default="nuevo", index=True)
+    estado_previo: Mapped[str | None] = mapped_column(String(20))
+    prioridad: Mapped[str | None] = mapped_column(String(2))  # P1..P4, la pone triage
+    asignado_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"), index=True)
+    creado_por: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), index=True)
+    # cómo llegó: completo (GuardIA no pidió nada) | incompleto (se levantó sin un dato) | sin_ia (GuardIA no respondió)
+    validacion: Mapped[str] = mapped_column(String(20), default="completo")
+    faltantes: Mapped[list] = mapped_column(JSON, default=list)
+    captura: Mapped[dict] = mapped_column(JSON, default=dict)     # conversación con GuardIA al levantarlo
+    prompt_version: Mapped[int | None] = mapped_column(Integer)
+    ia_triage: Mapped[dict] = mapped_column(JSON, default=dict)   # sugerencia de prioridad, responsable y similares
+    sla_vence: Mapped[datetime | None] = mapped_column(DateTime)
+    paquete_cursor: Mapped[str | None] = mapped_column(Text)
+    resolucion: Mapped[dict] = mapped_column(JSON, default=dict)  # causa, solución, tipo de cierre, módulos tocados
+    creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    actualizado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    triage_en: Mapped[datetime | None] = mapped_column(DateTime)
+    cerrado_en: Mapped[datetime | None] = mapped_column(DateTime)
+
+    autor: Mapped[Usuario] = relationship(foreign_keys=[creado_por])
+    asignado: Mapped[Usuario | None] = relationship(foreign_keys=[asignado_id])
+    anexos: Mapped[list["TicketAnexo"]] = relationship(back_populates="ticket", order_by="TicketAnexo.id")
+    comentarios: Mapped[list["TicketComentario"]] = relationship(back_populates="ticket", order_by="TicketComentario.id")
+
+    @property
+    def folio(self) -> str:
+        return f"ONE-{self.id}"
+
+
+class TicketAnexo(Base):
+    """Anexo de un ticket. El contenido vive en el almacén (S3)."""
+    __tablename__ = "ticket_anexos"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ticket_id: Mapped[int] = mapped_column(ForeignKey("tickets.id"), index=True)
+    nombre: Mapped[str] = mapped_column(String(255))
+    ruta: Mapped[str] = mapped_column(String(300))
+    tipo: Mapped[str] = mapped_column(String(120), default="")
+    bytes: Mapped[int] = mapped_column(Integer, default=0)
+    sha256: Mapped[str] = mapped_column(String(64), default="")
+    subido_por: Mapped[int] = mapped_column(ForeignKey("usuarios.id"))
+    creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    ticket: Mapped[Ticket] = relationship(back_populates="anexos")
+    autor: Mapped[Usuario] = relationship()
+
+
+class TicketComentario(Base):
+    __tablename__ = "ticket_comentarios"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ticket_id: Mapped[int] = mapped_column(ForeignKey("tickets.id"), index=True)
+    autor_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+    tipo: Mapped[str] = mapped_column(String(20), default="comentario")  # comentario | pedir_info | respuesta | sistema
+    texto: Mapped[str] = mapped_column(Text)
+    creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    ticket: Mapped[Ticket] = relationship(back_populates="comentarios")
+    autor: Mapped[Usuario | None] = relationship()
+
+
+class TicketRegla(Base):
+    """Regla que propone desarrollo al pedir más información, para que GuardIA la pida desde la captura."""
+    __tablename__ = "ticket_reglas"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ticket_id: Mapped[int | None] = mapped_column(ForeignKey("tickets.id"))
+    texto: Mapped[str] = mapped_column(Text)
+    propuesto_por: Mapped[int] = mapped_column(ForeignKey("usuarios.id"))
+    estado: Mapped[str] = mapped_column(String(12), default="pendiente", index=True)  # pendiente | aprobada | descartada
+    resuelto_por: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+    resuelto_en: Mapped[datetime | None] = mapped_column(DateTime)
+    prompt_version: Mapped[int | None] = mapped_column(Integer)
+    creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    ticket: Mapped[Ticket | None] = relationship()
+    autor: Mapped[Usuario] = relationship(foreign_keys=[propuesto_por])

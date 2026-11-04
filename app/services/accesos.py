@@ -4,6 +4,8 @@ Una sola definición alimenta la barra lateral, la pantalla de Usuarios y el blo
 si un menú está bloqueado para alguien, tampoco puede entrar escribiendo la dirección.
 El rol pone el techo (un colaborador nunca ve menús de líder) y Dirección puede quitar menús a cada persona.
 Los administradores siempre ven todo, para que nadie se quede fuera de Configurar.
+Algunos menús son «por otorgamiento» (opt_in): nadie los ve por su rol; Dirección se los da a cada persona
+(por ejemplo, el tablero de desarrollo de tickets solo a quien atiende tickets).
 """
 from __future__ import annotations
 
@@ -21,10 +23,11 @@ class Menu:
     href: str
     rol_min: str  # colaborador | lider | direccion
     rutas: tuple[str, ...]
+    opt_in: bool = False  # solo lo ve quien lo tiene otorgado (además de los administradores)
 
 
 GRUPOS = (("tablero", "Tablero", "home"), ("ejecucion", "Ejecución", "check"), ("ia", "GuardIA", "ia"),
-          ("innovacion", "Innovación", "idea"), ("datos", "Datos", "chart"))
+          ("innovacion", "Innovación", "idea"), ("soporte", "Soporte", "ticket"), ("datos", "Datos", "chart"))
 
 MENUS = (
     Menu("inicio", "tablero", "Tablero semanal", "Indicadores de todos y por área", "/", "colaborador", ("/kardex",)),
@@ -41,6 +44,14 @@ MENUS = (
     Menu("ideas", "innovacion", "Ideas", "Propuestas del equipo", "/ideas", "colaborador", ("/ideas", "/api/ia/idea")),
     Menu("circulo", "innovacion", "Círculo de innovación", "Iniciativas y votación", "/circulo", "colaborador",
          ("/circulo", "/estrategias")),
+    Menu("tickets", "soporte", "Tickets", "Levantar un ticket y ver los míos", "/tickets", "colaborador",
+         ("/tickets", "/api/tickets", "/anexos-ticket")),
+    Menu("tickets-triage", "soporte", "Triage", "Prioridad y responsable de lo nuevo", "/tickets-triage", "colaborador",
+         ("/tickets-triage",), opt_in=True),
+    Menu("tickets-tablero", "soporte", "Tablero de desarrollo", "Kanban de tickets en atención", "/tickets-tablero", "colaborador",
+         ("/tickets-tablero",), opt_in=True),
+    Menu("tickets-config", "soporte", "Configurar GuardIA Ticket", "Qué pide GuardIA, catálogo y reglas", "/tickets-config",
+         "colaborador", ("/tickets-config",), opt_in=True),
     Menu("indicadores", "datos", "Indicadores", "Kárdex y captura semanal", "/indicadores", "colaborador", ("/indicadores",)),
     Menu("reportes", "datos", "Reportes", "Descargas en Excel", "/reportes", "colaborador", ("/reportes",)),
     Menu("socio", "datos", "Vista socio", "Resumen ejecutivo", "/socio", "direccion", ("/socio",)),
@@ -76,6 +87,8 @@ def puede(u, clave: str) -> bool:
         return u is not None
     if u.rol == "admin":
         return True
+    if m.opt_in:
+        return clave in (getattr(u, "menus_extra", None) or [])
     return por_rol(u.rol, m) and clave not in (u.menus_bloqueados or [])
 
 

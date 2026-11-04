@@ -1,0 +1,35 @@
+{% extends "base.html" %}{% from "_ui.html" import icon with context %}
+{% block title %}Tablero de desarrollo{% endblock %}
+{% block content %}
+<div class="top">
+  <div class="col" style="gap:4px"><span class="muted small">Soporte · Guard<span class="gia">IA</span> Ticket</span><h1>Tablero de desarrollo</h1></div>
+  <div class="row">
+    {% if n_nuevos %}<a class="btn soft" href="/tickets-triage">{{ n_nuevos }} por triage</a>{% endif %}
+    <form method="get" class="row" style="gap:8px"><select class="input" name="persona" onchange="this.form.submit()" style="min-width:200px">
+      <option value="">Todo el equipo</option>{% for g in gente %}<option value="{{ g.id }}" {{ 'selected' if persona == g.id }}>{{ g.nombre }}</option>{% endfor %}</select></form>
+    <a class="btn yellow" href="/tickets/nuevo">{{ icon('plus') }}Levantar ticket</a>
+  </div>
+</div>
+<div class="kan">
+{% for clave, titulo, lista in columnas %}
+  <div class="kcolum"><h3><span>{{ titulo }}{% if clave == 'cerrado' %} <span class="muted small" style="font-weight:600">· 7 días</span>{% endif %}</span><span class="muted">{{ lista|length }}</span></h3>
+  {% for t in lista %}{% set v = vence_en(t) %}
+    <div class="tkc">
+      <a href="/tickets/{{ t.id }}" style="color:var(--ink);text-decoration:none;display:flex;flex-direction:column;gap:6px">
+        <span class="row between" style="gap:6px"><span class="fol">{{ t.folio }} · {{ tipos.get(t.tipo) }}</span>{% if t.prioridad %}<span class="prio {{ t.prioridad }}">{{ t.prioridad }}</span>{% endif %}</span>
+        <b style="font-weight:700">{{ t.titulo }}</b>
+        <span class="muted">{{ t.producto }}{% if t.pantalla %} › {{ t.pantalla }}{% endif %}</span></a>
+      {% if t.validacion != 'completo' %}<span class="tag o" style="align-self:flex-start">{{ 'Sin validar por IA' if t.validacion == 'sin_ia' else 'Le faltan datos' }}</span>{% endif %}
+      <div class="ft"><span class="row" style="gap:6px">{% if t.asignado %}<span class="av" title="{{ t.asignado.nombre }}">{{ t.asignado.nombre.split()|map('first')|join('')|upper|truncate(2, True, '') }}</span>{% endif %}
+        {% if t.anexos %}<span class="muted" title="Anexos">{{ icon('clip', 13) }}{{ t.anexos|length }}</span>{% endif %}</span>
+        {% if v[0] %}<span class="sla {{ v[1] }}">{{ v[0] }}</span>{% endif %}</div>
+      {% if clave in ('pendiente','en_curso','revision') %}
+      <div class="row" style="gap:4px">{% for e, et in (('pendiente','→ Pendiente'),('en_curso','→ En curso'),('revision','→ Revisión')) if e != clave %}
+        <form method="post" action="/tickets/{{ t.id }}/mover"><input type="hidden" name="estado" value="{{ e }}"><button class="btn sm ghost" type="submit" style="height:26px;padding:0 8px;font-size:11.5px" title="Mover a {{ e }}">{{ et }}</button></form>{% endfor %}</div>
+      {% endif %}
+    </div>
+  {% else %}<span class="muted small" style="padding:4px">Nada aquí.</span>{% endfor %}
+  </div>
+{% endfor %}
+</div>
+{% endblock %}

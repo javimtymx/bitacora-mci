@@ -1,0 +1,174 @@
+{% extends "base.html" %}{% from "_ui.html" import icon with context %}
+{% block title %}{{ t.folio }}{% endblock %}
+{% block content %}
+{% set v = vence_en(t) %}
+<div class="top">
+  <div class="col" style="gap:4px"><span class="muted small"><a href="/tickets">Tickets</a> · {{ t.folio }}{% if dev %} · <a href="/tickets-tablero">Tablero</a>{% endif %}</span>
+    <h1 style="font-size:22px;max-width:900px">{{ t.titulo }}</h1></div>
+  <div class="row">
+    {% if t.prioridad %}<span class="prio {{ t.prioridad }}">{{ t.prioridad }}</span>{% endif %}
+    <span class="tag {{ 'g' if t.estado=='cerrado' else ('o' if t.estado=='info' else ('n' if t.estado=='nuevo' else 'b')) }}">{{ estados[t.estado] }}</span>
+    {% if v[0] %}<span class="sla {{ v[1] }} small" style="font-weight:800">{{ v[0] }}</span>{% endif %}
+  </div>
+</div>
+
+{% if t.estado == 'info' and u.id == t.creado_por %}
+<div class="tkt-aviso">{{ icon('alert', 18) }}<span><b>El equipo necesita información para seguir.</b> Responde abajo en la conversación (puedes adjuntar archivos). Al responder, tu ticket regresa a atención.</span></div>
+{% endif %}
+
+<div class="grid2" style="grid-template-columns:minmax(0,2fr) minmax(280px,1fr)">
+<div class="col" style="gap:20px">
+  <section class="card pad">
+    <div class="row between"><h2>Qué pasa</h2>
+      <span class="row" style="gap:6px">
+        {% if t.validacion == 'sin_ia' %}<span class="tag o" title="GuardIA no respondió al levantarlo">Sin validar por IA</span>
+        {% elif t.validacion == 'incompleto' %}<span class="tag o">Se levantó sin: {% for f in t.faltantes %}{{ campos_req.get(f, f)|lower }}{{ ', ' if not loop.last }}{% endfor %}</span>
+        {% else %}<span class="tag g">Revisado por GuardIA</span>{% endif %}</span></div>
+    <div style="white-space:pre-wrap;font-size:14.5px;line-height:1.55">{{ t.descripcion }}</div>
+    <dl class="tkt-dl">
+      <dt>Dónde</dt><dd>{{ t.producto }}{% if t.menu %} › {{ t.menu }}{% endif %}{% if t.pantalla %} › {{ t.pantalla }}{% endif %}</dd>
+      <dt>Tipo · impacto</dt><dd>{{ tipos.get(t.tipo) }} · {{ impactos.get(t.impacto) }}</dd>
+      {% if t.cliente %}<dt>Cliente</dt><dd>{{ t.cliente }}</dd>{% endif %}
+      {% if t.referencia %}<dt>Referencia</dt><dd>{{ t.referencia }}</dd>{% endif %}
+      {% if t.pasos %}<dt>Pasos</dt><dd>{{ t.pasos }}</dd>{% endif %}
+      {% if t.esperado %}<dt>Esperado</dt><dd>{{ t.esperado }}</dd>{% endif %}
+      {% if t.obtenido %}<dt>Obtenido</dt><dd>{{ t.obtenido }}</dd>{% endif %}
+      <dt>Levantado</dt><dd>{{ t.autor.nombre }} · {{ hora_local(t.creado) }}</dd>
+    </dl>
+    <div class="col" style="gap:8px">
+      <span class="lbl">Anexos</span>
+      {% if t.anexos %}<div class="row" style="gap:8px">{% for a in t.anexos %}
+        <a class="tkt-file" href="/anexos-ticket/{{ a.id }}">{{ icon('clip', 14) }}{{ a.nombre }} <small>{{ tamano(a.bytes) }}</small></a>{% endfor %}</div>
+      {% else %}<span class="muted small">Sin anexos.</span>{% endif %}
+    </div>
+    {% if (t.captura or {}).get('conversacion') %}
+    <details class="small"><summary>Conversación con GuardIA al levantarlo</summary>
+      <div class="col" style="gap:6px;margin-top:8px">{% for h in t.captura.conversacion %}
+        <div class="tkt-msg {{ 'u' if h.de == 'u' else 'g' }}">{{ h.t }}</div>{% endfor %}</div></details>
+    {% endif %}
+  </section>
+
+  <section class="card pad" id="hilo">
+    <h2>Conversación</h2>
+    <div class="tkt-hilo">
+      {% for cm in t.comentarios %}
+      <div class="tkt-com {{ cm.tipo }}"><span class="q">{% if cm.tipo == 'sistema' %}Sistema{% else %}{{ cm.autor.nombre if cm.autor else 'GuardIA' }}{% endif %}
+        {% if cm.tipo == 'pedir_info' %} · pidió información{% elif cm.tipo == 'respuesta' %} · respondió{% endif %} · {{ hora_local(cm.creado) }}</span>{{ cm.texto }}</div>
+      {% endfor %}
+    </div>
+    {% if t.estado != 'cerrado' %}
+    <form method="post" action="/tickets/{{ t.id }}/comentar" enctype="multipart/form-data" class="col" style="gap:10px">
+      <textarea class="input" name="texto" rows="3" style="padding:10px 12px;min-height:84px" maxlength="8000"
+        placeholder="{{ 'Responde lo que te piden…' if t.estado == 'info' and u.id == t.creado_por else 'Escribe un comentario…' }}"></textarea>
+      <div class="row between"><input type="file" name="archivos" multiple accept="{{ aceptar }}" class="small">
+        <button class="btn dark sm" type="submit">{{ icon('send', 15) }}{{ 'Responder' if t.estado == 'info' and u.id == t.creado_por else 'Comentar' }}</button></div>
+    </form>
+    {% endif %}
+  </section>
+
+  {% if dev %}
+  <section class="card pad" id="paquete">
+    <div class="row between"><h2 class="row" style="gap:8px">{{ icon('cpu', 18) }}Paquete para Cursor</h2>
+      <div class="row" style="gap:8px">
+        {% if t.paquete_cursor %}<button class="btn sm soft" type="button" data-copiar="#tk-paq">{{ icon('doc', 15) }}Copiar</button>{% endif %}
+        <form method="post" action="/tickets/{{ t.id }}/paquete"><button class="btn sm aibtn" type="submit">{{ icon('ia', 15) }}{{ 'Regenerar' if t.paquete_cursor else 'Generar con GuardIA' }}</button></form></div></div>
+    {% if t.paquete_cursor %}<pre class="tkt-pre" id="tk-paq">{{ t.paquete_cursor }}</pre>
+    {% else %}<span class="muted small">GuardIA arma el encargo para el agente: contexto, cómo reproducirlo, hipótesis de causa con los tickets parecidos, criterios de aceptación y qué no tocar.</span>{% endif %}
+  </section>
+  {% endif %}
+</div>
+
+<div class="col" style="gap:20px">
+  <section class="card pad">
+    <dl class="tkt-dl" style="grid-template-columns:110px 1fr">
+      <dt>Estado</dt><dd>{{ estados[t.estado] }}</dd>
+      <dt>Prioridad</dt><dd>{{ t.prioridad or 'Por triage' }}</dd>
+      <dt>Responsable</dt><dd>{{ t.asignado.nombre if t.asignado else '—' }}</dd>
+      {% if t.sla_vence %}<dt>Atender antes</dt><dd>{{ hora_local(t.sla_vence) }}</dd>{% endif %}
+    </dl>
+    {% if dev and t.estado not in ('cerrado',) %}
+    <div class="col" style="gap:8px;border-top:1px solid var(--line);padding-top:12px">
+      <span class="lbl">Mover a</span>
+      <div class="row" style="gap:6px">{% for e in ('pendiente','en_curso','revision') if e != t.estado %}
+        <form method="post" action="/tickets/{{ t.id }}/mover"><input type="hidden" name="estado" value="{{ e }}"><button class="btn sm soft" type="submit">{{ estados[e] }}</button></form>{% endfor %}</div>
+      <div class="row" style="gap:6px">
+        <button class="btn sm soft" type="button" data-open="pedir">{{ icon('alert', 15) }}Pedir más información</button>
+        <button class="btn sm dark" type="button" data-open="cerrar">{{ icon('ok', 15) }}Cerrar ticket</button></div>
+    </div>
+    {% endif %}
+    {% if t.estado == 'cerrado' and (dev or u.id == t.creado_por) %}
+    <form method="post" action="/tickets/{{ t.id }}/reabrir" class="col" style="gap:8px;border-top:1px solid var(--line);padding-top:12px">
+      <input class="input" name="motivo" required minlength="5" placeholder="¿Por qué se reabre?"><button class="btn sm soft" type="submit">Reabrir</button></form>
+    {% endif %}
+  </section>
+
+  {% if t.estado == 'cerrado' and t.resolucion %}
+  <section class="card pad">
+    <h3>Resolución</h3>
+    <dl class="tkt-dl" style="grid-template-columns:90px 1fr">
+      <dt>Cómo</dt><dd>{{ cierres.get(t.resolucion.tipo, t.resolucion.tipo) }}</dd>
+      <dt>Causa</dt><dd>{{ t.resolucion.causa }}</dd>
+      <dt>Solución</dt><dd>{{ t.resolucion.solucion }}</dd>
+      {% if t.resolucion.modulos %}<dt>Módulos</dt><dd>{{ t.resolucion.modulos }}</dd>{% endif %}
+      <dt>Cerró</dt><dd>{{ t.resolucion.por_nombre }} · {{ hora_local(t.cerrado_en) }}</dd>
+    </dl>
+  </section>
+  {% endif %}
+
+  {% if triage and t.estado != 'cerrado' %}{% set s = t.ia_triage or {} %}
+  <form class="card pad" method="post" action="/tickets-triage/{{ t.id }}">
+    <h3>Triage</h3>
+    {% if s %}<div class="tkt-msg g" style="max-width:100%"><b class="row" style="gap:6px">{{ icon('ia', 15) }}GuardIA sugiere {{ s.prioridad }}</b>{{ s.motivo }}</div>{% endif %}
+    <div class="field"><label>Prioridad</label><select class="input" name="prioridad" required>
+      {% for p in ('P1','P2','P3','P4') %}<option value="{{ p }}" {{ 'selected' if (t.prioridad or s.prioridad) == p }}>{{ p }}</option>{% endfor %}</select></div>
+    <div class="field"><label>Responsable</label><select class="input" name="asignado_id"><option value="">Sin asignar</option>
+      {% for g in asignables %}<option value="{{ g.id }}" {{ 'selected' if (t.asignado_id or s.responsable_id) == g.id }}>{{ g.nombre }}</option>{% endfor %}</select></div>
+    <button class="btn yellow sm" type="submit">{{ 'Guardar triage' if t.estado == 'nuevo' else 'Reasignar' }}</button>
+  </form>
+  {% endif %}
+
+  {% if staff and sim %}
+  <section class="card pad">
+    <h3>Parecidos ya resueltos</h3>
+    {% for s in sim %}<div class="small"><a href="/tickets/{{ s.id }}"><b>{{ s.folio }}</b> {{ s.titulo }}</a><div class="muted">{{ s.solucion[:220] }}</div></div>{% endfor %}
+  </section>
+  {% endif %}
+</div>
+</div>
+{% endblock %}
+
+{% block modals %}
+{% if dev and t.estado != 'cerrado' %}
+<div class="overlay" id="pedir"><form class="modal" method="post" action="/tickets/{{ t.id }}/pedir-info" role="dialog" aria-modal="true" aria-labelledby="t-ped">
+  <div class="mh"><div class="row"><h2 id="t-ped">Pedir más información</h2><span class="muted" style="font-weight:600">{{ t.folio }}</span></div>
+    <button class="btn ghost" type="button" data-close aria-label="Cerrar" style="width:42px;padding:0">{{ icon('x') }}</button></div>
+  <div class="sec" style="border-top:0">
+    <div class="field"><label for="ped-q">¿Qué necesitas del usuario?</label>
+      <textarea class="input" id="ped-q" name="pregunta" required minlength="10" rows="3" style="padding:10px 12px" placeholder="Ej. Adjunta el layout que cargaste y dime en qué aduana se presentó el pedimento."></textarea></div>
+    <div class="field"><label for="ped-r">Regla para {{ guardia }} (opcional)</label>
+      <textarea class="input" id="ped-r" name="regla" rows="2" style="padding:10px 12px" placeholder="Ej. En errores de carga de layout de SAFE pide siempre el archivo y la aduana."></textarea>
+      <span class="muted small">Si la apruebas en Configurar GuardIA Ticket, GuardIA lo pedirá desde la captura y no tendrás que regresar tickets por lo mismo.</span></div>
+  </div>
+  <div class="mf"><button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn dark">{{ icon('send') }}Pedir al usuario</button></div></form></div>
+
+<div class="overlay" id="cerrar"><form class="modal" method="post" action="/tickets/{{ t.id }}/cerrar" role="dialog" aria-modal="true" aria-labelledby="t-cer">
+  <div class="mh"><div class="row"><h2 id="t-cer">Cerrar ticket</h2><span class="muted" style="font-weight:600">{{ t.folio }}</span></div>
+    <button class="btn ghost" type="button" data-close aria-label="Cerrar" style="width:42px;padding:0">{{ icon('x') }}</button></div>
+  <div class="sec" style="border-top:0">
+    <div class="cint"><span class="ic">{{ icon('ia') }}</span><span style="flex:1">La causa y la solución alimentan a {{ guardia }}: con ellas sugiere la respuesta cuando alguien reporte algo parecido.</span></div>
+    <div class="field"><label for="cer-t">¿Cómo se resolvió?</label><select class="input" id="cer-t" name="tipo_cierre" required><option value="">Elige…</option>
+      {% for k, v in cierres.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></div>
+    <div class="field"><label for="cer-c">Causa raíz</label><textarea class="input" id="cer-c" name="causa" required minlength="10" rows="2" style="padding:10px 12px"></textarea></div>
+    <div class="field"><label for="cer-s">Solución (qué se hizo y qué debe hacer el usuario si vuelve a pasar)</label><textarea class="input" id="cer-s" name="solucion" required minlength="15" rows="3" style="padding:10px 12px"></textarea></div>
+    <div class="field"><label for="cer-m">Módulos o archivos tocados (opcional)</label><input class="input" id="cer-m" name="modulos" maxlength="1000"></div>
+  </div>
+  <div class="mf"><button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn dark">{{ icon('ok') }}Cerrar ticket</button></div></form></div>
+{% endif %}
+{% endblock %}
+{% block scripts %}<script>
+document.addEventListener("click", function (e) {
+  var b = e.target.closest("[data-copiar]"); if (!b) return;
+  var el = document.querySelector(b.dataset.copiar); if (!el || !navigator.clipboard) return;
+  navigator.clipboard.writeText(el.textContent).then(function () { b.lastChild.textContent = "Copiado"; });
+});
+</script>{% endblock %}

@@ -37,6 +37,13 @@ class FakeIA:
         r = self.respuestas.pop(0) if self.respuestas else {"veredicto": "ok", "observaciones": []}
         return r, {"modelo": "fake", "tin": 10, "tout": 5}
 
+    def pedir_json_vivo(self, prompt, max_tokens=1200, timeout=15, system=None):
+        self.prompts.append(prompt)
+        r = self.respuestas.pop(0) if self.respuestas else {"titulo": "", "faltan": [], "mensaje": "Listo"}
+        if isinstance(r, Exception):
+            raise r
+        return r, {"modelo": "fake-rapido", "tin": 10, "tout": 5}
+
     def pedir_texto(self, prompt, rapido=False, max_tokens=4000, system=None):
         self.prompts.append(prompt)
         r = self.respuestas.pop(0) if self.respuestas else "# Documento\n\nContenido"

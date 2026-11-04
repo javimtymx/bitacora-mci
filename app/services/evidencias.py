@@ -1,6 +1,6 @@
 """Archivos de evidencia de compromisos y verificación del cierre con GuardIA.
 
-Los archivos viven en disco (EVIDENCIAS_DIR, fuera de la carpeta de la app para que una actualización no los borre);
+Los archivos viven en el almacén (S3; disco solo si S3 no está configurado, ver almacen.py);
 en la base queda el registro con su huella sha256. Al cerrar un compromiso, GuardIA revisa si la evidencia demuestra
 que se cumplió; si tiene dudas, el compromiso se cierra igual pero queda marcado como "cierre con sospecha".
 """
@@ -11,15 +11,13 @@ import hashlib
 import io
 import logging
 import re
-import uuid
 import zipfile
 from pathlib import Path
 
 from sqlalchemy.orm import Session
 
-from ..config import get_settings
 from ..models import Compromiso, EvidenciaArchivo, Usuario, utcnow
-from . import ia
+from . import almacen, ia
 from .util import auditar
 
 log = logging.getLogger("bitacora.evidencias")
@@ -38,10 +36,6 @@ VEREDICTOS = ("concluido", "dudoso", "no_corresponde")
 
 class EvidenciaInvalida(ValueError):
     pass
-
-
-def _dir() -> Path:
-    return Path(get_settings().evidencias_dir)
 
 
 def _seguro(nombre: str) -> str:
@@ -65,10 +59,10 @@ def guardar(db: Session, c: Compromiso, nombre: str, contenido: bytes, u: Usuari
     if len(c.evidencias) >= MAX_POR_COMPROMISO:
         raise EvidenciaInvalida(f"Este compromiso ya tiene {MAX_POR_COMPROMISO} archivos de evidencia.")
     seguro = _seguro(nombre)
-    rel = f"{c.id}/{uuid.uuid4().hex}_{seguro}"
-    destino = _dir() / rel
-    destino.parent.mkdir(parents=True, exist_ok=True)
-    destino.write_bytes(contenido)
+    try:
+        rel = almacen.guardar(f"evidencias/{c.id}", seguro, contenido, PERMITIDOS[ext])
+    except almacen.AlmacenError as e:
+        raise EvidenciaInvalida(str(e)) from e
     ev = EvidenciaArchivo(compromiso_id=c.id, nombre=seguro, ruta=rel, tipo=PERMITIDOS[ext], bytes=len(contenido),
                           sha256=hashlib.sha256(contenido).hexdigest(), subido_por=u.id)
     db.add(ev)
@@ -80,17 +74,14 @@ def guardar(db: Session, c: Compromiso, nombre: str, contenido: bytes, u: Usuari
 
 
 def leer(ev: EvidenciaArchivo) -> bytes:
-    p = (_dir() / ev.ruta).resolve()
-    if _dir().resolve() not in p.parents:
-        raise EvidenciaInvalida("Ruta inválida.")
-    return p.read_bytes()
+    try:
+        return almacen.leer(ev.ruta)
+    except almacen.AlmacenError as e:
+        raise EvidenciaInvalida(str(e)) from e
 
 
 def borrar_archivo(ev: EvidenciaArchivo) -> None:
-    try:
-        (_dir() / ev.ruta).unlink(missing_ok=True)
-    except OSError:
-        log.warning("No se pudo borrar %s", ev.ruta)
+    almacen.borrar(ev.ruta)
 
 
 # ---------------------------------------------------------------- lectura de contenido para la IA

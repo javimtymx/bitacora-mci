@@ -25,6 +25,13 @@ class Settings(BaseSettings):
     evidencias_dir: str = "/var/lib/bitacora-mci/evidencias"
     transcripciones_clave: str = ""
 
+    # Almacén de archivos (evidencias, transcripciones y anexos de tickets). Sin S3_BUCKET se usa EVIDENCIAS_DIR.
+    s3_bucket: str = ""
+    s3_region: str = "us-east-1"
+    s3_prefijo: str = "bitacora-mci"
+    aws_access_key_id: str = ""
+    aws_secret_access_key: str = ""
+
     smtp_host: str = ""
     smtp_port: int = 587
     smtp_user: str = ""

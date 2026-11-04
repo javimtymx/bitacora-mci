@@ -1,0 +1,35 @@
+{% extends "base.html" %}{% from "_ui.html" import icon with context %}
+{% block title %}Tickets{% endblock %}
+{% block content %}
+<div class="top">
+  <div class="col" style="gap:4px"><span class="muted small">Soporte · Guard<span class="gia">IA</span> Ticket</span><h1>{{ 'Todos los tickets' if ver == 'todos' else 'Mis tickets' }}</h1></div>
+  <a class="btn yellow" href="/tickets/nuevo">{{ icon('plus') }}Levantar ticket</a>
+</div>
+<div class="row between">
+  <div class="tabs">
+    <a href="?ver={{ ver }}&estado=abiertos" class="{{ 'on' if estado=='abiertos' }}">Abiertos</a>
+    <a href="?ver={{ ver }}&estado=cerrados" class="{{ 'on' if estado=='cerrados' }}">Cerrados</a>
+    <a href="?ver={{ ver }}&estado=todos" class="{{ 'on' if estado=='todos' }}">Todos</a>
+  </div>
+  {% if staff %}<div class="tabs"><a href="?ver=mios&estado={{ estado }}" class="{{ 'on' if ver!='todos' }}">Míos</a><a href="?ver=todos&estado={{ estado }}" class="{{ 'on' if ver=='todos' }}">De todos</a></div>{% endif %}
+</div>
+<section class="card">
+  <div class="tbl"><table>
+    <thead><tr><th>Folio</th><th>Título</th><th>Tipo</th><th>Prioridad</th><th>Estado</th><th>Responsable</th><th>Levantado</th></tr></thead>
+    <tbody>
+    {% for t in ts %}{% set v = vence_en(t) %}
+      <tr><td><a href="/tickets/{{ t.id }}"><b>{{ t.folio }}</b></a></td>
+        <td style="max-width:460px"><a href="/tickets/{{ t.id }}" style="color:var(--ink)">{{ t.titulo }}</a>
+          <div class="muted small">{{ t.producto }}{% if t.pantalla %} › {{ t.pantalla }}{% endif %}{% if staff and t.creado_por != u.id %} · {{ t.autor.nombre }}{% endif %}</div></td>
+        <td>{{ tipos.get(t.tipo, t.tipo) }}</td>
+        <td>{% if t.prioridad %}<span class="prio {{ t.prioridad }}">{{ t.prioridad }}</span>{% else %}<span class="muted small">—</span>{% endif %}</td>
+        <td><span class="tag {{ 'g' if t.estado=='cerrado' else ('o' if t.estado=='info' else ('n' if t.estado=='nuevo' else 'b')) }}">{{ estados[t.estado] }}</span>
+          {% if v[0] %}<div class="sla {{ v[1] }} small" style="font-weight:800;margin-top:4px">{{ v[0] }}</div>{% endif %}</td>
+        <td>{{ t.asignado.nombre if t.asignado else '—' }}</td>
+        <td class="small">{{ hora_local(t.creado) }}</td></tr>
+    {% else %}
+      <tr><td colspan="7" class="muted" style="padding:28px;text-align:center">No hay tickets aquí. Si algo no funciona, <a href="/tickets/nuevo">levanta un ticket</a>.</td></tr>
+    {% endfor %}
+    </tbody></table></div>
+</section>
+{% endblock %}
