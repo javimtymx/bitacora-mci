@@ -5,37 +5,43 @@
   <div class="col" style="gap:4px"><span class="muted small"><a href="/tickets">Tickets</a> · Nuevo</span><h1>Levantar ticket</h1></div>
 </div>
 
-<div class="tkt-aviso" id="tk-sinia" hidden>{{ icon('alert', 18) }}<span><b>{{ guardia }} no respondió.</b> Para no detenerte, llena los datos tú mismo: tu ticket se levanta igual y el equipo lo revisa. GuardIA lo completa en segundo plano cuando vuelva la conexión.</span></div>
+<div class="tkt-aviso" id="tk-sinia" hidden>{{ icon('alert', 18) }}<span><b>{{ guardia }} no respondió.</b> Para no detenerte, llena los datos marcados con <span class="ast">*</span>: tu ticket se levanta igual y el equipo lo revisa. GuardIA pone el título y lo completa en segundo plano.
+  <span class="small" id="tk-sinia-motivo" style="display:block;opacity:.8"></span></span></div>
 <div class="flash error" id="tk-error" hidden></div>
 
 <div class="tkt-lay" id="tk-lay">
 <form class="card pad" id="tk-form" autocomplete="off" novalidate>
+  <div class="row between"><h2>Lo indispensable</h2><span class="muted small"><span class="ast">*</span> Obligatorio</span></div>
+  <div class="grid3">
+    <div class="field"><label for="tk-producto">Producto <span class="ast">*</span></label>
+      <input class="input" id="tk-producto" name="producto" list="tk-l-producto" required maxlength="80" placeholder="Ej. SAFE"></div>
+    <div class="field"><label for="tk-tipo">Tipo <span class="ast">*</span></label>
+      <select class="input" id="tk-tipo" name="tipo" required><option value="">Elige…</option>
+        {% for k, v in tipos.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></div>
+    <div class="field"><label for="tk-impacto">¿Cómo afecta tu operación? <span class="ast">*</span></label>
+      <select class="input" id="tk-impacto" name="impacto" required><option value="">Elige…</option>
+        {% for k, v in impactos.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></div>
+  </div>
+  <datalist id="tk-l-producto">{% for p in catalogo %}<option value="{{ p }}">{% endfor %}</datalist>
+  <datalist id="tk-l-menu"></datalist><datalist id="tk-l-pantalla"></datalist>
   <div class="field" data-req="descripcion">
-    <label for="tk-descripcion">Describe qué pasa *</label>
+    <label for="tk-descripcion">Describe qué pasa <span class="ast">*</span></label>
     <div class="tkt-guia"><span class="muted small">Para atenderte a la primera incluye:</span>
       <span>Dónde (pantalla)</span><span>Qué pasó</span><span>Desde cuándo</span><span>Qué esperabas</span><span>Pedimento o archivo de ejemplo</span></div>
     <textarea class="input" id="tk-descripcion" name="descripcion" required minlength="15" rows="4" style="padding:10px 12px;min-height:110px"
       placeholder="Ej. Desde ayer, al cargar el layout en SAFE (Validación › Pedimentos por validar) me sale «valor en aduana inválido» en todas las partidas…"></textarea>
+    <span class="muted small">El título lo pone {{ guardia }} con lo que escribas.</span>
   </div>
+  <input type="hidden" id="tk-titulo" name="titulo">
+
+  <div class="tkt-sep"><h3>Ayuda a resolverlo más rápido</h3><span class="muted small" id="tk-sep-nota">{{ guardia }} te dirá cuáles hacen falta según el tipo de ticket.</span></div>
   <div class="grid3">
-    <div class="field" data-req="pantalla"><label for="tk-producto">Producto *</label>
-      <input class="input" id="tk-producto" name="producto" list="tk-l-producto" required maxlength="80" placeholder="Ej. SAFE"></div>
     <div class="field" data-req="pantalla"><label for="tk-menu">Menú</label>
       <input class="input" id="tk-menu" name="menu" list="tk-l-menu" maxlength="120" placeholder="Ej. Validación"></div>
     <div class="field" data-req="pantalla"><label for="tk-pantalla">Pantalla</label>
       <input class="input" id="tk-pantalla" name="pantalla" list="tk-l-pantalla" maxlength="160" placeholder="Ej. Pedimentos por validar"></div>
-  </div>
-  <datalist id="tk-l-producto">{% for p in catalogo %}<option value="{{ p }}">{% endfor %}</datalist>
-  <datalist id="tk-l-menu"></datalist><datalist id="tk-l-pantalla"></datalist>
-  <div class="grid3">
-    <div class="field"><label for="tk-tipo">Tipo *</label>
-      <select class="input" id="tk-tipo" name="tipo" required><option value="">Elige…</option>
-        {% for k, v in tipos.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></div>
-    <div class="field"><label for="tk-impacto">¿Cómo afecta tu operación? *</label>
-      <select class="input" id="tk-impacto" name="impacto" required><option value="">Elige…</option>
-        {% for k, v in impactos.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></div>
-    <div class="field"><label for="tk-titulo">Título <span class="iab">IA</span></label>
-      <input class="input" id="tk-titulo" name="titulo" maxlength="200" placeholder="Lo propone GuardIA al levantar"></div>
+    <div class="field" data-req="referencia"><label for="tk-referencia">Pedimento, folio o archivo de ejemplo</label>
+      <input class="input" id="tk-referencia" name="referencia" maxlength="300" placeholder="Ej. 26 19 3001 6001234"></div>
   </div>
   <div class="grid2">
     <div class="field" data-req="pasos"><label for="tk-pasos">Pasos para replicar</label>
@@ -46,15 +52,13 @@
     </div>
   </div>
   <div class="grid2">
-    <div class="field" data-req="referencia"><label for="tk-referencia">Pedimento, folio o archivo de ejemplo</label>
-      <input class="input" id="tk-referencia" name="referencia" maxlength="300" placeholder="Ej. 26 19 3001 6001234"></div>
+    <div class="field" data-req="anexo"><label>Anexos</label>
+      <div class="tkt-files"><span class="muted small" id="tk-files-vacio">Captura, archivo o reporte. Máx. 10 MB cada uno.</span>
+        <span id="tk-files"></span>
+        <label class="btn sm soft" style="margin-left:auto">{{ icon('upload', 15) }}Adjuntar<input type="file" id="tk-archivos" multiple accept="{{ aceptar }}" hidden></label></div>
+    </div>
     <div class="field"><label for="tk-cliente">Cliente (si es de un cliente)</label>
       <input class="input" id="tk-cliente" name="cliente" maxlength="200"></div>
-  </div>
-  <div class="field" data-req="anexo"><label>Anexos</label>
-    <div class="tkt-files"><span class="muted small" id="tk-files-vacio">Captura, archivo o reporte (si aplica). Máx. 10 MB cada uno.</span>
-      <span id="tk-files"></span>
-      <label class="btn sm soft" style="margin-left:auto">{{ icon('upload', 15) }}Adjuntar<input type="file" id="tk-archivos" multiple accept="{{ aceptar }}" hidden></label></div>
   </div>
   <div class="row between" style="border-top:1px solid var(--line);padding-top:14px">
     <span class="muted small" id="tk-pie">Al levantarlo, GuardIA revisa que tenga lo necesario para atenderlo.</span>
@@ -77,4 +81,4 @@
 </div>
 <script type="application/json" id="tk-datos">{{ {"catalogo": catalogo, "requeridos": requeridos, "campos": campos_req, "prompt_version": prompt_version, "ia": ia_ok} | tojson }}</script>
 {% endblock %}
-{% block scripts %}<script src="/static/js/ticket.js?v=1"></script>{% endblock %}
+{% block scripts %}<script src="/static/js/ticket.js?v=2"></script>{% endblock %}

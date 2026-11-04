@@ -25,7 +25,7 @@ DEFAULTS: dict[str, tuple[object, str, str]] = {
     "ticket_sla_horas_p2": (24, "Horas para resolver un ticket P2.", "tickets"),
     "ticket_sla_horas_p3": (72, "Horas para resolver un ticket P3.", "tickets"),
     "ticket_sla_horas_p4": (168, "Horas para resolver un ticket P4 (dudas y mejoras).", "tickets"),
-    "ticket_ia_segundos": (15, "Segundos que se espera a GuardIA al levantar un ticket; si no responde, se pasa al formulario manual.", "tickets"),
+    "ticket_ia_segundos": (25, "Segundos que se espera a GuardIA al levantar un ticket; si no responde, se pasa al formulario manual.", "tickets"),
     "investigaciones_por_semana": (3, "Máximo de investigaciones profundas (búsqueda web) que la IA puede ejecutar por semana en toda la empresa.", "ia"),
     "auto_diagnostico_semanal": (True, "Generar cada lunes el diagnóstico de la IA para cada área.", "automatizacion"),
     "auto_plan_remediacion": (False, "Ejecutar sin aprobación las acciones del plan de remediación que propone la IA.", "automatizacion"),

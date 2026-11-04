@@ -205,3 +205,26 @@ def test_analitica_y_diagnostico_por_area(admin, manuel, mario, db, fake):
     d2 = db.scalar(select(TicketDiagnostico).where(TicketDiagnostico.dimension == "producto"))
     db.refresh(d2)
     assert d2.resultado["origen"] == "reglas" and {g["grupo"] for g in d2.resultado["grupos"]} == {"SAFE", "CIVA"}
+
+
+def test_ia_en_vivo_usa_respuesta_estructurada(monkeypatch):
+    import types
+    import anthropic
+    from app.services.ia import ClienteIA
+    llamadas = []
+
+    class Msgs:
+        def create(self, **kw):
+            llamadas.append(kw)
+            bloque = types.SimpleNamespace(type="tool_use", input={"titulo": 'Patente "1686" no administrada', "faltan": [],
+                                                                   "mensaje": "Listo"})
+            return types.SimpleNamespace(content=[bloque], stop_reason="tool_use",
+                                         usage=types.SimpleNamespace(input_tokens=1, output_tokens=1))
+
+    monkeypatch.setattr(anthropic, "Anthropic", lambda **kw: types.SimpleNamespace(messages=Msgs()))
+    c = ClienteIA()
+    c.s = types.SimpleNamespace(anthropic_api_key="x", ia_modelo_rapido="rapido")
+    res, meta = c.pedir_json_vivo("p", esquema=tk.ESQUEMA_REVISION)
+    assert res["titulo"] == 'Patente "1686" no administrada'
+    assert llamadas[0]["tool_choice"] == {"type": "tool", "name": "respuesta"}
+    assert llamadas[0]["tools"][0]["input_schema"]["properties"]["faltan"]["items"]["properties"]["campo"]["enum"][0] == "pantalla"

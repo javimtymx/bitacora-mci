@@ -367,3 +367,6 @@ button:disabled{cursor:progress;opacity:.75}
 .tka-mini b{color:var(--ink);font-size:14px}.tka-mini .mal b{color:var(--r-fg)}
 @media (max-width:1200px){.tka-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media (max-width:700px){.tka-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.ast{color:var(--r-fg);font-weight:800}
+.rec{font:700 10.5px 'Manrope',sans-serif;color:var(--b-fg);background:var(--mint);border-radius:4px;padding:1px 6px;margin-left:6px;vertical-align:middle}
+.tkt-sep{display:flex;flex-direction:column;gap:2px;border-top:1px solid var(--line);padding-top:14px;margin-top:2px}

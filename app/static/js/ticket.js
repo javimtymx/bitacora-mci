@@ -93,7 +93,7 @@
   // ------------------------------------------------------------ llamadas a GuardIA
   async function llamar(extra) {
     const ctl = new AbortController();
-    const t = setTimeout(() => ctl.abort(), 25000);
+    const t = setTimeout(() => ctl.abort(), 40000);
     try {
       const r = await fetch("/api/tickets/revisar", {
         method: "POST", headers: { "Content-Type": "application/json" }, signal: ctl.signal,
@@ -101,10 +101,10 @@
       });
       if (r.status === 401) { error("Tu sesión expiró. Copia tu texto y vuelve a entrar."); return null; }
       const d = await r.json();
-      if (!d.ok) { manual(); return null; }
+      if (!d.ok) { manual(d.mensaje); return null; }
       return d;
     } catch (e) {
-      manual();
+      manual(e && e.name === "AbortError" ? "GuardIA tardó demasiado en responder." : "Sin conexión con el servidor.");
       return null;
     } finally { clearTimeout(t); }
   }
@@ -136,25 +136,37 @@
   }
 
   // ------------------------------------------------------------ modo manual (GuardIA no respondió)
-  function requeridosManual() {
-    const tipo = campo("tipo").value || "error";
-    const req = datos.requeridos[tipo] || [];
-    const mapa = { pantalla: ["pantalla"], pasos: ["pasos"], esperado_obtenido: ["esperado", "obtenido"], referencia: ["referencia"] };
-    ["pantalla", "pasos", "esperado", "obtenido", "referencia"].forEach((n) => {
-      campo(n).required = false;
-      const l = form.querySelector(`label[for="tk-${n}"]`); if (l) l.textContent = l.textContent.replace(/ \*$/, "");
-    });
-    req.forEach((c) => (mapa[c] || []).forEach((n) => {
-      campo(n).required = true;
-      const l = form.querySelector(`label[for="tk-${n}"]`); if (l && !/\*$/.test(l.textContent)) l.textContent += " *";
-    }));
+  // marca en las etiquetas qué datos pide el tipo: «recomendado» con GuardIA, «*» obligatorio sin GuardIA
+  const MAPA = { pantalla: ["pantalla"], pasos: ["pasos"], esperado_obtenido: ["esperado", "obtenido"], referencia: ["referencia"] };
+  function etiquetas(n) {
+    const el = campo(n);
+    return el ? [form.querySelector(`label[for="tk-${n}"]`)].filter(Boolean) : [];
   }
-  function manual() {
+  function marcarTipo() {
+    $$("[data-dyn]", form).forEach((x) => x.remove());
+    ["pantalla", "pasos", "esperado", "obtenido", "referencia"].forEach((n) => { campo(n).required = false; });
+    const tipo = campo("tipo").value;
+    if (!tipo) return;
+    (datos.requeridos[tipo] || []).forEach((c) => {
+      const labels = c === "anexo" ? [$('[data-req="anexo"] > label', form)] : [].concat(...(MAPA[c] || []).map(etiquetas));
+      labels.filter(Boolean).forEach((l) => {
+        const s = document.createElement("span");
+        s.dataset.dyn = "1";
+        if (st.modo === "manual" && c !== "anexo") { s.className = "ast"; s.textContent = " *"; }
+        else { s.className = "rec"; s.textContent = "recomendado"; }
+        l.appendChild(s);
+      });
+      if (st.modo === "manual") (MAPA[c] || []).forEach((n) => { campo(n).required = true; });
+    });
+  }
+  const requeridosManual = marcarTipo;
+  function manual(motivo) {
+    if (motivo) $("#tk-sinia-motivo").textContent = "Motivo: " + motivo;
     if (st.modo === "manual" && !$("#tk-sinia").hidden) { ocupado(false); return; }
     st.modo = "manual"; st.faltan = []; st.completo = false;
     marcar(); cerrar(); tab.hidden = true;
     $("#tk-sinia").hidden = false;
-    $("#tk-titulo").placeholder = "Se arma solo con producto, pantalla y descripción";
+    $("#tk-sep-nota").innerHTML = 'Los marcados con <span class="ast">*</span> son obligatorios para este tipo de ticket.';
     $("#tk-pie").textContent = "Tu borrador se guarda en cada cambio. El equipo revisa tu ticket aunque GuardIA no esté.";
     requeridosManual();
     ocupado(false);
@@ -244,7 +256,7 @@
     opciones("tk-l-pantalla", prod[campo("menu").value] || [].concat(...Object.values(prod)));
   }
   ["producto", "menu"].forEach((n) => campo(n).addEventListener("change", cascada));
-  campo("tipo").addEventListener("change", () => { if (st.modo === "manual") requeridosManual(); });
+  campo("tipo").addEventListener("change", marcarTipo);
 
   // cualquier cambio después de una revisión obliga a revisar de nuevo (menos el título)
   form.addEventListener("input", (e) => {
@@ -262,5 +274,6 @@
     if (b) CAMPOS.forEach((n) => { if (b[n]) campo(n).value = b[n]; });
   } catch (e) { /* sin almacenamiento */ }
   cascada();
-  if (st.modo === "manual") manual();
+  marcarTipo();
+  if (st.modo === "manual") manual(datos.ia ? "" : "La IA no está configurada en el servidor.");
 })();

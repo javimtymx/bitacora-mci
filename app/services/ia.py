@@ -147,7 +147,7 @@ class ClienteIA:
             raise ValueError("La IA devolvió una respuesta incompleta después de reintentar. Intenta de nuevo en un momento.") from e
 
     def pedir_json_vivo(self, prompt, max_tokens: int = 1200, timeout: int = 15,
-                        system: str | None = None) -> tuple[dict, dict]:
+                        system: str | None = None, esquema: dict | None = None) -> tuple[dict, dict]:
         """Para pantallas donde el usuario espera la respuesta: modelo rápido, un solo intento y tiempo corto.
         Si falla, el que llama cambia a modo manual en lugar de hacer esperar a la persona."""
         if not self.disponible:
@@ -155,20 +155,37 @@ class ClienteIA:
         import anthropic
         if getattr(self, "_vivo", None) is None or self._vivo[0] != timeout:
             self._vivo = (timeout, anthropic.Anthropic(api_key=self.s.anthropic_api_key, timeout=timeout, max_retries=0))
+        import time
         modelo = self.s.ia_modelo_rapido
-        try:
-            r = self._vivo[1].messages.create(model=modelo, max_tokens=max_tokens, system=system or SYSTEM,
-                                              messages=[{"role": "user", "content": prompt}])
-        except Exception as e:  # noqa: BLE001
-            log.warning("IA en vivo no respondió (modelo %s): %s: %s", modelo, type(e).__name__, e)
-            raise IANoDisponible(_mensaje_error(e)) from e
-        texto = "".join(b.text for b in r.content if getattr(b, "type", "") == "text")
+        inicio, r = time.monotonic(), None
+        for intento in (1, 2):
+            try:
+                extra = {}
+                if esquema:  # respuesta estructurada: el SDK entrega un objeto ya validado, sin JSON que parsear
+                    extra = {"tools": [{"name": "respuesta", "description": "Entrega la respuesta.", "input_schema": esquema}],
+                             "tool_choice": {"type": "tool", "name": "respuesta"}}
+                r = self._vivo[1].messages.create(model=modelo, max_tokens=max_tokens, system=system or SYSTEM,
+                                                  messages=[{"role": "user", "content": prompt}], **extra)
+                break
+            except Exception as e:  # noqa: BLE001
+                log.warning("IA en vivo no respondió (intento %s, modelo %s): %s: %s", intento, modelo, type(e).__name__, e)
+                # un reintento inmediato solo si fue un corte de conexión o saturación y queda tiempo; nunca tras un tiempo agotado
+                corte = type(e).__name__ in ("APIConnectionError", "InternalServerError", "OverloadedError") or \
+                    getattr(e, "status_code", None) in (500, 502, 503, 529)
+                if intento == 2 or not corte or "Timeout" in type(e).__name__ or time.monotonic() - inicio > timeout / 2:
+                    raise IANoDisponible(_mensaje_error(e)) from e
         meta = {"modelo": modelo, "tin": getattr(r.usage, "input_tokens", 0), "tout": getattr(r.usage, "output_tokens", 0)}
+        if getattr(r, "stop_reason", "") == "max_tokens":
+            log.warning("IA en vivo: respuesta cortada por límite de tokens (%s)", max_tokens)
+        for b in r.content:
+            if getattr(b, "type", "") == "tool_use" and isinstance(getattr(b, "input", None), dict) and b.input:
+                return b.input, meta
+        texto = "".join(b.text for b in r.content if getattr(b, "type", "") == "text")
         try:
             return extraer_json(texto), meta
         except json.JSONDecodeError as e:
-            log.warning("IA en vivo devolvió JSON inválido: %s", e)
-            raise IANoDisponible("La IA devolvió una respuesta incompleta.") from e
+            log.warning("IA en vivo devolvió JSON inválido: %s · inicio: %r", e, texto[:200])
+            raise IANoDisponible("La IA devolvió una respuesta que no se pudo leer.") from e
 
     def pedir_texto(self, prompt: str, rapido: bool = False, max_tokens: int = 4000,
                     system: str | None = None) -> tuple[str, dict]:
