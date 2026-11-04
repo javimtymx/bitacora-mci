@@ -16,7 +16,7 @@ def _manuel(db):
     return db.scalar(select(Usuario).where(Usuario.email == "mcoronado@onecore.mx"))
 
 
-def _form_comp(db, texto="Dar seguimiento a prospectos", fecha=None):
+def _form_comp(db, texto="Enviar 15 mensajes a prospectos IMMEX y agendar 2 citas antes del viernes", fecha=None):
     m = _manuel(db)
     return {"area_id": m.area_id, "predictiva_id": _pred(db).id, "responsable_id": m.id, "texto": texto,
             "fecha_limite": (fecha or hoy() + timedelta(days=2)).isoformat()}

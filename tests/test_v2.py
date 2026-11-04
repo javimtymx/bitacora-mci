@@ -95,7 +95,7 @@ def test_diagnostico_con_investigacion_y_seguimiento(admin, db, fake):
          "recomendaciones": [{"texto": "Secuencia de 3 toques al webinar", "tecnica": "Social selling", "impacto": "alto"}],
          "investigacion": {"requerida": True, "pregunta": "¿Tasa de conversión de webinar a cita?"}},
         {"veredicto": "perdiendo", "titular": "Pierde 3 semanas (con investigación)", "lectura": "...", "evaluacion": [],
-         "recomendaciones": [{"texto": "Secuencia de 3 toques en 48 h", "tecnica": "Social selling", "impacto": "alto"}],
+         "recomendaciones": [{"texto": "Secuencia de 3 toques en 48 h a los asistentes del webinar con propuesta de cita", "tecnica": "Social selling", "impacto": "alto"}],
          "investigacion": {"requerida": False}}]
     r = admin.post("/diagnostico/generar", data={"area": "ventas"}, follow_redirects=False)
     assert r.status_code == 303

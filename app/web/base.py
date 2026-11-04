@@ -69,9 +69,21 @@ def valor(v, unidad: str = "", dec: int = 1, signo: bool = False) -> str:
 
 from ..services import accesos  # noqa: E402
 
+def _meta_partes(v, unidad: str = "", dec: int = 1) -> tuple[str, str]:
+    """Separa la cifra de la descripción de la unidad para mostrarlas en dos renglones."""
+    if v is None:
+        return "—", ""
+    u = (unidad or "").strip()
+    num = valor(v, "", dec)
+    if u.startswith("%"):
+        return num + "%", u[1:].strip()
+    return num, u
+
+
 TEMPLATES.env.globals.update(fmt_fecha=util.fmt_fecha, fmt_dia=util.fmt_dia, dias_desde=util.dias_desde,
                              num_semana=util.num_semana, md=md, valor=valor, menu_lateral=accesos.menu_lateral,
                              puede_menu=accesos.puede,
+                             meta_partes=lambda v, unidad="", dec=1: _meta_partes(v, unidad, dec),
                              guardia=Markup('Guard<span class="gia" title="Inteligencia Artificial">IA</span> OneCore'))
 
 

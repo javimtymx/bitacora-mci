@@ -30,7 +30,20 @@
         <input class="input" type="date" id="nc-fecha" name="fecha_limite" value="{{ viernes.isoformat() }}" min="{{ hoy.isoformat() }}" data-revisable required></div>
     </div>
     <div class="field"><label for="nc-texto">Compromiso (qué harás, cuánto y para cuándo) · debe mover la medida predictiva elegida</label>
-        <textarea class="input" id="nc-texto" name="texto" required maxlength="1000" data-revisable placeholder="Ej. Enviar 15 mensajes directos a gerentes de comercio exterior de empresas IMMEX y agendar 1 cita antes del jueves">{{ pref_texto or '' }}</textarea></div>
+        <textarea class="input" id="nc-texto" name="texto" required maxlength="1000" data-revisable placeholder="Ej. Enviar 15 mensajes directos a gerentes de comercio exterior de empresas IMMEX y agendar 1 cita antes del jueves">{{ pref_texto or '' }}</textarea>
+      <div class="smart-row">
+        <div class="smart" data-smart aria-label="Guía SMART">
+          <span class="sm-l">Un buen compromiso es</span>
+          <span class="sm" data-k="especifico" title="Qué acción concreta y sobre qué">Específico</span>
+          <span class="sm" data-k="medible" title="Cantidad o entregable verificable">Medible</span>
+          <span class="sm" data-k="alcanzable" title="Depende de ti y cabe en la semana">Alcanzable</span>
+          <span class="sm" data-k="relevante" title="Mueve la medida predictiva">Relevante</span>
+          <span class="sm" data-k="tiempo" title="Fecha o momento claro">Con fecha</span>
+        </div>
+        <button class="btn sm soft" type="button" data-btn-ayuda="/api/ia/compromiso/ayuda">{{ icon('ia', 16) }}<span>Ayúdame a redactarlo</span></button>
+      </div>
+      <div class="ayuda hidden" data-ayuda aria-live="polite"></div>
+    </div>
   </div>
   <div class="sec alt hidden" data-ia-resultado>
     <div class="row between"><div class="sech"><span class="secic">{{ icon('ia') }}</span>Revisión del compromiso</div>{{ ai_badge() }}</div>

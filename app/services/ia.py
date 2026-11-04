@@ -175,7 +175,7 @@ def _registrar(db: Session, tipo: str, usuario_id: int | None, res: dict, meta: 
     return r
 
 
-VEREDICTOS = ("ok", "mejorar", "repetido", "no_aplica")
+VEREDICTOS = ("ok", "mejorar", "muy_debil", "repetido", "no_aplica")
 
 
 def _ver(v) -> str:
@@ -200,14 +200,44 @@ def _historial_persona(db: Session, usuario_id: int, n: int = 10) -> str:
 
 # ---------------------------------------------------------------- compromisos
 
+SMART = (("especifico", "Específico"), ("medible", "Medible"), ("alcanzable", "Alcanzable"),
+         ("relevante", "Relevante"), ("tiempo", "Con fecha"))
+
+
+def debilidad_basica(texto: str) -> str | None:
+    """Filtro sin IA para compromisos que no se pueden aceptar: muy cortos o sin sentido."""
+    import re as _re
+    t = " ".join((texto or "").split())
+    palabras = [w for w in _re.findall(r"[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]{2,}", t)]
+    if len(t) < 30 or len(palabras) < 6:
+        return "Es demasiado corto: di qué harás, cuánto, con qué entregable y para cuándo."
+    if len(set(w.lower() for w in palabras)) < max(4, len(palabras) // 3):
+        return "No se entiende qué se hará: repite palabras sin describir una acción concreta."
+    letras = sum(ch.isalpha() for ch in t)
+    if letras < len(t) * 0.55:
+        return "El texto no describe una acción: tiene más símbolos o números que palabras."
+    return None
+
+
+def _smart(x) -> dict:
+    x = x if isinstance(x, dict) else {}
+    return {k: bool(x.get(k)) for k, _ in SMART}
+
+
 def revisar_compromiso(db: Session, usuario: Usuario, *, area: str, predictiva: str, texto: str,
                        fecha_limite: date, responsable: Usuario, estrategia: str = "") -> RevisionIA:
-    prompt = f"""Revisa este compromiso semanal antes de guardarlo. Criterios:
-1. Específico y verificable: dice qué se hará y cuánto, y se puede cumplir antes de la fecha límite.
-2. Mueve la medida predictiva indicada. Si no tiene relación, el veredicto es "no_aplica".
-3. No repite un compromiso reciente de la misma persona que ya se incumplió sin cambiar el enfoque ("repetido").
-4. Depende de quien se compromete, no de terceros.
-Si cumple todo: "ok". Si se puede mejorar la redacción o la medición: "mejorar".
+    prompt = f"""Revisa este compromiso semanal antes de guardarlo, como un coach exigente pero útil. Evalúalo con SMART:
+- especifico: dice qué acción concreta se hará y sobre qué (clientes, módulo, documento).
+- medible: tiene una cantidad o un entregable verificable (número, documento, folio, reunión realizada).
+- alcanzable: se puede cumplir antes de la fecha límite y depende de quien se compromete, no de terceros.
+- relevante: mueve la medida predictiva indicada.
+- tiempo: tiene fecha o momento claro (la fecha límite cuenta si es realista).
+Veredictos:
+- "muy_debil": muy corto, vago, sin acción concreta o sin sentido (ej. "dar seguimiento", "revisar pendientes", "trabajar en ventas"). No se acepta así.
+- "no_aplica": no tiene relación con la medida predictiva.
+- "repetido": repite un compromiso reciente de la misma persona que ya se incumplió sin cambiar el enfoque.
+- "mejorar": tiene sentido pero le faltan uno o dos elementos SMART.
+- "ok": cumple los cinco.
 
 <datos>
 Área: {area}
@@ -220,11 +250,39 @@ Historial reciente del responsable (texto | estado | causa):
 {_historial_persona(db, responsable.id)}
 </datos>
 
-JSON: {{"veredicto":"ok|mejorar|repetido|no_aplica","observaciones":["hasta 3 frases cortas"],"sugerencia":"compromiso reescrito, específico y medible; vacío si es ok"}}"""
-    res, meta = cliente().pedir_json(prompt, rapido=True, max_tokens=700)
-    res = {"veredicto": _ver(res.get("veredicto")), "observaciones": _lista(res.get("observaciones")),
-           "sugerencia": str(res.get("sugerencia") or "")[:600]}
+JSON: {{"veredicto":"ok|mejorar|muy_debil|repetido|no_aplica","smart":{{"especifico":true,"medible":false,"alcanzable":true,"relevante":true,"tiempo":true}},"observaciones":["hasta 3 frases cortas: qué falta y cómo corregirlo"],"sugerencia":"el compromiso reescrito en una o dos frases, SMART: acción + cantidad o entregable + evidencia + fecha; vacío si es ok"}}"""
+    res, meta = cliente().pedir_json(prompt, rapido=True, max_tokens=900)
+    res = {"veredicto": _ver(res.get("veredicto")), "smart": _smart(res.get("smart")),
+           "observaciones": _lista(res.get("observaciones")), "sugerencia": str(res.get("sugerencia") or "")[:600]}
+    basica = debilidad_basica(texto)
+    if basica:  # la regla mínima manda aunque la IA haya sido benévola
+        res["veredicto"] = "muy_debil"
+        res["observaciones"] = [basica] + [o for o in res["observaciones"] if o != basica][:2]
+    elif res["veredicto"] == "ok" and not all(res["smart"].values()):
+        res["veredicto"] = "mejorar"
     return _registrar(db, "compromiso", usuario.id, res, meta)
+
+
+def ayuda_compromiso(db: Session, *, area: str, predictiva: str, borrador: str, fecha_limite: date,
+                     responsable: Usuario) -> tuple[dict, dict]:
+    """Propone redacciones SMART a partir del borrador (o desde cero) para que el usuario elija y ajuste."""
+    prompt = f"""Ayuda a redactar un compromiso semanal SMART (específico, medible, alcanzable, relevante y con fecha) que mueva la medida predictiva indicada. Si hay borrador, respeta su intención y mejóralo; si no, propone a partir de la medida. Usa lenguaje directo, en primera persona del plural o infinitivo, máximo 2 frases cada una. No inventes nombres de clientes: usa [CLIENTE] si hace falta.
+
+<datos>
+Área: {area}
+Medida predictiva: {predictiva}
+Responsable: {responsable.nombre}
+Hoy: {hoy():%Y-%m-%d} · Fecha límite: {fecha_limite:%Y-%m-%d}
+Borrador: {borrador or "(vacío)"}
+Historial reciente del responsable:
+{_historial_persona(db, responsable.id, n=6)}
+</datos>
+
+JSON: {{"opciones":[{{"texto":"compromiso SMART listo para usar","por_que":"una frase: qué lo hace medible y verificable"}}],"preguntas":["hasta 2 preguntas para precisarlo si falta un dato"]}} con 3 opciones de distinta ambición."""
+    res, meta = cliente().pedir_json(prompt, rapido=True, max_tokens=900)
+    ops = [{"texto": str(o.get("texto") or "")[:500], "por_que": str(o.get("por_que") or "")[:200]}
+           for o in (res.get("opciones") or []) if isinstance(o, dict) and o.get("texto")][:3]
+    return {"opciones": ops, "preguntas": _lista(res.get("preguntas"), 2)}, meta
 
 
 # ---------------------------------------------------------------- remediaciones

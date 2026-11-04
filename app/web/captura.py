@@ -107,6 +107,8 @@ def _revision_valida(db: Session, revision_id: int | None, tipo: str, u: Usuario
 def _exigir_revision(db: Session, rev: RevisionIA | None, decision: str, motivo: str) -> None:
     if rev is None and parametros.get(db, "ia_revision_obligatoria") and ia.cliente().disponible:
         raise HTTPException(400, "Este registro debe pasar por la revisión de la IA antes de guardarse.")
+    if rev is not None and decision == "propio" and rev.veredicto == "muy_debil":
+        raise HTTPException(400, "GuardIA no acepta este compromiso porque es muy débil: mejóralo y revísalo de nuevo, o usa la sugerencia.")
     if rev is not None and decision == "propio" and rev.veredicto not in VEREDICTOS_FAVORABLES and not motivo.strip():
         raise HTTPException(400, "Explica por qué guardas sin aceptar la observación de la IA.")
 
@@ -181,6 +183,9 @@ def crear_compromiso(request: Request, area_id: int = Form(...), predictiva_id: 
     _exigir_revision(db, rev, decision, motivo)
     if rev and decision == "sugerencia" and rev.sugerencia:
         texto = rev.sugerencia
+    debil = ia.debilidad_basica(texto)
+    if debil:  # aplica también si la IA no está disponible
+        raise HTTPException(400, f"El compromiso es muy débil y no se puede guardar. {debil}")
     c = Compromiso(semana=semana_iso(hoy()), area_id=area_id, responsable_id=responsable_id, autor_id=u.id,
                    predictiva_id=pred.id, predictiva_version_id=(catalogo.version_vigente(pred.versiones).id if pred.versiones else None),
                    estrategia_id=estrategia_id or None, texto=texto.strip()[:1000], fecha_limite=fecha_limite)
@@ -398,6 +403,21 @@ def api_rev_compromiso(area_id: int = Form(...), predictiva_id: int = Form(...),
         return _ia_error(e)
     db.commit()
     return {"ok": True, "revision_id": rev.id, **rev.resultado}
+
+
+@router.post("/api/ia/compromiso/ayuda")
+def api_ayuda_compromiso(area_id: int = Form(...), predictiva_id: int = Form(...), responsable_id: int = Form(...),
+                         texto: str = Form(""), fecha_limite: date = Form(...), db: Session = Depends(get_db),
+                         u: Usuario = Depends(usuario_actual)):
+    pred, resp, area = db.get(Predictiva, predictiva_id), db.get(Usuario, responsable_id), db.get(Area, area_id)
+    if not (pred and resp and area):
+        return JSONResponse({"ok": False, "mensaje": "Elige el área, la medida predictiva y el responsable."})
+    try:
+        res, _meta = ia.ayuda_compromiso(db, area=area.nombre, predictiva=pred.nombre, borrador=texto.strip()[:1000],
+                                         fecha_limite=fecha_limite, responsable=resp)
+    except (ia.IANoDisponible, ValueError) as e:
+        return _ia_error(e)
+    return {"ok": True, **res}
 
 
 @router.post("/api/ia/remediacion/{cid}")

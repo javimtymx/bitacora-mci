@@ -36,7 +36,7 @@
 <svg viewBox="0 0 24 24" {% if w %}width="{{ w }}" height="{{ w }}"{% endif %} fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{ P[n] }}"/></svg>
 {%- endmacro %}
 
-{% macro ai_badge() -%}<span class="ai" title="GuardIA OneCore · IA = Inteligencia Artificial">{{ icon('ia') }}Guard<span class="gia">IA</span> OneCore</span>{%- endmacro %}
+{% macro ai_badge() -%}<span class="ai" title="GuardIA OneCore · IA = Inteligencia Artificial">{{ icon('ia') }}<span>Guard<span class="gia">IA</span> OneCore</span></span>{%- endmacro %}
 
 {% macro estado_comp(c, seg) -%}
 {%- if c.estado == 'cumplido' -%}<span class="tag g">Cumplido</span>

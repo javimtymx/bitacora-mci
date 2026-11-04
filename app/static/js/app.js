@@ -51,13 +51,14 @@
   // ---- revisión con IA
   const VEREDICTOS = {
     ok: ["g", "Listo para guardar"], mejorar: ["o", "Se puede mejorar"], repetido: ["r", "Repite lo que no funcionó"],
-    no_aplica: ["r", "No mueve la medida"], debil: ["o", "Idea débil"], fuerte: ["g", "Idea fuerte"], media: ["b", "Idea media"],
+    no_aplica: ["r", "No mueve la medida"], muy_debil: ["r", "Muy débil · no se acepta"], debil: ["o", "Idea débil"], fuerte: ["g", "Idea fuerte"], media: ["b", "Idea media"],
   };
   const CAUSAS = {
     dependencia_interna: "Dependencia interna", dependencia_cliente: "Dependencia del cliente", capacidad: "Capacidad",
     prioridad_cambiada: "Cambio de prioridad", compromiso_mal_definido: "Compromiso mal definido", ejecucion: "Ejecución",
     externa: "Externa", otra: "Otra",
   };
+  const SMART = [["especifico", "Específico"], ["medible", "Medible"], ["alcanzable", "Alcanzable"], ["relevante", "Relevante"], ["tiempo", "Con fecha"]];
   const PARA = { responsable: "al responsable", lider: "al líder", direccion: "a Dirección" };
 
   function pintar(form, d) {
@@ -76,6 +77,11 @@
     if ((d.preguntas || []).length) h += `<div class="lbl">Preguntas para fortalecerla</div><ul class="obs">${d.preguntas.map((o) => `<li>${esc(o)}</li>`).join("")}</ul>`;
     if (d.duplicado_titulo) h += `<div class="flash error small">Parece duplicada de «${esc(d.duplicado_titulo)}».</div>`;
     if (d.recomendacion_historica) h += `<div class="col"><span class="lbl">Lo que dice el histórico</span><div class="small" style="line-height:1.5">${esc(d.recomendacion_historica)}</div></div>`;
+    if (d.smart) {
+      h += `<div class="smart res">${SMART.map(([k, t]) => `<span class="sm ${d.smart[k] ? "si" : "no"}">${d.smart[k] ? "✓" : "✕"} ${t}</span>`).join("")}</div>`;
+      $$("[data-smart] .sm", form).forEach((el) => { el.classList.remove("si", "no"); el.classList.add(d.smart[el.dataset.k] ? "si" : "no"); });
+    }
+    if (v === "muy_debil") h += `<div class="flash error small" style="margin:0">GuardIA no acepta este compromiso así. Usa la sugerencia o mejóralo y vuelve a revisarlo; puedes pedir ayuda con «Ayúdame a redactarlo».</div>`;
     $("[data-ia-izq]", form).innerHTML = h;
 
     const der = $("[data-ia-der]", form);
@@ -90,7 +96,9 @@
     }
     der.innerHTML = s;
     const motivo = $("[data-ia-motivo]", form);
-    motivo.classList.toggle("hidden", v === "ok" || v === "fuerte" || v === "media");
+    motivo.classList.toggle("hidden", v === "ok" || v === "fuerte" || v === "media" || v === "muy_debil");
+    const propio = $("[data-btn-propio]", form);
+    if (propio) propio.classList.toggle("hidden", v === "muy_debil");
     $("[name=revision_id]", form).value = d.revision_id || "";
     $("[data-btn-sug]", form).classList.toggle("hidden", !d.sugerencia || v === "ok");
     $("[data-btn-propio]", form).textContent = (v === "ok" || v === "fuerte" || v === "media") ? "Guardar" : "Guardar como está";
@@ -231,5 +239,49 @@
       const abierto = c.classList.toggle("abierto");
       m.textContent = abierto ? "Ver menos" : "Ver completo";
     }
+  });
+})();
+
+/* GuardIA ayuda a redactar un compromiso SMART */
+(() => {
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  document.addEventListener("click", async (e) => {
+    const usar = e.target.closest("[data-usar-redaccion]");
+    if (usar) {
+      const form = usar.closest("form");
+      const ta = form.querySelector("[name=texto]");
+      ta.value = usar.dataset.usarRedaccion;
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
+      ta.focus();
+      form.querySelector("[data-ayuda]").classList.add("hidden");
+      return;
+    }
+    const btn = e.target.closest("[data-btn-ayuda]");
+    if (!btn) return;
+    const form = btn.closest("form");
+    const panel = form.querySelector("[data-ayuda]");
+    if (!form.querySelector("[name=predictiva_id]").value) {
+      panel.innerHTML = `<span class="small">Primero elige la medida predictiva: GuardIA propone compromisos que la muevan.</span>`;
+      panel.classList.remove("hidden"); return;
+    }
+    const txt = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = `<span class="spin"></span><span>GuardIA está proponiendo…</span>`;
+    try {
+      const r = await fetch(btn.dataset.btnAyuda, { method: "POST", body: new FormData(form), credentials: "same-origin" });
+      const d = await r.json();
+      if (!d.ok) { panel.innerHTML = `<span class="small">${esc(d.mensaje || "No se pudo obtener la ayuda.")}</span>`; }
+      else {
+        let h = `<div class="lbl">Elige una redacción y ajústala a tu realidad</div>`;
+        (d.opciones || []).forEach((o) => {
+          h += `<div class="op"><div class="col" style="gap:2px;min-width:0"><span class="op-t">${esc(o.texto)}</span><span class="small muted">${esc(o.por_que)}</span></div>
+            <button class="btn sm soft" type="button" data-usar-redaccion="${esc(o.texto)}">Usar esta</button></div>`;
+        });
+        if ((d.preguntas || []).length) h += `<div class="small muted">Para precisarlo: ${d.preguntas.map(esc).join(" · ")}</div>`;
+        panel.innerHTML = h;
+      }
+      panel.classList.remove("hidden");
+    } catch (err) {
+      panel.innerHTML = `<span class="small">Sin conexión con el servidor.</span>`; panel.classList.remove("hidden");
+    } finally { btn.disabled = false; btn.innerHTML = txt; }
   });
 })();
