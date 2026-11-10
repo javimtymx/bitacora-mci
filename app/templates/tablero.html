@@ -84,10 +84,10 @@
 </details></section>
 </div>
 
-{% macro comp_item(c) -%}
+{% macro comp_item(c, con_medida=false) -%}
 <div class="ci">
   <div class="ci-est">{{ estado_comp(c, seg) }}{% if c.estado == 'abierto' %}<span class="muted small">{{ c.avance }}%</span>{% endif %}</div>
-  <div class="ci-txt"><div class="clamp" data-clamp>{{ c.texto }}</div>{% if c.texto|length > 150 %}<button class="mas" type="button" data-ver-mas>Ver completo</button>{% endif %}</div>
+  <div class="ci-txt">{% if con_medida %}<div class="ci-med"><span class="tag b">{{ c.predictiva.nombre if c.predictiva else 'Sin medida predictiva' }}</span><span class="muted small">S{{ num_semana(c.semana) }}{% if c.predictiva %} · {{ c.predictiva.mci.nombre }}{% endif %}</span></div>{% endif %}<div class="clamp" data-clamp>{{ c.texto }}</div>{% if c.texto|length > 150 %}<button class="mas" type="button" data-ver-mas>Ver completo</button>{% endif %}</div>
   <div class="ci-per"><span class="av" aria-hidden="true">{{ c.responsable.nombre.split()[0][:1] }}{{ (c.responsable.nombre.split()[1:] or [''])[0][:1] }}</span><span>{{ c.responsable.nombre }}</span></div>
   <div class="ci-fec small"><span class="muted">Vence</span><b>{{ fmt_dia(c.remediacion.nueva_fecha if c.remediacion else c.fecha_limite) }}</b></div>
   <div class="ci-av"><span class="barra" aria-hidden="true"><span style="width:{{ c.avance }}%"></span></span><span class="small muted">{{ c.avance }}%</span></div>
@@ -103,8 +103,14 @@
     {% if u.es_lider %}<a class="btn sm soft" href="/indicadores/captura">Capturar valores</a>{% endif %}
     <button class="btn sm yellow" type="button" data-open="nuevo-compromiso" data-fill-nc-area="{{ sel.id }}" data-fill-nc-pred="">{{ icon('plus', 15) }}Nuevo compromiso</button>
   </div></div>
+  <div class="tabs vista-tabs" role="tablist"><button type="button" class="on" data-vista="pred" role="tab">Por medida predictiva</button><button type="button" data-vista="lista" role="tab">Compromisos abiertos ({{ cons.abiertos|length }})</button></div>
+  <div data-vista-panel="lista" hidden>
+    <span class="small muted">Todos los compromisos abiertos del área, sin agrupar, ordenados por fecha de vencimiento. Cada uno indica su medida predictiva y su semana.</span>
+    <div class="subwrap" style="margin:8px 0 0;padding-left:0;border-left:0">{% for c in cons.abiertos %}{{ comp_item(c, true) }}{% else %}<span class="muted small">No hay compromisos abiertos en el área.</span>{% endfor %}</div>
+  </div>
+  <div data-vista-panel="pred">
   <div class="row small muted" style="gap:16px;margin-top:-4px"><span><span class="tag g">2/5</span> valor vs meta</span><span><span class="chip">▸ 2 compromisos</span> desplegar</span><span><span class="hist">1/1 comp.</span> semanas anteriores</span><span><span class="sincomp">Sin compromiso</span> nadie empuja esta palanca</span></div>
-  <div class="tbl"><table class="jer"><thead><tr><th>Meta (MCI) y sus medidas predictivas</th><th class="num col-meta">Meta</th>{% for s in cons.sems8|reverse %}<th class="num{{ ' actual' if loop.first }}">S{{ num_semana(s) }}{% if loop.first %}<div class="cap" style="font-size:10px">{{ 'actual' if s == sem_nc else 'última del mes' }}</div>{% endif %}{% if s in adaptacion %}<div class="cap" style="font-size:9.5px;color:#7A4600" title="Semana de adaptación del proceso">adaptación</div>{% endif %}</th>{% endfor %}</tr></thead>
+  <div class="tbl"><table class="jer"><thead><tr><th>Meta (MCI) y sus medidas predictivas</th><th class="num col-meta">Meta</th>{% for s in cons.sems8|reverse %}<th class="num{{ ' actual' if loop.first }}">S{{ num_semana(s) }}{% if loop.first %}<div class="cap" style="font-size:10px">{{ 'actual' if s == sem_nc else 'última del mes' }}</div>{% elif s < inicio %}<div class="cap" style="font-size:9.5px" title="Semana previa al arranque: se muestra porque tiene movimiento, no entra en los cálculos">previa</div>{% elif mes_de(s) != mes %}<div class="cap" style="font-size:9.5px" title="Fuera del mes evaluado">{{ nombre_mes(mes_de(s), false)[:3]|lower }}</div>{% endif %}{% if s in cons.pendientes_sem and s != sem %}<div class="cap" style="font-size:9.5px;color:var(--r-fg)" title="Tiene compromisos sin concluir">pendientes</div>{% endif %}{% if s in adaptacion %}<div class="cap" style="font-size:9.5px;color:#7A4600" title="Semana de adaptación del proceso">adaptación</div>{% endif %}</th>{% endfor %}</tr></thead>
   {% for g in cons.grupos %}<tbody>
     <tr class="mci-row"><td><div class="row" style="gap:8px;flex-wrap:nowrap"><span class="tag b" style="flex:none">MCI</span><b>{{ g.mci.nombre }}</b></div>
         <div class="muted small" style="margin-top:2px">{% if g.v and g.v.meta is not none %}Meta {{ valor(g.v.meta, g.v.unidad, g.dec) }}{{ ' · ' ~ g.v.periodicidad if g.v.periodicidad }}{% else %}Sin meta definida{% endif %} · {{ g.mci.dueno.nombre if g.mci.dueno else 'sin dueño' }} · <a class="lnk" href="/kardex/{{ g.mci.id }}">Kárdex</a></div></td>
@@ -128,7 +134,8 @@
         {% if act.semana == sem_nc %}<button class="add" type="button" data-open="nuevo-compromiso" data-fill-nc-area="{{ sel.id }}" data-fill-nc-pred="{{ p.id }}">+ Compromiso para esta medida</button>{% endif %}</div>
     </div></td></tr>{% endif %}
     {% else %}<tr class="pred-row"><td colspan="10" class="small muted"><span class="rama">└</span> Esta meta no tiene medidas predictivas. Agrégalas en Configurar → Catálogo.</td></tr>{% endfor %}
-  </tbody>{% else %}<tbody><tr><td class="muted" colspan="10">Sin metas en esta área.</td></tr></tbody>{% endfor %}</table></div></section>
+  </tbody>{% else %}<tbody><tr><td class="muted" colspan="10">Sin metas en esta área.</td></tr></tbody>{% endfor %}</table></div>
+  </div></section>
 
 <section class="card pad"><div class="row between"><h2>Voz del cliente · 6 semanas</h2>{% if u.es_lider %}<a class="lnk" href="/voz-cliente">{{ icon('eye', 15) }}Módulo</a>{% endif %}</div>
   <span class="small muted" style="margin-top:-8px">{{ cons.n_ses }} sesión(es) analizadas</span>
@@ -155,6 +162,19 @@
   {% endfor %}</tbody></table></div>
 </section>
 {% endblock %}
+{% block scripts %}<script>
+(function () {
+  var tabs = document.querySelectorAll("[data-vista]");
+  if (!tabs.length) return;
+  function ver(v) {
+    tabs.forEach(function (t) { t.classList.toggle("on", t.dataset.vista === v); });
+    document.querySelectorAll("[data-vista-panel]").forEach(function (p) { p.hidden = p.dataset.vistaPanel !== v; });
+    try { localStorage.setItem("tablero-vista", v); } catch (e) {}
+  }
+  tabs.forEach(function (t) { t.addEventListener("click", function () { ver(t.dataset.vista); }); });
+  try { var g = localStorage.getItem("tablero-vista"); if (g) ver(g); } catch (e) {}
+})();
+</script>{% endblock %}
 {% block modals %}{% if cons %}
 {% include "_modal_compromiso.html" %}
 {% for g in cons.grupos %}{% for p, v, fila in g.filas %}{% for c in fila[:-1] if c.compromisos %}

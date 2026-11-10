@@ -396,3 +396,7 @@ td.mes-res{background:#F4FBFA}
 .diag-txt .lnk{color:var(--yellow);align-self:flex-start}
 .diag-area summary{cursor:pointer;list-style:none}.diag-area summary::-webkit-details-marker{display:none}
 .diag-area .chev{transition:transform .15s;display:inline-block;color:var(--muted)}.diag-area[open] .chev{transform:rotate(90deg)}
+.vista-tabs{margin:2px 0 6px}.vista-tabs button{border:0;background:none;font:inherit;cursor:pointer}
+.ci-med{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:4px}
+.tabs button{padding:10px 14px;font-weight:700;color:var(--ink3);border-bottom:3px solid transparent !important;margin-bottom:-1px}
+.tabs button.on{color:var(--ink);border-bottom-color:var(--ink) !important}

@@ -355,3 +355,22 @@ def test_diagnostico_parte_del_arranque(db, monkeypatch):
     ctx, _ = diagnostico._contexto(db, a, semana_iso(hoy()))
     assert "el seguimiento formal inició en la semana 2026-W46" in ctx and "se juzga al CIERRE del mes" in ctx
     assert "Corte mensual" in diagnostico.INSTRUCCION
+
+
+def test_semanas_con_movimiento_y_lista_de_abiertos(admin, db):
+    from datetime import timedelta
+    from app.models import Area, Predictiva, Usuario
+    from app.web.tablero import _semanas_vista
+    v = db.scalar(select(Area).where(Area.clave == "ventas"))
+    p = db.scalar(select(Predictiva).where(Predictiva.clave.like("ventas%")))
+    m = db.scalar(select(Usuario).where(Usuario.email == "mcoronado@onecore.mx"))
+    actual = semana_iso(hoy())
+    viejas = [semana_iso(hoy() - timedelta(weeks=k)) for k in (2, 6)]  # previas al arranque o de otro mes
+    for s_, est in ((viejas[0], "cumplido"), (viejas[1], "abierto")):
+        db.add(Compromiso(semana=s_, area_id=v.id, responsable_id=m.id, autor_id=m.id, predictiva_id=p.id,
+                          texto=f"Compromiso de {s_}", fecha_limite=hoy(), estado=est))
+    db.commit()
+    sems = _semanas_vista(db, v, [p], actual)
+    assert sems[-1] == actual and viejas[0] in sems and viejas[1] in sems and len(sems) <= 5
+    t = admin.get("/?area=ventas").text
+    assert "Compromisos abiertos (1)" in t and f"Compromiso de {viejas[1]}" in t and 'data-vista-panel="lista"' in t

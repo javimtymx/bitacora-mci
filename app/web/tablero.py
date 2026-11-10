@@ -30,14 +30,44 @@ def _areas(db: Session) -> list[Area]:
             if indicadores.mcis_de(db, a.id)]
 
 
+HISTORICO_VISTA = 4  # semanas anteriores que se muestran junto a la actual
+
+
+def _semanas_vista(db: Session, area: Area, preds, sem: str) -> list[str]:
+    """Columnas del seguimiento: la semana evaluada y hasta 4 anteriores CON movimiento (compromisos o capturas),
+    aunque sean de otro mes o previas al arranque. Primero las que aún tienen compromisos abiertos."""
+    from ..models import Medicion
+    con_datos = {x for x in db.scalars(select(Compromiso.semana).where(Compromiso.area_id == area.id,
+                                                                       Compromiso.estado != "cancelado",
+                                                                       Compromiso.semana < sem).distinct())}
+    ver_ids = [v.id for p in preds for v in p.versiones]
+    if ver_ids:
+        con_datos |= {x for x in db.scalars(select(Medicion.periodo).where(Medicion.tipo == "predictiva",
+                                                                           Medicion.version_id.in_(ver_ids),
+                                                                           Medicion.periodo < sem).distinct())
+                      if "-W" in x}
+    pendientes = {x for x in db.scalars(select(Compromiso.semana).where(Compromiso.area_id == area.id,
+                                                                        Compromiso.estado == "abierto",
+                                                                        Compromiso.semana < sem).distinct())}
+    elegidas = sorted(pendientes, reverse=True)[:HISTORICO_VISTA]
+    for x in sorted(con_datos - set(elegidas), reverse=True):
+        if len(elegidas) >= HISTORICO_VISTA:
+            break
+        elegidas.append(x)
+    return sorted(elegidas) + [sem]
+
+
 def _consolidado_area(db: Session, area: Area, sem: str, sems8: list[str]) -> dict:
     """Todo lo del área en una página: medidas predictivas (las palancas), compromisos, voz del cliente, ideas y diagnóstico."""
     from datetime import timedelta as _td
     from ..models import Hallazgo, Idea, Objecion, Predictiva, SesionCliente
     preds = list(db.scalars(select(Predictiva).join(Mci).where(Mci.area_id == area.id, Mci.activo.is_(True),
                                                              Predictiva.activo.is_(True)).order_by(Mci.id, Predictiva.id)))
+    sems8 = _semanas_vista(db, area, preds, sem)
     comps = list(db.scalars(select(Compromiso).where(Compromiso.area_id == area.id, Compromiso.semana.in_(sems8))))
     matriz = indicadores.matriz_predictivas(db, preds, sems8, comps)
+    abiertos = sorted(db.scalars(select(Compromiso).where(Compromiso.area_id == area.id, Compromiso.estado == "abierto")),
+                      key=lambda c: (c.fecha_limite, c.id))
     # jerarquía: cada MCI (meta) con su resultado semanal y, debajo, las predictivas que la mueven
     grupos = []
     for m in indicadores.mcis_de(db, area.id):
@@ -64,6 +94,7 @@ def _consolidado_area(db: Session, area: Area, sem: str, sems8: list[str]) -> di
                             .order_by(Idea.actualizado.desc())))
     d = diagnostico.ultimo(db, area.id)
     return {"ayf": _panel_ayf(db, area), "matriz": matriz, "grupos": grupos, "comps_sem": comps_sem, "sems8": sems8,
+            "abiertos": abiertos, "pendientes_sem": {c.semana for c in abiertos},
             "temas": sorted(temas.items(), key=lambda x: -x[1])[:5], "tipos": sorted(tipos.items(), key=lambda x: -x[1][0]),
             "n_ses": n_ses, "ideas": ideas[:5], "ideas_estado": {k: sum(1 for i in ideas if i.estado == k)
                                                                    for k in ("propuesta", "validada", "en_curso", "implementada")},
@@ -136,6 +167,7 @@ def tablero(request: Request, area: str = "todas", mes: str | None = None, db: S
         from .archivo import archivo
         n_arch = len(archivo(db, u, sel.id))
     return render(request, "tablero.html", u, "inicio", areas=areas, sel=sel, sem=sem, mes=mes, n_mci=len(mcis),
+                  mes_de=indicadores.mes_de, inicio=indicadores.inicio_seguimiento(),
                   meses=indicadores.meses_disponibles(), nombre_mes=indicadores.nombre_mes,
                   adaptacion=indicadores.semanas_adaptacion(),
                   n_arch=n_arch, seg=seguimiento, **opciones,
