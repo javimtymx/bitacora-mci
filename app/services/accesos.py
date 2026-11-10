@@ -30,7 +30,7 @@ GRUPOS = (("tablero", "Tablero", "home"), ("ejecucion", "Ejecución", "check"), 
           ("innovacion", "Innovación", "idea"), ("soporte", "Soporte", "ticket"), ("datos", "Datos", "chart"))
 
 MENUS = (
-    Menu("inicio", "tablero", "Tablero semanal", "Indicadores de todos y por área", "/", "colaborador", ("/kardex",)),
+    Menu("inicio", "tablero", "Tablero", "Resultado del mes y seguimiento semanal", "/", "colaborador", ("/kardex",)),
     Menu("mi-semana", "tablero", "Mi semana", "Mis compromisos de esta semana", "/mi-semana", "colaborador", ("/mi-semana",)),
     Menu("compromisos", "ejecucion", "Compromisos", "Seguimiento y remediaciones", "/compromisos", "colaborador",
          ("/compromisos", "/api/ia/compromiso", "/api/ia/remediacion", "/remediaciones", "/evidencias")),

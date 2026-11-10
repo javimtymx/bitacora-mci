@@ -1,6 +1,11 @@
-"""Indicadores semanales: valor real contra objetivo, brecha, racha y compromisos que los mueven.
+"""Indicadores: resultado mensual de cada MCI contra su objetivo y seguimiento semanal de compromisos y predictivas.
 
-El objetivo de cada semana sale de la versión de la MCI vigente ese viernes:
+- Las MCI (resultado) se capturan y evalúan por MES (periodo «AAAA-MM»): su racha y su brecha son mensuales.
+- Las medidas predictivas y los compromisos siguen siendo SEMANALES (periodo «AAAA-Www»).
+- Nada anterior a INICIO_SEGUIMIENTO (p. ej. 2026-W46) entra en ningún cálculo.
+- Una semana pertenece al mes de su viernes.
+
+El objetivo de cada periodo sale de la versión de la MCI vigente al cierre del periodo:
 - tipo_meta "nivel": la meta se compara directo (retención 95%).
 - tipo_meta "acumulado": ritmo lineal de linea_base (en vigente_desde) a meta (en fecha_meta).
 """
@@ -14,7 +19,10 @@ from sqlalchemy.orm import Session
 
 from ..models import Area, Compromiso, Estrategia, EstrategiaEvento, Excepcion, Mci, MciVersion, Medicion, Usuario
 from . import catalogo, seguimiento
-from .util import hoy, semana_iso
+from .util import hoy, inicio_seguimiento, semana_iso  # noqa: F401 (inicio_seguimiento se reexporta)
+
+MESES = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre",
+         "noviembre", "diciembre")
 
 
 def viernes_de(semana: str) -> date:
@@ -23,8 +31,93 @@ def viernes_de(semana: str) -> date:
 
 
 def semanas(n: int, hasta: str | None = None) -> list[str]:
+    """Las últimas n semanas hasta `hasta`, sin las anteriores al inicio del seguimiento (al menos una)."""
     fin = viernes_de(hasta) if hasta else hoy()
-    return [semana_iso(fin - timedelta(weeks=i)) for i in range(n - 1, -1, -1)]
+    todas = [semana_iso(fin - timedelta(weeks=i)) for i in range(n - 1, -1, -1)]
+    ini = inicio_seguimiento()
+    return [x for x in todas if x >= ini] or todas[-1:]
+
+
+# ---------------------------------------------------------------- meses
+
+def mes_de(semana: str) -> str:
+    return viernes_de(semana).strftime("%Y-%m")
+
+
+def mes_actual() -> str:
+    return mes_de(semana_iso(hoy()))
+
+
+def mes_inicio() -> str:
+    return mes_de(inicio_seguimiento())
+
+
+def nombre_mes(mes: str, anio: bool = True) -> str:
+    try:
+        y, m = mes.split("-")
+        return f"{MESES[int(m) - 1].capitalize()}{' ' + y if anio else ''}"
+    except (ValueError, IndexError):
+        return mes
+
+
+def _sumar_mes(mes: str, k: int) -> str:
+    y, m = (int(x) for x in mes.split("-"))
+    t = y * 12 + (m - 1) + k
+    return f"{t // 12:04d}-{t % 12 + 1:02d}"
+
+
+def ultimo_dia(mes: str) -> date:
+    y, m = (int(x) for x in _sumar_mes(mes, 1).split("-"))
+    return date(y, m, 1) - timedelta(days=1)
+
+
+def meses(n: int, hasta: str | None = None) -> list[str]:
+    """Los últimos n meses hasta `hasta` (por defecto el actual), sin los anteriores al inicio del seguimiento."""
+    fin = hasta or mes_actual()
+    todos = [_sumar_mes(fin, -i) for i in range(n - 1, -1, -1)]
+    ini = mes_inicio()
+    return [x for x in todos if x >= ini] or todos[-1:]
+
+
+def meses_disponibles() -> list[str]:
+    """Del mes de inicio al mes actual (para el selector del tablero)."""
+    out, m, fin = [], mes_inicio(), mes_actual()
+    while m <= fin and len(out) < 120:
+        out.append(m)
+        m = _sumar_mes(m, 1)
+    return out or [fin]
+
+
+def mes_valido(mes: str | None) -> str:
+    disp = meses_disponibles()
+    return mes if mes in disp else disp[-1]
+
+
+def semanas_mes(mes: str) -> list[str]:
+    """Semanas cuyo viernes cae en el mes, desde el inicio del seguimiento y hasta la semana actual."""
+    actual, ini = semana_iso(hoy()), inicio_seguimiento()
+    d = date(int(mes[:4]), int(mes[5:7]), 1)
+    out = []
+    while d <= ultimo_dia(mes):
+        s = semana_iso(d)
+        if mes_de(s) == mes and ini <= s <= actual and s not in out:
+            out.append(s)
+        d += timedelta(days=1)
+    return out
+
+
+def semana_de_mes(mes: str) -> str:
+    """La semana a evaluar de un mes: la actual si es el mes en curso; si no, la última del mes."""
+    sems = semanas_mes(mes)
+    actual = semana_iso(hoy())
+    return actual if (actual in sems or not sems) else sems[-1]
+
+
+def semanas_adaptacion() -> list[str]:
+    from ..config import get_settings
+    n = get_settings().semanas_adaptacion or 0
+    ini = viernes_de(inicio_seguimiento())
+    return [semana_iso(ini + timedelta(weeks=i)) for i in range(n)]
 
 
 def objetivo(v: MciVersion | None, dia: date) -> float | None:
@@ -62,24 +155,59 @@ class PuntoSemana:
 
 
 @dataclass
+class PuntoMes:
+    mes: str
+    valor: float | None = None
+    objetivo: float | None = None
+    brecha: float | None = None
+    nota: str | None = None
+
+    @property
+    def semana(self) -> str:  # compatibilidad con plantillas que muestran el periodo
+        return self.mes
+
+
+@dataclass
 class SerieMci:
+    """Valores mensuales de la MCI (`meses`) y compromisos por semana (`puntos`)."""
     mci: Mci
     version: MciVersion | None
     puntos: list[PuntoSemana] = field(default_factory=list)
+    meses: list[PuntoMes] = field(default_factory=list)
 
     @property
-    def ultimo(self) -> PuntoSemana | None:
-        for p in reversed(self.puntos):
+    def ultimo(self) -> PuntoMes | None:
+        for p in reversed(self.meses):
             if p.valor is not None:
                 return p
         return None
 
     @property
+    def actual(self) -> PuntoMes | None:
+        return self.meses[-1] if self.meses else None
+
+    def por_mes(self) -> list[PuntoSemana]:
+        """Un punto por mes con el valor de la MCI y los compromisos de sus semanas sumados (para el kárdex)."""
+        out = []
+        for pm in self.meses:
+            q = PuntoSemana(semana=pm.mes, valor=pm.valor, objetivo=pm.objetivo, brecha=pm.brecha)
+            for p in self.puntos:
+                if mes_de(p.semana) == pm.mes:
+                    q.cumplidos += p.cumplidos
+                    q.remediados += p.remediados
+                    q.en_remediacion += p.en_remediacion
+                    q.solo_texto += p.solo_texto
+                    q.exceptuados += p.exceptuados
+                    q.abiertos += p.abiertos
+            out.append(q)
+        return out
+
+    @property
     def racha(self) -> tuple[str, int]:
-        """('ganando'|'perdiendo'|'en_meta'|'sin_datos', semanas seguidas)."""
-        vals = [p for p in self.puntos if p.brecha is not None]
+        """('ganando'|'perdiendo'|'en_meta'|'sin_datos'|'sin_meta', meses seguidos)."""
+        vals = [p for p in self.meses if p.brecha is not None]
         if not vals:
-            return ("sin_meta" if any(p.valor is not None for p in self.puntos) else "sin_datos"), 0
+            return ("sin_meta" if any(p.valor is not None for p in self.meses) else "sin_datos"), 0
         def signo(b):
             return "ganando" if b > 1e-9 else ("perdiendo" if b < -1e-9 else "en_meta")
         s = signo(vals[-1].brecha)
@@ -109,26 +237,30 @@ def clasificar(c: Compromiso, excs) -> str | None:
     return "solo_texto"
 
 
-def serie_mci(db: Session, mci: Mci, n: int = 16, hasta: str | None = None) -> SerieMci:
+def serie_mci(db: Session, mci: Mci, n: int = 16, hasta: str | None = None, n_meses: int = 6) -> SerieMci:
     sems = semanas(n, hasta)
+    mss = meses(n_meses, mes_de(hasta) if hasta else None)
     ver_ids = [v.id for v in mci.versiones]
-    meds = {}
+    meds, notas = {}, {}
     if ver_ids:
         for m in db.scalars(select(Medicion).where(Medicion.tipo == "mci", Medicion.version_id.in_(ver_ids),
-                                                   Medicion.periodo.in_(sems))):
-            meds[m.periodo] = float(m.valor)
+                                                   Medicion.periodo.in_(mss))):
+            meds[m.periodo], notas[m.periodo] = float(m.valor), m.nota
     pred_ids = [p.id for p in mci.predictivas]
     comps = list(db.scalars(select(Compromiso).where(Compromiso.predictiva_id.in_(pred_ids),
                                                      Compromiso.semana.in_(sems)))) if pred_ids else []
     excs = seguimiento.excepciones_aprobadas(db)
     out = SerieMci(mci=mci, version=catalogo.version_vigente(mci.versiones))
-    for s in sems:
-        dia = viernes_de(s)
-        v = catalogo.version_vigente(mci.versiones, dia)
-        p = PuntoSemana(semana=s, valor=meds.get(s), objetivo=objetivo(v, dia))
-        if p.valor is not None and p.objetivo is not None:
+    for ms in mss:
+        dia = ultimo_dia(ms)
+        v = catalogo.version_vigente(mci.versiones, dia) or catalogo.version_vigente(mci.versiones)
+        pm = PuntoMes(mes=ms, valor=meds.get(ms), objetivo=objetivo(v, dia), nota=notas.get(ms))
+        if pm.valor is not None and pm.objetivo is not None:
             signo = -1 if (v and v.sentido == "menor") else 1
-            p.brecha = (p.valor - p.objetivo) * signo
+            pm.brecha = (pm.valor - pm.objetivo) * signo
+        out.meses.append(pm)
+    for s in sems:
+        p = PuntoSemana(semana=s)
         for c in comps:
             if c.semana != s:
                 continue

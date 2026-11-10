@@ -21,9 +21,18 @@ def semana_iso(d: date) -> str:
     return f"{y}-W{w:02d}"
 
 
+def inicio_seguimiento() -> str:
+    """Semana ISO desde la que cuentan los cálculos (INICIO_SEGUIMIENTO, p. ej. 2026-W46)."""
+    from ..config import get_settings
+    return get_settings().inicio_seguimiento or "2000-W01"
+
+
 def semanas_atras(n: int, desde: date | None = None) -> list[str]:
+    """Últimas n semanas hasta `desde`, sin las anteriores al inicio del seguimiento (al menos la semana actual)."""
     d = desde or hoy()
-    return [semana_iso(d - timedelta(weeks=i)) for i in range(n)]
+    sems = [semana_iso(d - timedelta(weeks=i)) for i in range(n)]
+    ini = inicio_seguimiento()
+    return [s for s in sems if s >= ini] or sems[:1]
 
 
 def num_semana(s: str) -> int:

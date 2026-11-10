@@ -64,7 +64,7 @@ def lista(request: Request, ver: str = "mios", estado: str = "abiertos", db: Ses
         q = q.where(Ticket.estado == "cerrado")
     ts = db.scalars(q.limit(300)).all()
     return render(request, "tickets.html", u, "tickets", ts=ts, ver=ver, estado=estado, staff=staff,
-                  estados=TICKET_ESTADOS, tipos=TICKET_TIPOS, vence_en=tk.vence_en)
+                  estados=TICKET_ESTADOS, tipos=tk.tipos(db, True), vence_en=tk.vence_en)
 
 
 @router.get("/tickets/nuevo")
@@ -72,9 +72,10 @@ def nuevo(request: Request, db: Session = Depends(get_db), u: Usuario = Depends(
     p = tk.prompt_vigente(db)
     cat = tk.catalogo(db)
     db.commit()
-    req = {t: tk.requeridos(p, t) for t in TICKET_TIPOS}
+    tipos_act = tk.tipos(db)
+    req = {t: tk.requeridos(p, t) for t in tipos_act}
     return render(request, "ticket_nuevo.html", u, "tickets", catalogo=cat, requeridos=req, campos_req=tk.CAMPOS_REQ,
-                  tipos=TICKET_TIPOS, impactos=TICKET_IMPACTOS, prompt_version=p.version,
+                  tipos=tipos_act, impactos=tk.impactos(db), prompt_version=p.version,
                   ia_ok=ia.cliente().disponible, aceptar=",".join("." + e for e in tk.PERMITIDOS))
 
 
@@ -137,7 +138,7 @@ def detalle(tid: int, request: Request, db: Session = Depends(get_db), u: Usuari
     sim = tk.similares(db, f"{t.titulo} {t.descripcion} {t.pantalla}", excluir_id=t.id) if staff else []
     return render(request, "ticket.html", u, "tickets", t=t, staff=staff, sim=sim,
                   triage=accesos.puede(u, "tickets-triage"), dev=accesos.puede(u, "tickets-tablero"),
-                  estados=TICKET_ESTADOS, tipos=TICKET_TIPOS, impactos=TICKET_IMPACTOS, cierres=TICKET_CIERRES,
+                  estados=TICKET_ESTADOS, tipos=tk.tipos(db, True), impactos=tk.impactos(db, True), cierres=TICKET_CIERRES,
                   campos_req=tk.CAMPOS_REQ, asignables=tk.asignables(db) if staff else [], vence_en=tk.vence_en,
                   aceptar=",".join("." + e for e in tk.PERMITIDOS))
 
@@ -271,7 +272,7 @@ def tablero(request: Request, persona: OptInt = None, db: Session = Depends(get_
                 for e in ("pendiente", "en_curso", "revision", "info", "cerrado")]
     n_nuevos = len(db.scalars(select(Ticket.id).where(Ticket.estado == "nuevo")).all())
     return render(request, "tickets_tablero.html", u, "tickets-tablero", columnas=columnas, persona=persona,
-                  gente=tk.asignables(db), vence_en=tk.vence_en, n_nuevos=n_nuevos, tipos=TICKET_TIPOS)
+                  gente=tk.asignables(db), vence_en=tk.vence_en, n_nuevos=n_nuevos, tipos=tk.tipos(db, True))
 
 
 # ---------------------------------------------------------------- triage
@@ -285,7 +286,7 @@ def triage_lista(request: Request, db: Session = Depends(get_db), u: Usuario = D
     esperando = {t.id for t in nuevos if not t.ia_triage and (t.creado >= hace or t.actualizado >= hace)}
     return render(request, "tickets_triage.html", u, "tickets-triage", nuevos=nuevos, recientes=recientes, gente=gente,
                   esperando=esperando,
-                  nombres={g.id: g.nombre for g in gente}, tipos=TICKET_TIPOS, impactos=TICKET_IMPACTOS,
+                  nombres={g.id: g.nombre for g in gente}, tipos=tk.tipos(db, True), impactos=tk.impactos(db, True),
                   campos_req=tk.CAMPOS_REQ, estados=TICKET_ESTADOS)
 
 
@@ -324,18 +325,21 @@ def triage_regenerar(tid: int, request: Request, bg: BackgroundTasks, db: Sessio
 def config(request: Request, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
     p = tk.prompt_vigente(db)
     tk.catalogo(db)
+    tk.tipos(db), tk.impactos(db)  # en una instalación nueva crea las opciones iniciales antes de guardar
     db.commit()
     versiones = db.scalars(select(TicketPrompt).order_by(TicketPrompt.version.desc()).limit(20)).all()
     reglas = db.scalars(select(TicketRegla).where(TicketRegla.estado == "pendiente").order_by(TicketRegla.creado)).all()
     return render(request, "tickets_config.html", u, "tickets-config", p=p, versiones=versiones, reglas=reglas,
-                  tipos=TICKET_TIPOS, campos_req=tk.CAMPOS_REQ, catalogo_txt=tk.catalogo_texto(db),
+                  tipos=tk.tipos(db), campos_req=tk.CAMPOS_REQ, catalogo_txt=tk.catalogo_texto(db),
+                  op_tipo=tk.opciones(db, "tipo", True), op_impacto=tk.opciones(db, "impacto", True),
+                  uso_tipo=tk.en_uso(db, "tipo"), uso_impacto=tk.en_uso(db, "impacto"),
                   metricas=tk.regresados_por_version(db))
 
 
 @router.post("/tickets-config/prompt")
 async def config_prompt(request: Request, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
     form = await request.form()
-    req = {t: [c for c in tk.CAMPOS_REQ if form.get(f"req_{t}_{c}")] for t in TICKET_TIPOS}
+    req = {t: [c for c in tk.CAMPOS_REQ if form.get(f"req_{t}_{c}")] for t in tk.tipos(db)}
     try:
         p = tk.nueva_version(db, u, instrucciones=str(form.get("instrucciones") or ""),
                              reglas=str(form.get("reglas") or "").splitlines(), requeridos_=req,
@@ -346,6 +350,30 @@ async def config_prompt(request: Request, db: Session = Depends(get_db), u: Usua
         db.rollback()
         flash(request, str(e), "error")
     return ir("/tickets-config")
+
+
+@router.post("/tickets-config/opciones/{catalogo}")
+async def config_opciones(catalogo: str, request: Request, db: Session = Depends(get_db),
+                          u: Usuario = Depends(usuario_actual)):
+    form = await request.form()
+    filas = []
+    for i in range(60):
+        if f"etiqueta_{i}" not in form:
+            continue
+        oid = str(form.get(f"id_{i}") or "")
+        filas.append({"id": int(oid) if oid.isdigit() else None, "etiqueta": str(form.get(f"etiqueta_{i}") or ""),
+                      "orden": str(form.get(f"orden_{i}") or "0").strip() or "0", "activo": bool(form.get(f"activo_{i}")),
+                      "prioridad": str(form.get(f"prioridad_{i}") or ""), "menor": bool(form.get(f"menor_{i}"))})
+    for f in filas:
+        f["orden"] = int(f["orden"]) if str(f["orden"]).lstrip("-").isdigit() else 0
+    try:
+        n = tk.guardar_opciones(db, u, catalogo, filas)
+        db.commit()
+        flash(request, f"Catálogo de {'tipos' if catalogo == 'tipo' else 'impactos'} guardado ({n} opción(es)).")
+    except tk.TicketInvalido as e:
+        db.rollback()
+        flash(request, str(e), "error")
+    return ir("/tickets-config#opciones")
 
 
 @router.post("/tickets-config/catalogo")

@@ -382,3 +382,4 @@ button:disabled{cursor:progress;opacity:.75}
 .tkt-q.omitido{opacity:.6}.tkt-q.omitido b{text-decoration:line-through;font-weight:600}
 .tkt-quick button.si{background:var(--yellow);border-color:var(--yellow);color:var(--ink)}
 .tkt-q.hecho{opacity:.7;border-color:var(--g-bd);background:#F4FBF4}
+td.mes-res{background:#F4FBFA}

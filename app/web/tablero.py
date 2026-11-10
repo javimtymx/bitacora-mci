@@ -1,4 +1,4 @@
-"""Tablero semanal, kárdex por indicador, captura semanal, diagnóstico IA por área y prompts por área."""
+"""Tablero (corte mensual), kárdex por indicador, captura de indicadores, diagnóstico IA por área y prompts por área."""
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
@@ -30,19 +30,6 @@ def _areas(db: Session) -> list[Area]:
             if indicadores.mcis_de(db, a.id)]
 
 
-def _tarjeta(db: Session, m: Mci, sem: str, datos=None) -> dict:
-    sr = indicadores.serie_mci(db, m, 8, sem)
-    v = sr.version
-    dec = indicadores.decimales(m)
-    ult = sr.ultimo
-    racha, n = sr.racha
-    actual = sr.puntos[-1]
-    return {"mci": m, "serie": sr, "v": v, "ult": ult, "racha": racha, "n": n, "dec": dec,
-            "barras": graficas.barras_brecha(sr), "comp_txt": (f"{actual.cumplidos} / {actual.compromisos + actual.abiertos}"
-                         if actual.compromisos + actual.abiertos else "—"),
-            "ventas": ventas_auto.resumen(db, m, datos) if ventas_auto.es_auto(m) else None}
-
-
 def _consolidado_area(db: Session, area: Area, sem: str, sems8: list[str]) -> dict:
     """Todo lo del área en una página: medidas predictivas (las palancas), compromisos, voz del cliente, ideas y diagnóstico."""
     from datetime import timedelta as _td
@@ -55,8 +42,8 @@ def _consolidado_area(db: Session, area: Area, sem: str, sems8: list[str]) -> di
     grupos = []
     for m in indicadores.mcis_de(db, area.id):
         filas = [f for f in matriz if f[0].mci_id == m.id]
-        sr = indicadores.serie_mci(db, m, len(sems8), sems8[-1])
-        grupos.append({"mci": m, "v": sr.version, "puntos": sr.puntos, "filas": filas, "dec": indicadores.decimales(m),
+        sr = indicadores.serie_mci(db, m, len(sems8), sem)
+        grupos.append({"mci": m, "v": sr.version, "mes": sr.actual, "filas": filas, "dec": indicadores.decimales(m),
                        "racha": sr.racha})
     comps_sem = sorted((c for c in comps if c.semana == sem), key=lambda c: c.fecha_limite)
     desde = hoy() - _td(weeks=6)
@@ -99,12 +86,12 @@ def _panel_ayf(db: Session, area: Area) -> list:
     return out
 
 
-def _resumen_areas(db: Session, areas: list[Area], sem: str) -> list[dict]:
+def _resumen_areas(db: Session, areas: list[Area], sem: str, rachas_mci: dict[int, str]) -> list[dict]:
     sems4 = indicadores.semanas(4, sem)
     excs = seguimiento.excepciones_aprobadas(db)
     out = []
     for a in areas:
-        rachas = [indicadores.serie_mci(db, m, 8, sem).racha[0] for m in indicadores.mcis_de(db, a.id)]
+        rachas = [rachas_mci[m.id] for m in indicadores.mcis_de(db, a.id) if m.id in rachas_mci]
         comps = list(db.scalars(select(Compromiso).where(Compromiso.area_id == a.id, Compromiso.semana.in_(sems4))))
         cu = seguimiento.cumplimiento(comps, excs)
         out.append({"area": a, "ganando": rachas.count("ganando"), "perdiendo": rachas.count("perdiendo"),
@@ -114,29 +101,30 @@ def _resumen_areas(db: Session, areas: list[Area], sem: str) -> list[dict]:
 
 
 @router.get("/")
-def tablero(request: Request, area: str = "todas", semana: str | None = None, db: Session = Depends(get_db),
+def tablero(request: Request, area: str = "todas", mes: str | None = None, db: Session = Depends(get_db),
             u: Usuario = Depends(usuario_actual)):
-    sem = semana or semana_iso(hoy())
+    mes = indicadores.mes_valido(mes)
+    sem = indicadores.semana_de_mes(mes)
     areas = _areas(db)
     sel = next((a for a in areas if a.clave == area), None)
     mcis = indicadores.mcis_de(db, sel.id if sel else None)
-    datos = ventas_auto.Datos(db) if any(ventas_auto.es_auto(m) for m in mcis) else None
-    tarjetas = [_tarjeta(db, m, sem, datos) for m in mcis]
-    ganando = sum(1 for t in tarjetas if t["racha"] == "ganando")
-    perdiendo = sum(1 for t in tarjetas if t["racha"] == "perdiendo")
+    todas = indicadores.mcis_de(db)
+    rachas_mci = {m.id: indicadores.serie_mci(db, m, 1, sem).racha[0] for m in todas}
+    ganando = sum(1 for m in mcis if rachas_mci.get(m.id) == "ganando")
+    perdiendo = sum(1 for m in mcis if rachas_mci.get(m.id) == "perdiendo")
     sem_ant = indicadores.semanas(2, sem)[0]
     comps_ant = list(db.scalars(select(Compromiso).where(Compromiso.semana == sem_ant)))
     if sel:
         comps_ant = [c for c in comps_ant if c.area_id == sel.id]
     cerrados = [c for c in comps_ant if c.estado in ("cumplido", "no_cumplido")]
     personas = seguimiento.estado_personas(db, sel.id if sel else None)
-    sems8 = indicadores.semanas(8, sem)
+    sems8 = indicadores.semanas_mes(mes) or [sem]  # semanas del mes evaluado (seguimiento semanal)
     tiras = indicadores.semanas_persona(db, [p.usuario.id for p in personas], sems8)
     diags = [d for d in (diagnostico.ultimo(db, a.id, sem) for a in areas) if d]
     sin_rem = sum(1 for c in db.scalars(select(Compromiso).where(Compromiso.estado == "no_cumplido"))
                   if seguimiento.sin_remediacion(c) and (not sel or c.area_id == sel.id))
     cons = _consolidado_area(db, sel, sem, sems8) if sel else None
-    resumen_areas = None if sel else _resumen_areas(db, areas, sem)
+    resumen_areas = None if sel else _resumen_areas(db, areas, sem, rachas_mci)
     from .captura import _opciones_captura
     opciones = _opciones_captura(db, u) if sel else {}
     if opciones:
@@ -146,12 +134,14 @@ def tablero(request: Request, area: str = "todas", semana: str | None = None, db
     if sel:
         from .archivo import archivo
         n_arch = len(archivo(db, u, sel.id))
-    return render(request, "tablero.html", u, "inicio", areas=areas, sel=sel, sem=sem, tarjetas=tarjetas,
+    return render(request, "tablero.html", u, "inicio", areas=areas, sel=sel, sem=sem, mes=mes, n_mci=len(mcis),
+                  meses=indicadores.meses_disponibles(), nombre_mes=indicadores.nombre_mes,
+                  adaptacion=indicadores.semanas_adaptacion(),
                   n_arch=n_arch, seg=seguimiento, **opciones,
                   cons=cons, resumen_areas=resumen_areas,
                   ganando=ganando, perdiendo=perdiendo, cumplidos_ant=sum(1 for c in cerrados if c.estado == "cumplido"),
                   cerrados_ant=len(cerrados), sem_ant=sem_ant, sin_rem=sin_rem, personas=personas, tiras=tiras,
-                  sems8=sems8, diags=diags, semanas=indicadores.semanas(12))
+                  sems8=sems8, diags=diags)
 
 
 @router.get("/kardex")
@@ -166,13 +156,17 @@ def kardex_area(area: str, db: Session = Depends(get_db), u: Usuario = Depends(u
 @router.get("/kardex/{mid}")
 def kardex(mid: int, request: Request, semana: str | None = None, db: Session = Depends(get_db),
            u: Usuario = Depends(usuario_actual)):
+    """Kárdex: el resultado de la MCI por mes y los compromisos de sus semanas."""
+    from types import SimpleNamespace
     m = db.get(Mci, mid)
     if not m:
         raise HTTPException(404)
     sem = semana or semana_iso(hoy())
-    sr = indicadores.serie_mci(db, m, 16, sem)
+    sr = indicadores.serie_mci(db, m, 26, sem, n_meses=12)
     sems = [p.semana for p in sr.puntos]
     eventos = indicadores.eventos_mci(db, m, sems)
+    eventos_mes = [(indicadores.mes_de(s_), t) for s_, t in eventos]
+    mensual = sr.por_mes()
     dec = indicadores.decimales(m)
     unidad = sr.version.unidad if sr.version else ""
     ultimos4 = sr.puntos[-4:]
@@ -188,21 +182,26 @@ def kardex(mid: int, request: Request, semana: str | None = None, db: Session = 
         cs = [c for c in comps_sem if c.predictiva_id == p.id]
         hechos = sum(1 for c in cs if c.estado == "cumplido")
         preds.append((p, hechos, len(cs)))
-    diags = {d.semana: d for d in db.scalars(select(DiagnosticoSemanal).where(DiagnosticoSemanal.area_id == m.area_id,
-                                                                             DiagnosticoSemanal.semana.in_(sems)))}
-    ev_por_sem: dict[str, list[str]] = {}
-    for s, t in eventos:
-        ev_por_sem.setdefault(s, []).append(t)
+    diags: dict[str, DiagnosticoSemanal] = {}
+    for d in db.scalars(select(DiagnosticoSemanal).where(DiagnosticoSemanal.area_id == m.area_id,
+                                                         DiagnosticoSemanal.semana.in_(sems))
+                        .order_by(DiagnosticoSemanal.semana)):
+        diags[indicadores.mes_de(d.semana)] = d  # el último diagnóstico de cada mes
+    ev_por_mes: dict[str, list[str]] = {}
+    for ms, t in eventos_mes:
+        ev_por_mes.setdefault(ms, []).append(t)
     filas = []
-    for i in range(len(sr.puntos) - 1, max(len(sr.puntos) - 9, 0), -1):
-        p = sr.puntos[i]
-        prev = sr.puntos[i - 1] if i else None
+    for i in range(len(mensual) - 1, -1, -1):
+        p = mensual[i]
+        prev = mensual[i - 1] if i else None
         mov = p.valor - prev.valor if (p.valor is not None and prev and prev.valor is not None) else None
-        filas.append({"p": p, "mov": mov, "eventos": ev_por_sem.get(p.semana, []), "diag": diags.get(p.semana)})
+        filas.append({"p": p, "mov": mov, "eventos": ev_por_mes.get(p.semana, []), "diag": diags.get(p.semana)})
     ultimo_diag = diagnostico.ultimo(db, m.area_id)
     dec_obj = 1 if (sr.version and sr.version.tipo_meta == "acumulado") else dec
+    grafica = graficas.kardex(SimpleNamespace(puntos=mensual), eventos_mes, unidad, dec, periodo="mes",
+                              etiqueta=lambda x: indicadores.nombre_mes(x, False)[:3])
     return render(request, "kardex.html", u, "inicio", m=m, sr=sr, sem=sem, dec=dec, dec_obj=dec_obj, unidad=unidad,
-                  grafica=graficas.kardex(sr, eventos, unidad, dec), eventos=eventos, filas=filas, preds=preds,
+                  grafica=grafica, eventos=eventos_mes, filas=filas, preds=preds, nombre_mes=indicadores.nombre_mes,
                   comps_sem=comps_sem, cum4=cum4, tot4=tot4, areas=_areas(db), hermanas=indicadores.mcis_de(db, m.area_id),
                   rem_ok=sum(p.remediados for p in sr.puntos), rem_texto=sum(p.solo_texto for p in sr.puntos),
                   ultimo_diag=ultimo_diag, seg=seguimiento, puede_capturar=_puede_capturar(u, m))
@@ -215,37 +214,56 @@ def _puede_capturar(u: Usuario, m: Mci) -> bool:
 
 
 @router.get("/indicadores/captura")
-def captura(request: Request, semana: str | None = None, db: Session = Depends(get_db),
+def captura(request: Request, mes: str | None = None, semana: str | None = None, db: Session = Depends(get_db),
             u: Usuario = Depends(usuario_actual)):
-    sem = semana or semana_iso(hoy())
+    """MCI: un valor por mes. Medidas predictivas: un valor por semana."""
+    mes = indicadores.mes_valido(mes)
+    sems_disp = indicadores.semanas(8)
+    sem = semana if semana in sems_disp else sems_disp[-1]
     todas = [m for m in indicadores.mcis_de(db) if _puede_capturar(u, m)]
     ms = [m for m in todas if not ventas_auto.es_auto(m)]
     if not todas:
         raise HTTPException(403, "No tienes indicadores de captura manual.")
     filas = []
     for m in ms:
-        v = catalogo.version_vigente(m.versiones, indicadores.viernes_de(sem))
+        v = catalogo.version_vigente(m.versiones, indicadores.ultimo_dia(mes)) or catalogo.version_vigente(m.versiones)
         med = db.scalar(select(Medicion).where(Medicion.tipo == "mci", Medicion.version_id.in_([x.id for x in m.versiones]),
-                                               Medicion.periodo == sem)) if m.versiones else None
-        sr = indicadores.serie_mci(db, m, 4, sem)
-        filas.append({"m": m, "v": v, "med": med, "prev": [p.valor for p in sr.puntos[:-1]],
-                      "obj": sr.puntos[-1].objetivo, "dec": indicadores.decimales(m)})
+                                               Medicion.periodo == mes)) if m.versiones else None
+        sr = indicadores.serie_mci(db, m, 1, None, n_meses=4)
+        previos = [p for p in sr.meses if p.mes < mes][-3:]
+        actual = next((p for p in sr.meses if p.mes == mes), None)
+        filas.append({"m": m, "v": v, "med": med, "prev": previos,
+                      "obj": actual.objetivo if actual else indicadores.objetivo(v, indicadores.ultimo_dia(mes)),
+                      "dec": indicadores.decimales(m)})
     preds = [p for m in todas for p in m.predictivas if p.activo]
     sems4 = indicadores.semanas(4, sem)
     pfilas = [{"p": p, "v": v, "fila": fila} for p, v, fila in indicadores.matriz_predictivas(db, preds, sems4, [])]
-    return render(request, "captura_mediciones.html", u, "indicadores", filas=filas, pfilas=pfilas, sem=sem,
-                  semanas=indicadores.semanas(8))
+    return render(request, "captura_mediciones.html", u, "indicadores", filas=filas, pfilas=pfilas, sem=sem, mes=mes,
+                  meses=indicadores.meses_disponibles(), semanas=sems_disp, nombre_mes=indicadores.nombre_mes)
 
 
 @router.post("/indicadores/captura")
 async def guardar_captura(request: Request, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
     form = await request.form()
+    mes = indicadores.mes_valido(str(form.get("mes") or ""))
     sem = str(form.get("semana") or semana_iso(hoy()))
-    try:
-        dia = indicadores.viernes_de(sem)
-    except ValueError:
+    if sem not in indicadores.semanas(8):
         raise HTTPException(400, "Semana inválida.")
+    n = _guardar_mci(db, u, form, mes)
+    n_mci = n
+    n += _guardar_predictivas(db, u, form, sem)
+    if n:
+        auditar(db, "captura", "mediciones", None, u.id, mes=mes if n_mci else None, semana=sem if n > n_mci else None, n=n)
+    db.commit()
+    donde = indicadores.nombre_mes(mes).lower() if n_mci else f"la semana {sem[-2:]}"
+    flash(request, f"{n} valor(es) guardados para {donde}." if n else "No se capturó ningún valor.")
+    return ir(f"/indicadores/captura?mes={mes}&semana={sem}" + ("#predictivas" if n > n_mci else ""))
+
+
+def _guardar_mci(db: Session, u: Usuario, form, mes: str) -> int:
+    """Resultado mensual de las MCI (solo los campos que vienen en el formulario)."""
     n = 0
+    dia = indicadores.ultimo_dia(mes)
     for m in indicadores.mcis_de(db):
         raw = str(form.get(f"valor_{m.id}") or "").strip().replace(",", "")
         if not raw or not _puede_capturar(u, m) or ventas_auto.es_auto(m):
@@ -254,17 +272,24 @@ async def guardar_captura(request: Request, db: Session = Depends(get_db), u: Us
             valor = float(raw.rstrip("%"))
         except ValueError:
             continue
-        v = catalogo.version_vigente(m.versiones, dia)
+        v = catalogo.version_vigente(m.versiones, dia) or catalogo.version_vigente(m.versiones)
         if not v:
             continue
         nota = str(form.get(f"nota_{m.id}") or "").strip()[:500] or None
         med = db.scalar(select(Medicion).where(Medicion.tipo == "mci", Medicion.version_id.in_([x.id for x in m.versiones]),
-                                               Medicion.periodo == sem))
+                                               Medicion.periodo == mes))
         if med:
             med.valor, med.nota, med.version_id, med.capturado_por = valor, nota, v.id, u.id
         else:
-            db.add(Medicion(tipo="mci", version_id=v.id, periodo=sem, valor=valor, nota=nota, capturado_por=u.id))
+            db.add(Medicion(tipo="mci", version_id=v.id, periodo=mes, valor=valor, nota=nota, capturado_por=u.id))
         n += 1
+    return n
+
+
+def _guardar_predictivas(db: Session, u: Usuario, form, sem: str) -> int:
+    """Valores semanales de las medidas predictivas."""
+    n = 0
+    dia = indicadores.viernes_de(sem)
     for m in indicadores.mcis_de(db):
         if not _puede_capturar(u, m):
             continue
@@ -276,7 +301,7 @@ async def guardar_captura(request: Request, db: Session = Depends(get_db), u: Us
                 valor = float(raw.rstrip("%"))
             except ValueError:
                 continue
-            v = catalogo.version_vigente(p.versiones, dia)
+            v = catalogo.version_vigente(p.versiones, dia) or catalogo.version_vigente(p.versiones)
             med = db.scalar(select(Medicion).where(Medicion.tipo == "predictiva",
                                                    Medicion.version_id.in_([x.id for x in p.versiones]),
                                                    Medicion.periodo == sem))
@@ -285,11 +310,7 @@ async def guardar_captura(request: Request, db: Session = Depends(get_db), u: Us
             else:
                 db.add(Medicion(tipo="predictiva", version_id=v.id, periodo=sem, valor=valor, capturado_por=u.id))
             n += 1
-    if n:
-        auditar(db, "captura", "mediciones", None, u.id, semana=sem, n=n)
-    db.commit()
-    flash(request, f"{n} valor(es) guardados para la semana {sem[-2:]}." if n else "No se capturó ningún valor.")
-    return ir(f"/indicadores/captura?semana={sem}")
+    return n
 
 
 # ---------------------------------------------------------------- diagnóstico IA por área

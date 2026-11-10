@@ -280,3 +280,41 @@ def test_correos_de_ticket_por_ses(manuel, admin, db, fake, monkeypatch):
         assert enviados[0][0] == ["jmartinez@onecore.mx"]
     finally:
         correo.set_ses(None)
+
+
+def test_catalogos_de_tipo_e_impacto(admin, manuel, db, fake):
+    from app.models import TicketOpcion
+    ops = tk.opciones(db, "tipo", True)
+    db.commit()
+    datos = {}
+    for i, o in enumerate(ops):
+        datos.update({f"id_{i}": o.id, f"etiqueta_{i}": "Falla" if o.clave == "error" else o.etiqueta,
+                      f"orden_{i}": o.orden, f"menor_{i}": "1" if o.menor else ""})
+        if o.clave != "mejora":
+            datos[f"activo_{i}"] = "1"  # «mejora» se retira
+    datos[f"etiqueta_{len(ops)}"] = "Capacitación"
+    datos[f"orden_{len(ops)}"] = "9"
+    datos[f"menor_{len(ops)}"] = "1"
+    admin.post("/tickets-config/opciones/tipo", data=datos)
+    db.expire_all()
+    activos = tk.tipos(db)
+    assert activos.get("error") == "Falla" and "mejora" not in activos and activos.get("capacitacion") == "Capacitación"
+    assert tk.tipos(db, True)["mejora"] == "Mejora"  # se conserva para el histórico
+    # un ticket nuevo no puede usar la opción retirada
+    r = manuel.post("/api/tickets/nuevo", data={**_campos(tipo="mejora", referencia="x"), "validacion": "completo"})
+    assert r.status_code == 400
+    # el tipo nuevo funciona y, sin IA, la prioridad baja por ser «menor»
+    fake.respuestas = [ia.IANoDisponible("x")]
+    fake.pedir_json = lambda *a, **k: (_ for _ in ()).throw(ia.IANoDisponible("x"))
+    r = manuel.post("/api/tickets/nuevo", data={**_campos(tipo="capacitacion", impacto="afecta"), "validacion": "completo"})
+    assert r.json()["ok"]
+    t = db.scalar(select(Ticket).where(Ticket.tipo == "capacitacion"))
+    db.refresh(t)
+    assert t.ia_triage["prioridad"] == "P4"
+    assert "Capacitación" in manuel.get(f"/tickets/{t.id}").text and "Falla" in manuel.get("/tickets/nuevo").text
+    # no se puede dejar el catálogo vacío
+    vacio = {f"id_{i}": o.id for i, o in enumerate(tk.opciones(db, "impacto", True))}
+    vacio.update({f"etiqueta_{i}": o.etiqueta for i, o in enumerate(tk.opciones(db, "impacto", True))})
+    admin.post("/tickets-config/opciones/impacto", data=vacio)
+    db.expire_all()
+    assert len(tk.impactos(db)) == 3

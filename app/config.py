@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     ses_region: str = ""  # vacío = la misma región de S3
 
     zona_horaria: str = "America/Mexico_City"
+    # Semana ISO desde la que cuentan indicadores, rachas y cumplimiento; lo anterior no entra en ningún cálculo.
+    inicio_seguimiento: str = "2026-W46"
+    semanas_adaptacion: int = 4  # primeras semanas marcadas como «adaptación» en el tablero
 
 
 @lru_cache

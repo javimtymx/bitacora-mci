@@ -768,6 +768,22 @@ TICKET_CIERRES = {"corregido": "Corregido en código", "configuracion": "Ajuste 
                   "duplicado": "Duplicado", "backlog": "Pasa a backlog de mejoras"}
 
 
+class TicketOpcion(Base):
+    """Opciones de los combos «Tipo» e «Impacto» del ticket. Nunca se borran: al quitarlas se desactivan y los
+    tickets que ya las usan las siguen mostrando con su nombre."""
+    __tablename__ = "ticket_opciones"
+    __table_args__ = (UniqueConstraint("catalogo", "clave"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    catalogo: Mapped[str] = mapped_column(String(12))  # tipo | impacto
+    clave: Mapped[str] = mapped_column(String(40))     # no cambia aunque se renombre la etiqueta
+    etiqueta: Mapped[str] = mapped_column(String(120))
+    orden: Mapped[int] = mapped_column(Integer, default=0)
+    activo: Mapped[bool] = mapped_column(Boolean, default=True)
+    prioridad: Mapped[str | None] = mapped_column(String(2))  # impacto: prioridad que sugiere (P1..P4)
+    menor: Mapped[bool] = mapped_column(Boolean, default=False)  # tipo: dudas y mejoras bajan la prioridad
+    creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class TicketCatalogo(Base):
     """Producto › menú › pantalla. Sirve para que el usuario ubique el problema y la IA lo clasifique."""
     __tablename__ = "ticket_catalogo"

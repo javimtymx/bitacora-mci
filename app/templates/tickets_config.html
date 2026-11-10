@@ -55,6 +55,35 @@
   </tbody></table></div>
 </section>
 
+<section class="card pad" id="opciones">
+  <div class="row between"><h2>Opciones de los combos del ticket</h2><span class="muted small">Para quitar una opción desmárcala de «Activa»: deja de ofrecerse, pero los tickets que ya la usan la conservan.</span></div>
+  <div class="grid2" style="align-items:start">
+  {% for cat, titulo, ops, uso in (('tipo', 'Tipo', op_tipo, uso_tipo), ('impacto', '¿Cómo afecta tu operación?', op_impacto, uso_impacto)) %}
+  <form method="post" action="/tickets-config/opciones/{{ cat }}" class="col" style="gap:10px">
+    <h3>{{ titulo }}</h3>
+    <div class="tbl"><table><thead><tr><th style="width:64px">Orden</th><th>Nombre</th>
+      <th>{{ 'Prioridad que sugiere' if cat == 'impacto' else 'Baja la prioridad' }}</th><th>Activa</th><th class="num">Tickets</th></tr></thead><tbody>
+    {% for o in ops %}{% set i = loop.index0 %}<tr class="{{ '' if o.activo else 'muted' }}">
+      <td><input type="hidden" name="id_{{ i }}" value="{{ o.id }}"><input class="input" name="orden_{{ i }}" value="{{ o.orden }}" inputmode="numeric" style="width:56px" aria-label="Orden"></td>
+      <td><input class="input" name="etiqueta_{{ i }}" value="{{ o.etiqueta }}" maxlength="120" required aria-label="Nombre"></td>
+      <td>{% if cat == 'impacto' %}<select class="input" name="prioridad_{{ i }}" style="width:90px" aria-label="Prioridad">{% for pr in ('P1','P2','P3','P4') %}<option {{ 'selected' if o.prioridad == pr }}>{{ pr }}</option>{% endfor %}</select>
+        {% else %}<label class="check" title="Dudas y mejoras: la prioridad por reglas baja a P4"><input type="checkbox" name="menor_{{ i }}" value="1" {{ 'checked' if o.menor }}><span>Sí</span></label>{% endif %}</td>
+      <td><label class="check"><input type="checkbox" name="activo_{{ i }}" value="1" {{ 'checked' if o.activo }}><span>{{ 'Sí' if o.activo else 'Retirada' }}</span></label></td>
+      <td class="num small">{{ uso.get(o.clave, 0) }}</td></tr>{% endfor %}
+    {% set base = ops|length %}{% for k in range(2) %}{% set i = base + k %}<tr>
+      <td><input class="input" name="orden_{{ i }}" value="{{ 90 + k }}" inputmode="numeric" style="width:56px" aria-label="Orden"></td>
+      <td><input class="input" name="etiqueta_{{ i }}" maxlength="120" placeholder="Nueva opción (opcional)" aria-label="Nueva opción"></td>
+      <td>{% if cat == 'impacto' %}<select class="input" name="prioridad_{{ i }}" style="width:90px" aria-label="Prioridad">{% for pr in ('P1','P2','P3','P4') %}<option {{ 'selected' if pr == 'P3' }}>{{ pr }}</option>{% endfor %}</select>
+        {% else %}<label class="check"><input type="checkbox" name="menor_{{ i }}" value="1"><span>Sí</span></label>{% endif %}</td>
+      <td class="muted small">Nueva</td><td></td></tr>{% endfor %}
+    </tbody></table></div>
+    <button class="btn dark sm" type="submit" style="align-self:flex-start">{{ icon('ok', 15) }}Guardar {{ 'tipos' if cat == 'tipo' else 'impactos' }}</button>
+  </form>
+  {% endfor %}
+  </div>
+  <span class="muted small">Un tipo nuevo empieza sin datos requeridos: márcalos arriba en «Datos requeridos por tipo». La prioridad del impacto es la que se usa cuando GuardIA no responde.</span>
+</section>
+
 <form class="card pad" method="post" action="/tickets-config/catalogo" id="catalogo">
   <div class="row between"><h2>Catálogo de producto › menú › pantalla</h2><span class="muted small">Una línea por pantalla</span></div>
   <textarea class="input" name="catalogo" style="padding:12px;min-height:220px;font:500 13px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace"

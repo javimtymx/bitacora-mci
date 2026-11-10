@@ -36,31 +36,41 @@ def test_paginas_nuevas(admin, db):
 
 
 def test_captura_y_serie_acumulada(admin, db):
+    """La MCI se captura por mes: un valor por mes; recapturar el mismo mes lo reemplaza."""
     m = _mci(db)
     v = m.versiones[-1]
     v.tipo_meta, v.linea_base, v.fecha_meta = "acumulado", 0, v.vigente_desde + timedelta(days=364)
     db.commit()
-    sems = indicadores.semanas(3)
-    for s, val in zip(sems, (10, 12, 11)):
-        r = admin.post("/indicadores/captura", data={"semana": s, f"valor_{m.id}": str(val)}, follow_redirects=False)
-        assert r.status_code == 303
+    mes = indicadores.mes_actual()
+    r = admin.post("/indicadores/captura", data={"mes": mes, f"valor_{m.id}": "10"}, follow_redirects=False)
+    assert r.status_code == 303
     db.expire_all()
-    assert len(list(db.scalars(select(Medicion)))) == 3
+    meds = list(db.scalars(select(Medicion)))
+    assert len(meds) == 1 and meds[0].periodo == mes
     sr = indicadores.serie_mci(db, db.get(Mci, m.id), 3)
-    assert [p.valor for p in sr.puntos] == [10, 12, 11]
-    assert all(p.objetivo is not None and 0 < p.objetivo < 35 for p in sr.puntos)
-    racha, n = sr.racha
-    assert racha in ("ganando", "perdiendo")
+    assert sr.actual.mes == mes and sr.actual.valor == 10
+    assert sr.actual.objetivo is not None and 0 < sr.actual.objetivo < 35
+    assert sr.racha[0] in ("ganando", "perdiendo")
     assert "Kárdex" in admin.get(f"/kardex/{m.id}").text
-    # recaptura de la misma semana actualiza, no duplica
-    admin.post("/indicadores/captura", data={"semana": sems[-1], f"valor_{m.id}": "15"})
+    admin.post("/indicadores/captura", data={"mes": mes, f"valor_{m.id}": "15"})
     db.expire_all()
-    assert len(list(db.scalars(select(Medicion)))) == 3
+    assert len(list(db.scalars(select(Medicion)))) == 1
+    assert indicadores.serie_mci(db, db.get(Mci, m.id), 3).actual.valor == 15
+
+
+def test_inicio_de_seguimiento_y_meses(db):
+    from app.services.util import inicio_seguimiento
+    ini = inicio_seguimiento()
+    assert all(s >= ini for s in indicadores.semanas(20))
+    assert indicadores.mes_de("2026-W45") == "2026-11" and indicadores.mes_de("2026-W49") == "2026-12"
+    assert indicadores.nombre_mes("2026-11") == "Noviembre 2026"
+    assert indicadores.ultimo_dia("2026-02").day == 28
+    assert indicadores.meses_disponibles()[0] == indicadores.mes_inicio()
 
 
 def test_colaborador_no_captura(mario, db):
     m = _mci(db)
-    mario.post("/indicadores/captura", data={"semana": semana_iso(hoy()), f"valor_{m.id}": "50"})
+    mario.post("/indicadores/captura", data={"mes": indicadores.mes_actual(), f"valor_{m.id}": "50"})
     assert db.scalar(select(Medicion)) is None
 
 
@@ -275,7 +285,7 @@ def test_ventas_automaticas_desde_panel_ayf(admin, mario, db):
     # todos ven % y crecimiento necesario; los montos solo con permiso confidencial
     t_admin = admin.get("/?area=ventas").text
     t_mario = mario.get("/?area=ventas").text
-    assert "Necesitas crecer" in t_mario and "250,000" not in t_mario and "Actual $250,000" in t_admin
+    assert "hay que crecer" in t_mario and "250,000" not in t_mario and "Actual $250,000" in t_admin
     # la captura manual ya no ofrece los indicadores automáticos
     assert f'name="valor_{_mci(db).id}"' not in admin.get("/indicadores/captura").text  # automático: no se captura
 
@@ -283,7 +293,7 @@ def test_ventas_automaticas_desde_panel_ayf(admin, mario, db):
 def test_vista_consolidada_por_area(admin, db):
     t = admin.get("/?area=ventas").text
     assert "Palancas de Ventas" not in t  # palancas = medidas predictivas
-    for txt in ("Metas y medidas predictivas · 8 semanas", "mci-row", "pred-row", "Citas por LinkedIn",
+    for txt in ("Metas y medidas predictivas · ", "mci-row", "pred-row", "Citas por LinkedIn",
                 "Nuevo compromiso", "Expandir todo", "Voz del cliente · 6 semanas", "Ideas del área"):
         assert txt in t, txt
     t = admin.get("/").text
@@ -313,9 +323,11 @@ def test_ventas_por_frentes_con_panel_ayf_informativo(admin, mario, db):
     assert f'name="valor_{cs.id}"' in admin.get("/indicadores/captura").text
 
 
-def test_compromisos_dentro_de_cada_predictiva(admin, db):
+def test_compromisos_dentro_de_cada_predictiva(admin, db, monkeypatch):
+    from app.config import get_settings
     from app.models import Area, Predictiva, Usuario
     from datetime import timedelta
+    monkeypatch.setattr(get_settings(), "inicio_seguimiento", "2026-W01")  # que exista la semana pasada
     v = db.scalar(select(Area).where(Area.clave == "ventas"))
     p = db.scalar(select(Predictiva).where(Predictiva.clave.like("ventas%")))
     m = db.scalar(select(Usuario).where(Usuario.email == "mcoronado@onecore.mx"))
@@ -327,6 +339,8 @@ def test_compromisos_dentro_de_cada_predictiva(admin, db):
     db.commit()
     t = admin.get("/?area=ventas").text
     assert f'data-sub="sub-{p.id}"' in t and f'id="sub-{p.id}"' in t and "Ver completo" in t
-    assert f'data-open="w-{p.id}-{indicadores.semanas(2)[0]}"' in t and "Compromiso de la semana pasada" in t
+    previa = indicadores.semanas(2)[0]
+    if indicadores.mes_de(previa) == indicadores.mes_actual():  # el tablero muestra las semanas del mes evaluado
+        assert f'data-open="w-{p.id}-{previa}"' in t and "Compromiso de la semana pasada" in t
     assert f'data-fill-nc-pred="{p.id}"' in t and 'id="nuevo-compromiso"' in t
     assert "Compromisos de la semana</h2>" not in t

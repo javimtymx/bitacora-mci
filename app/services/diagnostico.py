@@ -85,16 +85,19 @@ def investigaciones_usadas(db: Session, semana: str) -> int:
 
 def _contexto(db: Session, area: Area, semana: str) -> tuple[str, list[RecomendacionIA]]:
     sems = indicadores.semanas(8, semana)
-    lineas = [f"Área: {area.nombre} · semana del diagnóstico: {semana}"]
+    lineas = [f"Área: {area.nombre} · semana del diagnóstico: {semana} · el seguimiento inició en "
+              f"{indicadores.inicio_seguimiento()}; las primeras semanas son de adaptación"]
     for m in indicadores.mcis_de(db, area.id):
         sr = indicadores.serie_mci(db, m, 8, semana)
         v = sr.version
         racha, n = sr.racha
         lineas.append(f"\nMCI «{m.nombre}» (meta {v.meta if v else '—'} {v.unidad if v else ''}, tipo {v.tipo_meta if v else ''}): "
-                      f"{racha} {n} semana(s)")
+                      f"{racha} {n} mes(es). El resultado de la MCI se mide por mes; los compromisos, por semana.")
+        for pm in sr.meses:
+            lineas.append(f"- Resultado {indicadores.nombre_mes(pm.mes)}: valor {indicadores.fmt(pm.valor, 3)} · "
+                          f"objetivo {indicadores.fmt(pm.objetivo, 3)} · brecha {indicadores.fmt(pm.brecha, 3)}")
         for p in sr.puntos:
-            lineas.append(f"- {p.semana}: valor {indicadores.fmt(p.valor, 3)} · objetivo {indicadores.fmt(p.objetivo, 3)} · "
-                          f"brecha {indicadores.fmt(p.brecha, 3)} · compromisos {p.cumplidos} cumplidos, "
+            lineas.append(f"- Semana {p.semana}: compromisos {p.cumplidos} cumplidos, "
                           f"{p.remediados} remediados, {p.en_remediacion} en remediación, {p.solo_texto} sin ejecutar")
         for sem, t in indicadores.eventos_mci(db, m, sems):
             lineas.append(f"  evento {sem}: {t}")

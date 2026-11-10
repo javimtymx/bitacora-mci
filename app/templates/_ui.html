@@ -67,9 +67,10 @@
 {%- else -%}<span class="tag r">{{ '%.0f' % x }}%</span>{%- endif -%}
 {%- endmacro %}
 
-{% macro racha_tag(racha, n) -%}
-{%- if racha == 'ganando' -%}<span class="tag g" style="display:inline-flex;gap:4px;align-items:center">{{ icon('up', 14) }}Ganando {{ n }} sem.</span>
-{%- elif racha == 'perdiendo' -%}<span class="tag r" style="display:inline-flex;gap:4px;align-items:center">{{ icon('dn', 14) }}Perdiendo {{ n }} sem.</span>
+{% macro racha_tag(racha, n, unidad='mes') -%}
+{%- set u_ = ('mes' if n == 1 else 'meses') if unidad == 'mes' else 'sem.' -%}
+{%- if racha == 'ganando' -%}<span class="tag g" style="display:inline-flex;gap:4px;align-items:center">{{ icon('up', 14) }}Ganando {{ n }} {{ u_ }}</span>
+{%- elif racha == 'perdiendo' -%}<span class="tag r" style="display:inline-flex;gap:4px;align-items:center">{{ icon('dn', 14) }}Perdiendo {{ n }} {{ u_ }}</span>
 {%- elif racha == 'en_meta' -%}<span class="tag b">En el objetivo</span>
 {%- elif racha == 'sin_meta' -%}<span class="tag o" title="Registra la meta en Configurar → Catálogo">Sin meta</span>
 {%- else -%}<span class="tag n">Sin captura</span>{%- endif -%}

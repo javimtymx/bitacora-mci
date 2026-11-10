@@ -21,6 +21,16 @@ PIE = ("Para responder o adjuntar archivos usa el botón: las respuestas a este 
        "GuardIA OneCore · Soporte")
 
 
+def _tipos(db):
+    from .tickets import tipos
+    return tipos(db, True) or TICKET_TIPOS
+
+
+def _impactos(db):
+    from .tickets import impactos
+    return impactos(db, True) or TICKET_IMPACTOS
+
+
 def _hora(dt) -> str:
     return (dt - timedelta(hours=6)).strftime("%d/%m/%Y %H:%M") if dt else "—"
 
@@ -39,7 +49,7 @@ def avisos(db: Session, evento: str, t: Ticket, actor: Usuario | None, **x) -> l
     out = []
     donde = " › ".join(p for p in (t.producto, t.menu, t.pantalla) if p)
     ficha = (f"Ticket: {t.folio} · {t.titulo}\nDónde: {donde or '—'}\n"
-             f"Tipo: {TICKET_TIPOS.get(t.tipo, t.tipo)} · {TICKET_IMPACTOS.get(t.impacto, t.impacto)}"
+             f"Tipo: {_tipos(db).get(t.tipo, t.tipo)} · {_impactos(db).get(t.impacto, t.impacto)}"
              + (f"\nCliente: {t.cliente}" if t.cliente else ""))
 
     def a(usuarios, asunto, cuerpo, boton="Abrir el ticket", al_actor=False):

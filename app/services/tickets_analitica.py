@@ -17,6 +17,7 @@ from .util import auditar, semana_iso
 log = logging.getLogger("bitacora.tickets.analitica")
 DIMENSIONES = {"area": "Área de quien reporta", "producto": "Producto"}
 SALUDES = ("verde", "amarillo", "rojo")
+_TIPOS: dict[str, str] = dict(TICKET_TIPOS)  # nombres vigentes del catálogo (se refrescan en cada cálculo)
 
 
 def _local(dt):
@@ -54,11 +55,14 @@ def _resumen(ts: list[Ticket], cerrados: list[Ticket], ahora, desde) -> dict:
         "regresados_pct": _pct(sum(1 for t in ts if _regresado(t)), len(ts)),
         "sin_ia_pct": _pct(sum(1 for t in ts if t.validacion == "sin_ia"), len(ts)),
         "lugares": Counter(" › ".join(x for x in (t.producto, t.menu or t.pantalla) if x) for t in ts).most_common(3),
-        "tipos": Counter(TICKET_TIPOS.get(t.tipo, t.tipo) for t in ts).most_common(),
+        "tipos": Counter(_TIPOS.get(t.tipo, t.tipo) for t in ts).most_common(),
     }
 
 
 def metricas(db: Session, dias: int = 30, dimension: str = "area") -> dict:
+    from .tickets import tipos
+    global _TIPOS
+    _TIPOS = tipos(db, True) or dict(TICKET_TIPOS)
     ahora = utcnow()
     desde = ahora - timedelta(days=dias)
     ts = db.scalars(select(Ticket).where(Ticket.creado >= desde).order_by(Ticket.creado)).all()

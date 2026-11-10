@@ -110,7 +110,7 @@ def valor_actual(d: Datos, v: MciVersion, dia: date) -> float | None:
 
 
 def medir(db: Session, semanas: int = 26) -> int:
-    """Guarda (o reemplaza) el % de crecimiento semanal de cada MCI con fuente CFDI."""
+    """Guarda (o reemplaza) el % de crecimiento mensual de cada MCI con fuente CFDI."""
     db.expire_all()  # las versiones recién creadas deben verse en m.versiones
     d = Datos(db)
     if not d.meses:
@@ -119,10 +119,8 @@ def medir(db: Session, semanas: int = 26) -> int:
     for m in db.scalars(select(Mci).where(Mci.activo.is_(True))):
         if not m.versiones:
             continue
-        for sem in indicadores.semanas(semanas):
-            dia = indicadores.viernes_de(sem)
-            if dia > hoy() + timedelta(days=6):
-                continue
+        for sem in indicadores.meses(max(semanas // 4, 1)):  # la MCI se mide por mes
+            dia = min(indicadores.ultimo_dia(sem), hoy())
             v = catalogo.version_vigente(m.versiones, dia)
             if not v or v.fuente not in ("cfdi_recurrente", "cfdi_total"):
                 continue

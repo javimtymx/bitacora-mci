@@ -32,8 +32,10 @@ def barras_brecha(serie: SerieMci, n: int = 8, w: int = 300, h: int = 64) -> Mar
     return Markup("".join(s))
 
 
-def kardex(serie: SerieMci, eventos: list[tuple[str, str]], unidad: str = "", dec: int = 1) -> Markup:
+def kardex(serie: SerieMci, eventos: list[tuple[str, str]], unidad: str = "", dec: int = 1, periodo: str = "semana",
+           etiqueta=None) -> Markup:
     pts = serie.puntos
+    nombre_p = "mes" if periodo == "mes" else "semana"
     n = len(pts)
     W, H = 900, 520
     x0, x1 = 120, 860
@@ -48,8 +50,8 @@ def kardex(serie: SerieMci, eventos: list[tuple[str, str]], unidad: str = "", de
     dec = 0 if rango >= 20 else (1 if rango >= 2 else min(dec, 3))
     yt, yb = 48, 190
     Y = lambda v: yb - (v - lo) / (hi - lo) * (yb - yt)
-    s = [f'<svg viewBox="0 0 {W} {H}" width="100%" role="img" aria-label="Histórico semanal del indicador, '
-         f'su brecha y los compromisos de cada semana">',
+    s = [f'<svg viewBox="0 0 {W} {H}" width="100%" role="img" aria-label="Histórico {'mensual' if periodo == 'mes' else 'semanal'} del indicador, '
+         f'su brecha y los compromisos de cada {nombre_p}">',
          f'<text x="8" y="22" font-size="12.5" font-weight="800" fill="#15191E">1 · Indicador</text>']
     for k in range(5):
         v = lo + (hi - lo) * k / 4
@@ -101,7 +103,7 @@ def kardex(serie: SerieMci, eventos: list[tuple[str, str]], unidad: str = "", de
     cb = 400
     mxc = max([max(p.cumplidos, p.remediados + p.en_remediacion + p.solo_texto) for p in pts] or [1]) or 1
     unit = min(16, 70 / mxc)
-    s.append(f'<text x="8" y="{cb-96}" font-size="12.5" font-weight="800" fill="#15191E">3 · Compromisos de la semana</text>'
+    s.append(f'<text x="8" y="{cb-96}" font-size="12.5" font-weight="800" fill="#15191E">3 · Compromisos del {nombre_p}</text>'
              f'<text x="{x0-24}" y="{cb-8}" text-anchor="end" font-size="11" fill="{TEXTO2}">cumplidos ↑</text>'
              f'<text x="{x0-24}" y="{cb+18}" text-anchor="end" font-size="11" fill="{TEXTO2}">no cumplidos ↓</text>'
              f'<line x1="{x0}" x2="{x1}" y1="{cb}" y2="{cb}" stroke="#CBD3DA"/>')
@@ -120,7 +122,7 @@ def kardex(serie: SerieMci, eventos: list[tuple[str, str]], unidad: str = "", de
                      f'font-weight="700" fill="{col}">{pc:.0f}%</text>')
         actual = i == n - 1
         s.append(f'<text x="{X(i):.1f}" y="{H-12}" text-anchor="middle" font-size="11.5" fill="{"#15191E" if actual else TEXTO2}" '
-                 f'font-weight="{800 if actual else 400}">S{p.semana[-2:]}</text>')
+                 f'font-weight="{800 if actual else 400}">{escape(etiqueta(p.semana)) if etiqueta else "S" + p.semana[-2:]}</text>')
     s.append("</svg>")
     return Markup("".join(s))
 

@@ -1,18 +1,18 @@
 {% extends "base.html" %}{% from "_ui.html" import icon, racha_tag, veredicto_tag, pct, estado_comp with context %}
-{% block title %}Tablero semanal{% endblock %}
+{% block title %}Tablero{% endblock %}
 {% block content %}
 <div class="top">
-  <div class="col" style="gap:4px"><h1>Tablero semanal</h1>
-    <span class="muted small">{{ sel.nombre if sel else 'Toda la empresa' }} · {{ tarjetas|length }} indicador(es) · semana {{ num_semana(sem) }}</span></div>
+  <div class="col" style="gap:4px"><h1>Tablero</h1>
+    <span class="muted small">{{ sel.nombre if sel else 'Toda la empresa' }} · {{ n_mci }} indicador(es) · evaluando {{ nombre_mes(mes)|lower }} · semana actual {{ num_semana(sem) }}{% if sem in adaptacion %} · <span class="tag o" title="Primeras semanas del proceso: se registran, pero úsalas para ajustar">semana de adaptación</span>{% endif %}</span></div>
   <div class="row">
     <form method="get" class="row"><input type="hidden" name="area" value="{{ sel.clave if sel else 'todas' }}">
-      <select class="input" name="semana" onchange="this.form.submit()" style="width:190px" aria-label="Semana">{% for s in semanas|reverse %}<option value="{{ s }}" {{ 'selected' if s==sem }}>Semana {{ num_semana(s) }} · {{ s[:4] }}</option>{% endfor %}</select></form>
+      <select class="input" name="mes" onchange="this.form.submit()" style="width:190px" aria-label="Mes a evaluar">{% for m_ in meses|reverse %}<option value="{{ m_ }}" {{ 'selected' if m_==mes }}>{{ nombre_mes(m_) }}</option>{% endfor %}</select></form>
     <a class="btn soft" href="/indicadores/captura">{{ icon('plus') }}Capturar indicadores</a>
   </div>
 </div>
 <nav class="seg" aria-label="Filtrar por área">
-  <a href="/?semana={{ sem }}" class="{{ 'on' if not sel }}">Todas</a>
-  {% for a in areas %}<a href="/?area={{ a.clave }}&semana={{ sem }}" class="{{ 'on' if sel and sel.id==a.id }}">{{ a.nombre }}</a>{% endfor %}
+  <a href="/?mes={{ mes }}" class="{{ 'on' if not sel }}">Todas</a>
+  {% for a in areas %}<a href="/?area={{ a.clave }}&mes={{ mes }}" class="{{ 'on' if sel and sel.id==a.id }}">{{ a.nombre }}</a>{% endfor %}
 </nav>
 
 {% if u.es_lider %}
@@ -35,38 +35,13 @@
 
 {% if resumen_areas %}
 <section class="card pad"><h2>Resumen por área</h2>
-  <div class="tbl"><table><thead><tr><th>Área</th><th class="num">Indicadores ganando</th><th class="num">Perdiendo</th><th class="num">Compromisos 4 sem</th><th>Diagnóstico S{{ num_semana(sem) }}</th><th></th></tr></thead><tbody>
+  <div class="tbl"><table><thead><tr><th>Área</th><th class="num">Indicadores ganando ({{ nombre_mes(mes, false)|lower }})</th><th class="num">Perdiendo</th><th class="num">Compromisos 4 sem</th><th>Diagnóstico S{{ num_semana(sem) }}</th><th></th></tr></thead><tbody>
   {% for r in resumen_areas %}<tr><td><b>{{ r.area.nombre }}</b></td><td class="num" style="color:var(--g-fg);font-weight:700">{{ r.ganando }} / {{ r.total }}</td><td class="num" style="color:{{ 'var(--r-fg)' if r.perdiendo else 'inherit' }};font-weight:700">{{ r.perdiendo }}</td>
     <td class="num">{{ pct(r.pct) }}</td><td>{% if r.diag %}{{ veredicto_tag(r.diag.veredicto) }}{% else %}<span class="muted small">pendiente</span>{% endif %}</td>
-    <td><a class="lnk" href="/?area={{ r.area.clave }}&semana={{ sem }}">{{ icon('eye', 15) }}Ver área</a></td></tr>{% endfor %}</tbody></table></div>
+    <td><a class="lnk" href="/?area={{ r.area.clave }}&mes={{ mes }}">{{ icon('eye', 15) }}Ver área</a></td></tr>{% endfor %}</tbody></table></div>
 </section>{% endif %}
 
-<section class="kgrid" aria-label="Indicadores">
-{% for t in tarjetas %}
-  <article class="kcard {{ 'pierde' if t.racha=='perdiendo' }}">
-    <div class="row between" style="gap:8px"><span class="pill">{{ t.mci.area.nombre }}</span>{{ racha_tag(t.racha, t.n) }}</div>
-    <h3 style="line-height:1.3">{{ t.mci.nombre }}</h3>
-    <div class="row" style="align-items:baseline;gap:10px">
-      <span class="big">{% if t.ult %}{{ valor(t.ult.valor, t.v.unidad if t.v else '', t.dec) }}{% else %}—{% endif %}</span>
-      <span class="muted small">{% if t.v and t.v.meta is not none %}meta {{ valor(t.v.meta, t.v.unidad, t.dec) }}{% if t.ult and t.ult.objetivo is not none and t.v.tipo_meta=='acumulado' %} · ritmo {{ valor(t.ult.objetivo, t.v.unidad, 1) }}{% endif %}{% endif %}{% if t.ult and t.ult.semana != sem %} · último dato S{{ num_semana(t.ult.semana) }}{% endif %}</span>
-    </div>
-    {% set vt = t.ventas %}{% if vt %}
-    <div class="small" style="padding:10px 12px;border-radius:10px;background:#F6F8FA;display:flex;flex-direction:column;gap:4px">
-      <span class="cap">{{ 'Recurrente' if vt.fuente=='cfdi_recurrente' else 'Facturación total' }} · Panel AYF</span>
-      {% if vt.necesario_mensual is not none and vt.falta is not none and vt.falta > 0 %}<span>Necesitas crecer <b>${{ '{:,.0f}'.format(vt.necesario_mensual) }}</b> {{ 'de recurrente ' if vt.fuente=='cfdi_recurrente' }}al mes hasta {{ fmt_fecha(vt.fecha_meta) }}</span>
-      {% elif vt.falta is not none and vt.falta <= 0 %}<span style="color:var(--g-fg);font-weight:700">Meta alcanzada</span>
-      {% elif vt.meta_pct is none %}<span class="muted">Sin meta: se muestra el crecimiento contra la base ({{ vt.periodo_base }}).</span>
-      {% else %}<span class="muted">Registra la fecha de la meta en Catálogo para calcular el crecimiento mensual necesario.</span>{% endif %}
-      {% if vt.brecha_monto is not none %}<span>{{ 'Arriba' if vt.brecha_monto >= 0 else 'Abajo' }} del ritmo de hoy por <b style="color:{{ 'var(--g-fg)' if vt.brecha_monto >= 0 else 'var(--r-fg)' }}">${{ '{:,.0f}'.format(vt.brecha_monto|abs) }}</b> al mes</span>{% endif %}
-      {% if u.puede_confidencial and vt.actual is not none %}<span class="muted">{{ icon('lock', 12) }} Actual ${{ '{:,.0f}'.format(vt.actual) }}/mes · base ${{ '{:,.0f}'.format(vt.base or 0) }}/mes</span>{% endif %}
-    </div>{% endif %}
-    <div><div class="cap" style="margin-bottom:2px">Brecha vs objetivo · 8 semanas</div>{{ t.barras }}</div>
-    <div class="row between" style="border-top:1px solid #EEF1F4;padding-top:10px;gap:8px">
-      <span class="small muted">{{ t.mci.dueno.nombre if t.mci.dueno else '—' }} · compromisos S{{ num_semana(sem) }} <b style="color:var(--ink)">{{ t.comp_txt }}</b></span>
-      <a class="lnk" href="/kardex/{{ t.mci.id }}?semana={{ sem }}">{{ icon('eye', 16) }}Kárdex</a></div>
-  </article>
-{% else %}<div class="card pad muted">No hay indicadores en esta vista. Dirección los da de alta en Configurar → Catálogo.</div>{% endfor %}
-</section>
+{% if not n_mci %}<div class="card pad muted">No hay indicadores en esta vista. Dirección los da de alta en Configurar → Catálogo.</div>{% endif %}
 
 {% if cons %}
 <div class="grid2" style="grid-template-columns:{{ '1fr 1.4fr' if cons.ayf else '1fr' }}">
@@ -97,7 +72,7 @@
 </div>
 {%- endmacro %}
 <section class="card pad" id="metas"><div class="row between" style="align-items:flex-start">
-  <div class="col" style="gap:4px"><h2>Metas y medidas predictivas · 8 semanas</h2><span class="small muted">Cada meta, las predictivas que la mueven y, al desplegar, los compromisos que atacan cada predictiva.</span></div>
+  <div class="col" style="gap:4px"><h2>Metas y medidas predictivas · {{ nombre_mes(mes) }}</h2><span class="small muted">El resultado de cada meta es mensual; sus predictivas y compromisos se siguen por semana. Al desplegar ves los compromisos de cada predictiva.</span></div>
   <div class="row" style="gap:8px">
     <a class="lnk small" href="/compromisos/archivados?area={{ sel.clave }}" style="margin-right:4px" title="Eliminados con autorización y cancelados de {{ sel.nombre }}">{{ icon('doc', 14) }}Archivados ({{ n_arch }})</a>
     <button class="btn sm soft" type="button" data-sub-todos="1">Expandir todo</button>
@@ -106,12 +81,15 @@
     <button class="btn sm yellow" type="button" data-open="nuevo-compromiso" data-fill-nc-area="{{ sel.id }}" data-fill-nc-pred="">{{ icon('plus', 15) }}Nuevo compromiso</button>
   </div></div>
   <div class="row small muted" style="gap:16px;margin-top:-4px"><span><span class="tag g">2/5</span> valor vs meta</span><span><span class="chip">▸ 2 compromisos</span> desplegar</span><span><span class="hist">1/1 comp.</span> semanas anteriores</span><span><span class="sincomp">Sin compromiso</span> nadie empuja esta palanca</span></div>
-  <div class="tbl"><table class="jer"><thead><tr><th>Meta (MCI) y sus medidas predictivas</th><th class="num col-meta">Meta</th>{% for s in cons.sems8|reverse %}<th class="num{{ ' actual' if loop.first }}">S{{ num_semana(s) }}{% if loop.first %}<div class="cap" style="font-size:10px">{{ 'actual' if s == sem_nc else 'seleccionada' }}</div>{% endif %}</th>{% endfor %}</tr></thead>
+  <div class="tbl"><table class="jer"><thead><tr><th>Meta (MCI) y sus medidas predictivas</th><th class="num col-meta">Meta</th>{% for s in cons.sems8|reverse %}<th class="num{{ ' actual' if loop.first }}">S{{ num_semana(s) }}{% if loop.first %}<div class="cap" style="font-size:10px">{{ 'actual' if s == sem_nc else 'última del mes' }}</div>{% endif %}{% if s in adaptacion %}<div class="cap" style="font-size:9.5px;color:#7A4600" title="Semana de adaptación del proceso">adaptación</div>{% endif %}</th>{% endfor %}</tr></thead>
   {% for g in cons.grupos %}<tbody>
     <tr class="mci-row"><td><div class="row" style="gap:8px;flex-wrap:nowrap"><span class="tag b" style="flex:none">MCI</span><b>{{ g.mci.nombre }}</b></div>
         <div class="muted small" style="margin-top:2px">{% if g.v and g.v.meta is not none %}Meta {{ valor(g.v.meta, g.v.unidad, g.dec) }}{{ ' · ' ~ g.v.periodicidad if g.v.periodicidad }}{% else %}Sin meta definida{% endif %} · {{ g.mci.dueno.nombre if g.mci.dueno else 'sin dueño' }} · <a class="lnk" href="/kardex/{{ g.mci.id }}">Kárdex</a></div></td>
       <td class="num col-meta">{% if g.v and g.v.meta is not none %}{% set mp = meta_partes(g.v.meta, g.v.unidad, g.dec) %}<b>{{ mp[0] }}</b>{% if mp[1] %}<div class="u">{{ mp[1] }}</div>{% endif %}{% else %}<span class="muted">—</span>{% endif %}</td>
-      {% for pt in g.puntos|reverse %}<td class="num{{ ' actual' if loop.first }}">{% if pt.valor is not none %}<span class="tag {{ 'g' if pt.brecha is not none and pt.brecha >= 0 else 'r' if pt.brecha is not none else 'n' }}">{{ valor(pt.valor, '', g.dec) }}{% if pt.objetivo is not none %}/{{ valor(pt.objetivo, '', g.dec) }}{% endif %}</span>{% else %}<span class="muted">·</span>{% endif %}</td>{% endfor %}</tr>
+      {% set pm = g.mes %}<td colspan="{{ cons.sems8|length }}" class="mes-res"><div class="row" style="gap:10px;justify-content:flex-end">
+        <span class="small muted">Resultado de {{ nombre_mes(mes, false)|lower }}</span>
+        {% if pm and pm.valor is not none %}<span class="tag {{ 'g' if pm.brecha is not none and pm.brecha >= 0 else 'r' if pm.brecha is not none else 'n' }}" style="font-size:13px">{{ valor(pm.valor, '', g.dec) }}{% if pm.objetivo is not none %} / {{ valor(pm.objetivo, '', g.dec) }}{% endif %}</span>{{ racha_tag(g.racha[0], g.racha[1]) }}
+        {% else %}<span class="tag n">Sin captura del mes</span>{% if u.es_lider %}<a class="lnk small" href="/indicadores/captura?mes={{ mes }}">Capturar</a>{% endif %}{% endif %}</div></td></tr>
     {% for p, v, fila in g.filas %}{% set act = fila[-1] %}
     <tr class="pred-row"><td class="small"><div class="row" style="gap:6px;flex-wrap:nowrap"><span class="rama" aria-hidden="true">{{ '└' if loop.last else '├' }}</span><b>{{ p.nombre }}</b>{% if p.requiere_evidencia %} <span class="tag n">evidencia</span>{% endif %}</div></td>
       <td class="num col-meta">{% if v and v.meta_semanal is not none %}{% set mp = meta_partes(v.meta_semanal, v.unidad, 1) %}<b>{{ mp[0] }}</b>{% if mp[1] %}<div class="u">{{ mp[1] }}</div>{% endif %}{% else %}<span class="muted">—</span>{% endif %}</td>
