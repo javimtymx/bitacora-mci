@@ -50,7 +50,7 @@ def test_captura_y_serie_acumulada(admin, db):
     sr = indicadores.serie_mci(db, db.get(Mci, m.id), 3)
     assert sr.actual.mes == mes and sr.actual.valor == 10
     assert sr.actual.objetivo is not None and 0 < sr.actual.objetivo < 35
-    assert sr.racha[0] in ("ganando", "perdiendo")
+    assert sr.racha[0] in ("ganando", "perdiendo", "en_curso")
     assert "Kárdex" in admin.get(f"/kardex/{m.id}").text
     admin.post("/indicadores/captura", data={"mes": mes, f"valor_{m.id}": "15"})
     db.expire_all()
@@ -96,8 +96,10 @@ def test_clasificacion_compromisos(db):
     assert (pt.cumplidos, pt.remediados, pt.solo_texto) == (1, 1, 2)
 
 
-def test_diagnostico_con_investigacion_y_seguimiento(admin, db, fake):
+def test_diagnostico_con_investigacion_y_seguimiento(admin, db, fake, monkeypatch):
     from app.cli import especialistas
+    from app.config import get_settings
+    monkeypatch.setattr(get_settings(), "inicio_seguimiento", "2026-W01")  # la recomendación previa cae después del inicio
     especialistas()
     assert db.scalar(select(PromptArea).where(PromptArea.especialidad.like("%venta consultiva%")))
     fake.respuestas = [
@@ -344,3 +346,12 @@ def test_compromisos_dentro_de_cada_predictiva(admin, db, monkeypatch):
         assert f'data-open="w-{p.id}-{previa}"' in t and "Compromiso de la semana pasada" in t
     assert f'data-fill-nc-pred="{p.id}"' in t and 'id="nuevo-compromiso"' in t
     assert "Compromisos de la semana</h2>" not in t
+
+
+def test_diagnostico_parte_del_arranque(db, monkeypatch):
+    from app.models import Area
+    from app.services import diagnostico
+    a = db.scalar(select(Area).where(Area.clave == "ventas"))
+    ctx, _ = diagnostico._contexto(db, a, semana_iso(hoy()))
+    assert "el seguimiento formal inició en la semana 2026-W46" in ctx and "se juzga al CIERRE del mes" in ctx
+    assert "Corte mensual" in diagnostico.INSTRUCCION

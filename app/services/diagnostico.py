@@ -26,7 +26,7 @@ from ..models import (
 from . import ia, indicadores, parametros, seguimiento
 from .util import auditar, hoy, semana_iso
 
-PROMPT_VERSION = "2026.11-diag-1"
+PROMPT_VERSION = "2026.11-diag-2"
 
 # Especialistas por defecto. Se cargan con `python -m app.cli seed` y se editan en Configurar → Prompts por área.
 PROMPTS_DEFAULT = {
@@ -83,19 +83,48 @@ def investigaciones_usadas(db: Session, semana: str) -> int:
         DiagnosticoSemanal.semana == semana, DiagnosticoSemanal.investigacion.is_not(None))) or 0
 
 
+def _semanas_del_mes(mes: str) -> list[str]:
+    """Todas las semanas del mes (también las que faltan), por el mes de su viernes."""
+    from datetime import date as _date
+    d, out = _date(int(mes[:4]), int(mes[5:7]), 1), []
+    while d <= indicadores.ultimo_dia(mes):
+        s_ = semana_iso(d)
+        if indicadores.mes_de(s_) == mes and s_ not in out:
+            out.append(s_)
+        d += timedelta(days=1)
+    return out
+
+
 def _contexto(db: Session, area: Area, semana: str) -> tuple[str, list[RecomendacionIA]]:
     sems = indicadores.semanas(8, semana)
-    lineas = [f"Área: {area.nombre} · semana del diagnóstico: {semana} · el seguimiento inició en "
-              f"{indicadores.inicio_seguimiento()}; las primeras semanas son de adaptación"]
+    mes = indicadores.mes_de(semana)
+    fin = indicadores.ultimo_dia(mes)
+    dia = min(hoy(), fin)
+    total_sem = len(_semanas_del_mes(mes))
+    lineas = [f"Área: {area.nombre} · semana del diagnóstico: {semana}",
+              f"Calendario: el seguimiento formal inició en la semana {indicadores.inicio_seguimiento()} "
+              f"({indicadores.nombre_mes(indicadores.mes_inicio())}); no hay histórico confiable antes. "
+              f"Semanas de adaptación: {', '.join(indicadores.semanas_adaptacion())}"
+              + (" (esta semana es de adaptación)." if semana in indicadores.semanas_adaptacion() else "."),
+              f"Mes evaluado: {indicadores.nombre_mes(mes)} · hoy es día {dia.day} de {fin.day} "
+              f"({round(dia.day / fin.day * 100)}% del mes transcurrido) · semanas del mes: {total_sem}, "
+              f"faltan {max(total_sem - len([x for x in _semanas_del_mes(mes) if x <= semana]), 0)} después de esta. "
+              "El resultado de cada MCI se juzga al CIERRE del mes."]
     for m in indicadores.mcis_de(db, area.id):
         sr = indicadores.serie_mci(db, m, 8, semana)
         v = sr.version
         racha, n = sr.racha
         lineas.append(f"\nMCI «{m.nombre}» (meta {v.meta if v else '—'} {v.unidad if v else ''}, tipo {v.tipo_meta if v else ''}): "
-                      f"{racha} {n} mes(es). El resultado de la MCI se mide por mes; los compromisos, por semana.")
+                      + ("mes en curso, aún debajo de la meta (se juzga al cierre)" if racha == "en_curso" else f"{racha} {n} mes(es)")
+                      + ". El resultado de la MCI se mide por mes; los compromisos, por semana.")
         for pm in sr.meses:
+            origen = ""
+            if pm.nota and pm.nota.startswith("Tomado de la semana"):
+                origen = f" · OJO: {pm.nota.split(' · ')[0]} (previa al inicio formal): úsalo como punto de partida"
+            elif pm.mes == mes and pm.valor is not None and dia < fin:
+                origen = " · captura parcial: el mes sigue en curso"
             lineas.append(f"- Resultado {indicadores.nombre_mes(pm.mes)}: valor {indicadores.fmt(pm.valor, 3)} · "
-                          f"objetivo {indicadores.fmt(pm.objetivo, 3)} · brecha {indicadores.fmt(pm.brecha, 3)}")
+                          f"objetivo al cierre {indicadores.fmt(pm.objetivo, 3)} · brecha {indicadores.fmt(pm.brecha, 3)}{origen}")
         for p in sr.puntos:
             lineas.append(f"- Semana {p.semana}: compromisos {p.cumplidos} cumplidos, "
                           f"{p.remediados} remediados, {p.en_remediacion} en remediación, {p.solo_texto} sin ejecutar")
@@ -126,7 +155,7 @@ def _contexto(db: Session, area: Area, semana: str) -> tuple[str, list[Recomenda
         temas: dict[tuple[str, str], int] = {}
         for h in hall:
             temas[(h.cuadrante, h.tema)] = temas.get((h.cuadrante, h.tema), 0) + 1
-        lineas.append("\nVoz del cliente (6 semanas, cuadrante · tema · menciones):")
+        lineas.append("\nVoz del cliente (6 semanas, cuadrante · tema · menciones; contexto del cliente, puede ser previo al arranque):")
         for (cu, t), n in sorted(temas.items(), key=lambda x: -x[1])[:12]:
             lineas.append(f"- {cu} · {t} · {n}")
     if objs:
@@ -140,7 +169,8 @@ def _contexto(db: Session, area: Area, semana: str) -> tuple[str, list[Recomenda
             lineas.append(f"- {t} · {n} · {a}")
     # recomendaciones anteriores con lo que pasó después
     prev = list(db.scalars(select(RecomendacionIA).where(RecomendacionIA.area_id == area.id,
-                                                         RecomendacionIA.semana < semana)
+                                                         RecomendacionIA.semana < semana,
+                                                         RecomendacionIA.semana >= indicadores.inicio_seguimiento())
                            .order_by(RecomendacionIA.semana.desc(), RecomendacionIA.orden).limit(9)))
     if prev:
         lineas.append("\nTus recomendaciones anteriores (código · semana · texto · qué pasó después):")
@@ -187,10 +217,19 @@ def _normalizar(res: dict, prev_ids: set[int]) -> dict:
 INSTRUCCION = """Haz el diagnóstico semanal de esta área con tu especialidad. Primero evalúa tus recomendaciones anteriores
 (si se ejecutaron y qué efecto tuvieron en el indicador), luego diagnostica la semana con el histórico y recomienda.
 Reglas:
+- Corte mensual: cada MCI se evalúa al CIERRE del mes. Un valor capturado a mitad de mes es avance, no resultado:
+  juzga si el ritmo y los compromisos alcanzan para cumplir la meta al cierre (proyección), no si ya se cumplió.
+- El proceso apenas inició (ver «Calendario»): no uses semanas previas al inicio para concluir; si un valor viene
+  «previo al inicio formal», es punto de partida. En semanas de adaptación prioriza instalar la disciplina
+  (capturar a tiempo, compromisos ligados a cada predictiva) y dilo con tono de arranque, no de fracaso.
+- Veredicto: «ganando» = el ritmo alcanza la meta al cierre; «en_riesgo» = faltan datos o el ritmo no alcanza pero
+  se puede corregir en las semanas que quedan; «perdiendo» = solo si ya no es realista cumplir al cierre o el mes
+  cerró sin cumplir. Falta de captura al inicio del mes es «en_riesgo», no «perdiendo».
+- Recomienda para las semanas que faltan del mes y di qué tendría que pasar para cumplir al cierre.
 - Explica el resultado por sus causas: relaciona el movimiento del indicador con los compromisos cumplidos o no, las
   remediaciones que no se ejecutaron, las estrategias y la voz del cliente.
 - Si una recomendación anterior no se ejecutó y sigue siendo válida, retómala en vez de inventar otra.
-- Máximo 3 recomendaciones, concretas, para esta semana, cada una con la técnica o método que aplica.
+- Máximo 3 recomendaciones, concretas, para esta semana y las que quedan del mes, cada una con la técnica o método que aplica.
 - Pide investigación profunda (búsqueda web) SOLO si una decisión importante depende de información externa
   que no está en <datos> (regla nueva, referente de mercado, práctica de la industria).
 

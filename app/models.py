@@ -62,6 +62,8 @@ class Usuario(Base):
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
     puede_confidencial: Mapped[bool] = mapped_column(Boolean, default=False)
     recibe_correos: Mapped[bool] = mapped_column(Boolean, default=True)
+    # aparece en «Indicador de cada persona» del tablero (solo visibilidad; todo lo demás funciona igual)
+    en_indicador_personas: Mapped[bool] = mapped_column(Boolean, default=True)
     menus_bloqueados: Mapped[list | None] = mapped_column(JSON)  # claves de menú que Dirección le quitó
     menus_extra: Mapped[list | None] = mapped_column(JSON)  # menús por otorgamiento que Dirección le dio
     creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

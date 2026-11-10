@@ -15,12 +15,31 @@
   {% for a in areas %}<a href="/?area={{ a.clave }}&mes={{ mes }}" class="{{ 'on' if sel and sel.id==a.id }}">{{ a.nombre }}</a>{% endfor %}
 </nav>
 
-{% if u.es_lider %}
-<div class="cint"><span class="ic">{{ icon('ia') }}</span>
-  {% if diags %}
-  <span style="flex:1 1 420px"><b>Diagnóstico de la semana {{ num_semana(sem) }}:</b>
-    {% for d in diags %}{{ d.area.nombre }} {{ veredicto_tag(d.veredicto) }}{{ ' · ' if not loop.last }}{% endfor %}
-    {% set d0 = (diags|selectattr('veredicto','equalto','perdiendo')|list or diags)[0] %}<br>{{ d0.resultado.titular }}</span>
+{% if cons and cons.grupos %}
+<section class="mci-strip" aria-label="Indicadores de {{ sel.nombre }}">
+  {% for g in cons.grupos %}{% set pm = g.mes %}{% set ok = pm and pm.brecha is not none and pm.brecha >= 0 %}
+  <a class="mci-k {{ 'ok' if ok else ('mal' if g.racha[0] == 'perdiendo' else '') }}" href="/kardex/{{ g.mci.id }}">
+    <span class="small muted">{{ g.mci.nombre }}</span>
+    <span class="row" style="gap:8px;align-items:baseline"><b class="mci-v">{% if pm and pm.valor is not none %}{{ valor(pm.valor, g.v.unidad if g.v else '', g.dec) }}{% else %}—{% endif %}</b>
+      <span class="small muted">meta {% if g.v and g.v.meta is not none %}{{ valor(g.v.meta, g.v.unidad, g.dec) }}{% else %}—{% endif %}</span></span>
+    {% if pm and pm.valor is not none and pm.objetivo %}<span class="mci-bar" aria-hidden="true"><i style="width:{{ [[(pm.valor / pm.objetivo * 100) if g.v and g.v.sentido != 'menor' else (pm.objetivo / pm.valor * 100 if pm.valor else 100), 0]|max, 100]|min }}%"></i></span>{% endif %}
+    <span class="row between" style="gap:6px">{{ racha_tag(g.racha[0], g.racha[1]) }}<span class="small muted">{{ nombre_mes(mes, false) }}</span></span>
+  </a>{% endfor %}
+</section>
+{% endif %}
+
+{% if u.es_lider and not sel %}{# en la vista de un área, el diagnóstico va en su propia tarjeta contraída #}
+{% set diags_v = diags %}
+<div class="cint diag-banner"><span class="ic">{{ icon('ia') }}</span>
+  {% if diags_v %}
+  <div style="flex:1 1 420px;display:flex;flex-direction:column;gap:6px">
+    <b>Diagnóstico de {{ guardia }} · semana {{ num_semana(sem) }}</b>
+    <div class="row" style="gap:6px 14px;flex-wrap:wrap">
+    {% for d in diags_v %}<details class="diag-chip"><summary>{{ d.area.nombre }} {{ veredicto_tag(d.veredicto) }}</summary>
+      <div class="diag-txt">{{ d.resultado.titular }}<a class="lnk" href="/diagnostico?area={{ d.area.clave }}">Abrir</a></div></details>{% endfor %}
+    </div>
+    <span class="small" style="opacity:.75">Toca un área para leer su resumen.</span>
+  </div>
   {% else %}<span style="flex:1 1 420px">El diagnóstico de la IA se genera cada lunes por área. También puedes pedirlo ahora.</span>{% endif %}
   <a class="btn yellow sm" href="/diagnostico{{ '?area=' ~ sel.clave if sel }}">{{ icon('ia', 16) }}Ver diagnóstico por área</a>
 </div>
@@ -54,11 +73,15 @@
     {% if u.puede_confidencial and vt.actual is not none %}<span class="muted">{{ icon('lock', 12) }} Actual ${{ '{:,.0f}'.format(vt.actual) }}/mes · base ${{ '{:,.0f}'.format(vt.base or 0) }}/mes</span>{% endif %}
   </div>{% endfor %}</section>
 {% endif %}
-<section class="card pad"><div class="row between"><h2>Diagnóstico de {{ guardia }}</h2>{% if u.es_lider %}<a class="lnk" href="/diagnostico?area={{ sel.clave }}">{{ icon('ia', 15) }}Abrir</a>{% endif %}</div>
-  {% if cons.diag %}<div class="row">{{ veredicto_tag(cons.diag.veredicto) }}<span class="muted small">S{{ num_semana(cons.diag.semana) }}</span></div>
-    <b style="line-height:1.4">{{ cons.diag.resultado.titular }}</b>
-    {% for r in cons.diag.recomendaciones %}<div class="small" style="padding:8px 0;border-top:1px solid var(--line)"><b>{{ r.orden }}.</b> {{ r.texto }}{% if r.tecnica %} <span class="muted">· {{ r.tecnica }}</span>{% endif %}</div>{% endfor %}
-  {% else %}<span class="muted small">Aún no hay diagnóstico para esta área.</span>{% endif %}</section>
+<section class="card pad"><details class="diag-area">
+  <summary><div class="row between" style="gap:10px;width:100%"><h2 class="row" style="gap:8px">{{ icon('ia', 18) }}<span>Diagnóstico de {{ guardia }}</span></h2>
+    <span class="row" style="gap:8px">{% if cons.diag %}{{ veredicto_tag(cons.diag.veredicto) }}<span class="muted small">S{{ num_semana(cons.diag.semana) }}</span>{% else %}<span class="muted small">Sin diagnóstico</span>{% endif %}<span class="chev" aria-hidden="true">▸</span></span></div></summary>
+  {% if cons.diag %}<div class="col" style="gap:8px;margin-top:10px">
+    <b style="line-height:1.45">{{ cons.diag.resultado.titular }}</b>
+    {% if cons.diag.resultado.lectura %}<p class="small" style="margin:0;line-height:1.55">{{ cons.diag.resultado.lectura }}</p>{% endif %}
+    {% if u.es_lider %}<a class="btn sm soft" style="align-self:flex-start" href="/diagnostico?area={{ sel.clave }}">{{ icon('ia', 15) }}Abrir diagnóstico completo</a>{% endif %}
+  </div>{% else %}<span class="muted small">Aún no hay diagnóstico para esta área.</span>{% endif %}
+</details></section>
 </div>
 
 {% macro comp_item(c) -%}

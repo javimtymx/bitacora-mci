@@ -204,8 +204,14 @@ class SerieMci:
 
     @property
     def racha(self) -> tuple[str, int]:
-        """('ganando'|'perdiendo'|'en_meta'|'sin_datos'|'sin_meta', meses seguidos)."""
-        vals = [p for p in self.meses if p.brecha is not None]
+        """('ganando'|'perdiendo'|'en_meta'|'en_curso'|'sin_datos'|'sin_meta', meses seguidos).
+
+        El mes en curso solo cuenta si ya cumple: un avance parcial debajo de la meta todavía no es «perdiendo»
+        (se juzga al cierre del mes) y se reporta como «en_curso»."""
+        abierto = mes_actual() if hoy() < ultimo_dia(mes_actual()) else None
+        vals = [p for p in self.meses if p.brecha is not None and (p.mes != abierto or p.brecha >= -1e-9)]
+        if not vals and any(p.mes == abierto and p.brecha is not None for p in self.meses):
+            return "en_curso", 0
         if not vals:
             return ("sin_meta" if any(p.valor is not None for p in self.meses) else "sin_datos"), 0
         def signo(b):

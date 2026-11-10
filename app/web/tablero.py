@@ -117,7 +117,8 @@ def tablero(request: Request, area: str = "todas", mes: str | None = None, db: S
     if sel:
         comps_ant = [c for c in comps_ant if c.area_id == sel.id]
     cerrados = [c for c in comps_ant if c.estado in ("cumplido", "no_cumplido")]
-    personas = seguimiento.estado_personas(db, sel.id if sel else None)
+    personas = [p for p in seguimiento.estado_personas(db, sel.id if sel else None)
+                if p.usuario.en_indicador_personas is not False]  # Configurar › Usuarios decide quién aparece
     sems8 = indicadores.semanas_mes(mes) or [sem]  # semanas del mes evaluado (seguimiento semanal)
     tiras = indicadores.semanas_persona(db, [p.usuario.id for p in personas], sems8)
     diags = [d for d in (diagnostico.ultimo(db, a.id, sem) for a in areas) if d]

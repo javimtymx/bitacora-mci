@@ -383,3 +383,16 @@ button:disabled{cursor:progress;opacity:.75}
 .tkt-quick button.si{background:var(--yellow);border-color:var(--yellow);color:var(--ink)}
 .tkt-q.hecho{opacity:.7;border-color:var(--g-bd);background:#F4FBF4}
 td.mes-res{background:#F4FBFA}
+.mci-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.mci-k{background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;text-decoration:none;color:var(--ink)}
+.mci-k:hover{border-color:var(--teal2);color:var(--ink)}
+.mci-k.ok{border-left:4px solid #2E9E44}.mci-k.mal{border-left:4px solid #D7261E}
+.mci-v{font-size:24px;font-weight:800;letter-spacing:-.02em}
+.mci-bar{height:6px;background:#EEF1F4;border-radius:4px;overflow:hidden}.mci-bar i{display:block;height:100%;background:var(--teal2)}
+.diag-chip summary{cursor:pointer;list-style:none;display:inline-flex;gap:6px;align-items:center;font-weight:600}
+.diag-chip summary::-webkit-details-marker{display:none}
+.diag-chip[open] summary{text-decoration:underline}
+.diag-txt{margin-top:6px;font-size:13px;line-height:1.5;max-width:720px;background:rgba(255,255,255,.08);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:4px}
+.diag-txt .lnk{color:var(--yellow);align-self:flex-start}
+.diag-area summary{cursor:pointer;list-style:none}.diag-area summary::-webkit-details-marker{display:none}
+.diag-area .chev{transition:transform .15s;display:inline-block;color:var(--muted)}.diag-area[open] .chev{transform:rotate(90deg)}

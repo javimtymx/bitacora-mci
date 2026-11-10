@@ -51,3 +51,15 @@ def test_captura_de_predictiva(manuel, db):
     med = db.scalar(select(Medicion).where(Medicion.tipo == "predictiva", Medicion.periodo == sem))
     assert med and float(med.valor) == 3
     assert "3" in manuel.get("/?area=ventas").text
+
+
+def test_ocultar_persona_del_indicador(admin, mario, db):
+    m = db.scalar(select(Usuario).where(Usuario.email == "mpineda@onecore.mx"))
+    assert m.nombre in admin.get("/").text.split("Indicador de cada persona")[1]
+    admin.post(f"/admin/usuarios/{m.id}", data={"nombre": m.nombre, "rol": m.rol, "area_id": m.area_id or "",
+                                                "menus_form": "1", "menus": ["inicio", "compromisos", "mi-semana"],
+                                                "recibe_correos": "true"})
+    db.refresh(m)
+    assert m.en_indicador_personas is False
+    assert m.nombre not in admin.get("/").text.split("Indicador de cada persona")[1]
+    assert mario.get("/mi-semana").status_code == 200  # todo lo demás le sigue funcionando
