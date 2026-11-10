@@ -304,3 +304,14 @@ def test_catalogo_de_areas_de_usuario(admin, manuel, db):
     db.refresh(t)
     assert t.area == clave and "Operaciones aduanales" in admin.get(f"/tickets/{t.id}").text
     assert manuel.get("/admin/areas-usuario").status_code in (403, 303, 307)
+
+
+def test_apagar_aviso_de_triage(admin, db):
+    jm, m = _u(db, "jmartinez@onecore.mx"), _u(db, "mcoronado@onecore.mx")
+    t = _ticket(db, m)
+    destinos = lambda: [c for cs, asunto, *_ in tickets_correo.avisos(db, "nuevo", t, m) if "por clasificar" in asunto for c in cs]
+    assert "jmartinez@onecore.mx" in destinos()
+    _editar(admin, jm, avisos_triage="")  # se desmarca la casilla
+    db.expire_all()
+    assert jm.avisos_triage is False and jm.recibe_correos
+    assert "jmartinez@onecore.mx" not in destinos()

@@ -49,6 +49,8 @@
         <span class="muted small">Para el costo de los tickets que atiende. Solo lo ve Dirección.</span></div></div>
     <label class="check"><input type="checkbox" name="puede_confidencial" value="true" {{ 'checked' if x.puede_confidencial }}>Datos confidenciales</label>
     <label class="check"><input type="checkbox" name="recibe_correos" value="true" {{ 'checked' if x.recibe_correos }}>Recibe correos de GuardIA OneCore</label>
+    <label class="check"><input type="checkbox" name="avisos_triage" value="true" {{ 'checked' if x.avisos_triage is not false }}>Recibe el aviso de cada ticket nuevo por clasificar (triage)</label>
+    <span class="muted small" style="margin-top:-6px">Aplica a quien tiene acceso a Triage (los administradores siempre lo tienen). Los demás avisos de tickets (los suyos, los asignados a él o como jefe directo) siguen llegando.</span>
     <label class="check"><input type="checkbox" name="en_indicador_personas" value="true" {{ 'checked' if x.en_indicador_personas }}>Aparece en «Indicador de cada persona» del tablero</label>
     <span class="muted small" style="margin-top:-6px">Solo controla si se muestra en esa tabla; sus compromisos, menús y avisos siguen igual.</span>
   </div>

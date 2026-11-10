@@ -40,7 +40,8 @@ def _ok(u: Usuario | None, actor: Usuario | None) -> bool:
 
 
 def personas_triage(db: Session) -> list[Usuario]:
-    us = db.scalars(select(Usuario).where(Usuario.activo.is_(True))).all()
+    """Quien clasifica tickets y no apagó el aviso de «nuevo ticket por clasificar» (Configurar › Usuarios)."""
+    us = db.scalars(select(Usuario).where(Usuario.activo.is_(True), Usuario.avisos_triage.is_not(False))).all()
     return [u for u in us if accesos.puede(u, "tickets-triage")]
 
 

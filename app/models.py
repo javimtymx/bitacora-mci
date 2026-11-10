@@ -65,6 +65,7 @@ class Usuario(Base):
     recibe_correos: Mapped[bool] = mapped_column(Boolean, default=True)
     # aparece en «Indicador de cada persona» del tablero (solo visibilidad; todo lo demás funciona igual)
     en_indicador_personas: Mapped[bool] = mapped_column(Boolean, default=True)
+    avisos_triage: Mapped[bool] = mapped_column(Boolean, default=True)  # correo de cada ticket nuevo por clasificar
     menus_bloqueados: Mapped[list | None] = mapped_column(JSON)  # claves de menú que Dirección le quitó
     menus_extra: Mapped[list | None] = mapped_column(JSON)  # menús por otorgamiento que Dirección le dio
     jefe_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))  # jefe directo (recibe copia de sus tickets)
