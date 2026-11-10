@@ -41,11 +41,17 @@
 {% endfor %}
 
 {% if recientes %}
-<section class="card"><div class="pad" style="padding:16px 22px 0"><h3>Clasificados recientemente</h3></div>
-  <div class="tbl"><table><thead><tr><th>Folio</th><th>Título</th><th>Prioridad</th><th>Responsable</th><th>Estado</th><th>Triage</th></tr></thead><tbody>
-  {% for t in recientes %}<tr><td><a href="/tickets/{{ t.id }}"><b>{{ t.folio }}</b></a></td><td>{{ t.titulo }}</td>
-    <td><span class="prio {{ t.prioridad }}">{{ t.prioridad }}</span></td><td>{{ t.asignado.nombre if t.asignado else '—' }}</td>
-    <td>{{ estados[t.estado] }}</td><td class="small">{{ hora_local(t.triage_en) }}</td></tr>{% endfor %}
+<section class="card"><div class="hdr-tabla"><h3>Clasificados</h3><span class="muted small">Últimos {{ recientes|length }}. Clic en el encabezado para ordenar; usa los filtros de cada columna.</span></div>
+  <div class="tbl"><table data-tabla id="triage-clasificados"><thead><tr>
+    <th data-f="texto" data-o="num">Folio</th><th data-f="texto">Título</th><th data-f="lista">Tipo</th><th data-f="lista">Producto</th>
+    <th data-f="lista">Solicitante</th><th data-f="lista">Prioridad</th><th data-f="lista">Responsable</th><th data-f="lista">Estado</th>
+    <th data-o="fecha">Entrega</th><th data-o="fecha">Triage</th></tr></thead><tbody>
+  {% for t in recientes %}<tr><td data-v="{{ t.id }}"><a href="/tickets/{{ t.id }}"><b>{{ t.folio }}</b></a></td><td>{{ t.titulo }}</td>
+    <td>{{ tipos.get(t.tipo, t.tipo) }}</td><td>{{ t.producto }}</td><td>{{ t.autor.nombre }}</td>
+    <td data-l="{{ t.prioridad or '—' }}"><span class="prio {{ t.prioridad }}">{{ t.prioridad }}</span></td><td>{{ t.asignado.nombre if t.asignado else '—' }}</td>
+    <td data-l="{{ estados[t.estado] }}">{{ estados[t.estado] }}</td>
+    <td data-v="{{ t.fecha_entrega.isoformat() if t.fecha_entrega else '' }}" class="small">{{ t.fecha_entrega.strftime('%d/%m/%Y') if t.fecha_entrega else '—' }}</td>
+    <td data-v="{{ t.triage_en.isoformat() }}" class="small">{{ hora_local(t.triage_en) }}</td></tr>{% endfor %}
   </tbody></table></div></section>
 {% endif %}
 {% endblock %}

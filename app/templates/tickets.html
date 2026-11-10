@@ -23,28 +23,28 @@
   {% for k, (titulo, _) in pestanas.items() %}<a href="?ver={{ ver }}&tab={{ k }}&q={{ q|urlencode }}" class="{{ 'on' if tab==k }}">{{ titulo }} <span class="muted">{{ conteo[k] }}</span></a>{% endfor %}
 </div>
 <section class="card">
-  <div class="tbl"><table>
-    <thead><tr><th>Folio</th><th>Título</th><th>Estado</th>
-      {% if tab == 'programados' %}<th>Entrega</th><th>Ingeniero</th><th>Horas</th>
-      {% else %}<th>Tipo</th><th>Prioridad</th><th>Responsable</th>{% endif %}
-      <th>{{ 'Cerrado' if tab == 'cerrar' else 'Levantado' }}</th></tr></thead>
+  <div class="tbl"><table data-tabla id="tickets-{{ tab }}">
+    <thead><tr><th data-f="texto" data-o="num">Folio</th><th data-f="texto">Título</th><th data-f="lista">Estado</th>
+      {% if tab == 'programados' %}<th data-f="lista" data-o="fecha">Entrega</th><th data-f="lista">Ingeniero</th><th data-o="num">Horas</th>
+      {% else %}<th data-f="lista">Tipo</th><th data-f="lista">Prioridad</th><th data-f="lista">Responsable</th>{% endif %}
+      <th data-o="fecha">{{ 'Cerrado' if tab == 'cerrar' else 'Levantado' }}</th></tr></thead>
     <tbody>
     {% for t in ts %}{% set v = vence_en(t) %}
-      <tr><td><a href="/tickets/{{ t.id }}"><b>{{ t.folio }}</b></a></td>
+      <tr><td data-v="{{ t.id }}"><a href="/tickets/{{ t.id }}"><b>{{ t.folio }}</b></a></td>
         <td style="max-width:460px"><a href="/tickets/{{ t.id }}" style="color:var(--ink)">{{ t.titulo }}</a>
           <div class="muted small">{{ t.producto }}{% if t.pantalla %} › {{ t.pantalla }}{% endif %}{% if t.creado_por != u.id %} · {{ t.autor.nombre }}{% endif %}</div></td>
-        <td><span class="tag {{ 'g' if t.estado=='cerrado' else ('o' if t.estado=='info' else ('n' if t.estado=='nuevo' else 'b')) }}">{{ estados[t.estado] }}</span>
+        <td data-l="{{ estados[t.estado] }}"><span class="tag {{ 'g' if t.estado=='cerrado' else ('o' if t.estado=='info' else ('n' if t.estado=='nuevo' else 'b')) }}">{{ estados[t.estado] }}</span>
           {% if v[0] and tab != 'programados' %}<div class="sla {{ v[1] }} small" style="font-weight:800;margin-top:4px">{{ v[0] }}</div>{% endif %}</td>
         {% if tab == 'programados' %}
-        <td>{% if t.fecha_entrega %}<b {% if t.fecha_entrega < hoy %}style="color:var(--red)" title="Entrega vencida"{% endif %}>{{ t.fecha_entrega.strftime('%d/%m/%Y') }}</b>{% if t.fecha_entrega < hoy %}<div class="small" style="color:var(--red);font-weight:700">Vencida</div>{% endif %}{% else %}<span class="muted small">Sin fecha</span>{% endif %}</td>
+        <td data-v="{{ t.fecha_entrega.isoformat() if t.fecha_entrega else '' }}" data-l="{{ t.fecha_entrega.strftime('%d/%m/%Y') if t.fecha_entrega else 'Sin fecha' }}">{% if t.fecha_entrega %}<b {% if t.fecha_entrega < hoy %}style="color:var(--red)" title="Entrega vencida"{% endif %}>{{ t.fecha_entrega.strftime('%d/%m/%Y') }}</b>{% if t.fecha_entrega < hoy %}<div class="small" style="color:var(--red);font-weight:700">Vencida</div>{% endif %}{% else %}<span class="muted small">Sin fecha</span>{% endif %}</td>
         <td>{{ t.asignado.nombre if t.asignado else '—' }}</td>
         <td>{{ (t.horas_estimadas|float|round(1)) ~ ' h' if t.horas_estimadas is not none else '—' }}</td>
         {% else %}
         <td>{{ tipos.get(t.tipo, t.tipo) }}</td>
-        <td>{% if t.prioridad %}<span class="prio {{ t.prioridad }}">{{ t.prioridad }}</span>{% else %}<span class="muted small">—</span>{% endif %}</td>
-        <td>{{ t.asignado.nombre if t.asignado else '—' }}{% if t.fecha_entrega and t.estado != 'cerrado' %}<div class="muted small">Entrega {{ t.fecha_entrega.strftime('%d/%m') }}</div>{% endif %}</td>
+        <td data-l="{{ t.prioridad or '—' }}">{% if t.prioridad %}<span class="prio {{ t.prioridad }}">{{ t.prioridad }}</span>{% else %}<span class="muted small">—</span>{% endif %}</td>
+        <td data-l="{{ t.asignado.nombre if t.asignado else '—' }}">{{ t.asignado.nombre if t.asignado else '—' }}{% if t.fecha_entrega and t.estado != 'cerrado' %}<div class="muted small">Entrega {{ t.fecha_entrega.strftime('%d/%m') }}</div>{% endif %}</td>
         {% endif %}
-        <td class="small">{{ hora_local(t.cerrado_en) if tab == 'cerrar' and t.cerrado_en else hora_local(t.creado) }}</td></tr>
+        <td class="small" data-v="{{ (t.cerrado_en if tab == 'cerrar' and t.cerrado_en else t.creado).isoformat() }}">{{ hora_local(t.cerrado_en) if tab == 'cerrar' and t.cerrado_en else hora_local(t.creado) }}</td></tr>
     {% else %}
       <tr><td colspan="7" class="muted" style="padding:28px;text-align:center">{% if q %}Nada coincide con «{{ q }}».{% else %}No hay tickets aquí. Si algo no funciona, <a href="/tickets/nuevo">levanta un ticket</a>.{% endif %}</td></tr>
     {% endfor %}

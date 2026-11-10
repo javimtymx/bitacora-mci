@@ -359,7 +359,7 @@ def tablero(request: Request, persona: OptInt = None, db: Session = Depends(get_
 @router.get("/tickets-triage")
 def triage_lista(request: Request, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
     nuevos = db.scalars(select(Ticket).where(Ticket.estado == "nuevo").order_by(Ticket.creado)).all()
-    recientes = db.scalars(select(Ticket).where(Ticket.triage_en.is_not(None)).order_by(Ticket.triage_en.desc()).limit(15)).all()
+    recientes = db.scalars(select(Ticket).where(Ticket.triage_en.is_not(None)).order_by(Ticket.triage_en.desc()).limit(300)).all()
     gente = tk.asignables(db)
     hace = utcnow() - timedelta(minutes=3)
     esperando = {t.id for t in nuevos if not t.ia_triage and (t.creado >= hace or t.actualizado >= hace)}

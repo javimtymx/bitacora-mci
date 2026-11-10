@@ -411,3 +411,10 @@ td.mes-res{background:#F4FBFA}
 .kcolum.drop-on{outline:2px dashed var(--teal2);outline-offset:-4px;background:#DDEFED}
 .hdr-tabla{padding:18px 22px 8px;display:flex;flex-direction:column;gap:4px}
 .tkc .tarde{color:var(--red)}
+th.ordenable{cursor:pointer;user-select:none}
+th.ordenable::after{content:"↕";opacity:.3;margin-left:6px;font-size:12px}
+th[aria-sort=ascending]::after{content:"↑";opacity:1}th[aria-sort=descending]::after{content:"↓";opacity:1}
+tr.tabla-filtros th{padding:6px 6px 10px;border-bottom:2px solid var(--ink);font-weight:400}
+table[data-tabla] thead tr:first-child th{border-bottom:0;padding-bottom:6px}
+.tabla-f{height:34px;font-size:13px;padding:0 8px;width:100%;min-width:90px}
+.tabla-pie{padding:10px 14px;display:flex;align-items:center;gap:10px}
