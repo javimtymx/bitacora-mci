@@ -82,9 +82,10 @@ def test_alta_con_anexo_en_s3_y_flujo_completo(manuel, admin, mario, db, fake):
         assert a.ruta.startswith("s3:bitacora-mci/tickets/") and s3.objetos[a.ruta[3:]] == b"501|1|valor"
         jm = db.scalar(select(Usuario).where(Usuario.email == "jmartinez@onecore.mx"))
         assert t.ia_triage["prioridad"] == "P2" and t.ia_triage["responsable_id"] == jm.id
-        # quien levantó sí ve y descarga; otro colaborador no
+        # quien levantó ve y descarga; los demás también lo ven (vista «Toda la empresa») pero no cambian las copias
         assert manuel.get(f"/anexos-ticket/{a.id}").content == b"501|1|valor"
-        assert mario.get(f"/tickets/{t.id}").status_code in (403, 404)
+        assert mario.get(f"/tickets/{t.id}").status_code == 200
+        assert mario.post(f"/tickets/{t.id}/cc", data={"cc": "x@y.com"}).status_code == 403
         # el colaborador no puede hacer triage ni mover
         assert manuel.post(f"/tickets/{t.id}/mover", data={"estado": "en_curso"}).status_code == 403
         # triage
@@ -115,7 +116,8 @@ def test_alta_con_anexo_en_s3_y_flujo_completo(manuel, admin, mario, db, fake):
         assert t.estado == "pendiente"  # sin causa y solución no se cierra
         admin.post(f"/tickets/{t.id}/cerrar", data={"tipo_cierre": "corregido",
                                                     "causa": "El tipo de cambio se tomaba del día de pago y no de la entrada",
-                                                    "solucion": "Se corrigió la fecha del tipo de cambio en la validación del layout"})
+                                                    "solucion": "Se corrigió la fecha del tipo de cambio en la validación del layout",
+                                                    "horas_reales": "3"})
         db.refresh(t)
         assert t.estado == "cerrado" and t.resolucion["por_nombre"]
         # el cierre alimenta los similares
@@ -176,7 +178,7 @@ def test_analitica_y_diagnostico_por_area(admin, manuel, mario, db, fake):
     t2 = tk.crear(db, m, _campos(referencia="2", producto="CIVA"), [], validacion="sin_ia", faltantes=[], conversacion=[],
                   prompt_version=None)
     tk.triage(db, jm, t1, "P1", jm)
-    tk.cerrar(db, jm, t1, tipo_cierre="corregido", causa="Causa larga del problema", solucion="Solución aplicada en la validación")
+    tk.cerrar(db, jm, t1, tipo_cierre="corregido", causa="Causa larga del problema", solucion="Solución aplicada en la validación", horas_reales=2)
     tk.triage(db, jm, t2, "P2", jm)
     db.commit()
     assert manuel.get("/tickets-analitica").status_code == 403
@@ -267,7 +269,7 @@ def test_correos_de_ticket_por_ses(manuel, admin, db, fake, monkeypatch):
         tid = int(r.json()["url"].rsplit("/", 1)[1])
         para = [d for d, _ in enviados]
         assert ["mcoronado@onecore.mx"] in para and ["jmartinez@onecore.mx"] in para  # usuario + triage
-        assert any("recibido" in m and "Ver mi ticket" in m for _, m in enviados)
+        assert any("recibido" in m and "Ver el ticket" in m for _, m in enviados)
         enviados.clear()
         jm = db.scalar(select(Usuario).where(Usuario.email == "jmartinez@onecore.mx"))
         admin.post(f"/tickets-triage/{tid}", data={"prioridad": "P2", "asignado_id": jm.id})

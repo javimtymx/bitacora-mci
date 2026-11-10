@@ -322,7 +322,7 @@ button:disabled{cursor:progress;opacity:.75}
 .tkt-aviso[hidden]{display:none}
 .prio{display:inline-flex;align-items:center;justify-content:center;font:800 11.5px 'Manrope',sans-serif;border-radius:6px;padding:3px 7px;color:#fff;background:#6B7580;min-width:28px}
 .prio.P1{background:#B3261E}.prio.P2{background:#C46A00}.prio.P3{background:var(--teal2)}.prio.P4{background:#6B7580}
-.kan{display:grid;grid-template-columns:repeat(5,minmax(220px,1fr));gap:12px;align-items:start;overflow-x:auto;padding-bottom:6px}
+.kan{display:grid;grid-template-columns:repeat(6,minmax(210px,1fr));gap:12px;align-items:start;overflow-x:auto;padding-bottom:6px}
 .kcolum{background:#E6ECF0;border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:10px;min-height:420px}
 .kcolum h3{font-size:13px;display:flex;justify-content:space-between;padding:2px 4px}
 .tkc{background:#fff;border-radius:10px;border:1px solid #DCE3E8;padding:10px 12px;display:flex;flex-direction:column;gap:7px;font-size:12.5px;line-height:1.4;text-decoration:none;color:var(--ink)}
@@ -400,3 +400,14 @@ td.mes-res{background:#F4FBFA}
 .ci-med{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:4px}
 .tabs button{padding:10px 14px;font-weight:700;color:var(--ink3);border-bottom:3px solid transparent !important;margin-bottom:-1px}
 .tabs button.on{color:var(--ink);border-bottom-color:var(--ink) !important}
+.subidas-panel{position:fixed;right:20px;bottom:20px;z-index:200;display:flex;flex-direction:column;gap:8px;width:min(360px,calc(100vw - 40px))}
+.subidas-panel:empty{display:none}
+.subida{background:#fff;border:1px solid var(--line2);border-radius:12px;padding:10px 12px;box-shadow:0 8px 24px rgba(16,40,56,.14);display:flex;flex-direction:column;gap:6px;font-size:13px}
+.subida b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.subida .barra{height:6px;background:#EEF1F4;border-radius:4px;overflow:hidden;display:block}.subida .barra span{display:block;height:100%;background:var(--teal2)}
+.subida .aviso{color:#7A4600}.subida.error{border-color:var(--r-bd)}.subida.error .aviso{color:var(--r-fg)}
+.aviso-grande{display:block;color:#7A4600;margin-top:4px}
+.tkc[draggable=true]{cursor:grab}.tkc.arrastrando{opacity:.45}
+.kcolum.drop-on{outline:2px dashed var(--teal2);outline-offset:-4px;background:#DDEFED}
+.hdr-tabla{padding:18px 22px 8px;display:flex;flex-direction:column;gap:4px}
+.tkc .tarde{color:var(--red)}

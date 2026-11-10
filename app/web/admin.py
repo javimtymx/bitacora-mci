@@ -86,7 +86,8 @@ def alta_usuario(request: Request, nombre: str = Form(...), email: str = Form(..
 def editar_usuario(uid: int, request: Request, nombre: str = Form(...), rol: str = Form(...),
                    area_id: OptInt = Form(None), puede_confidencial: bool = Form(False),
                    recibe_correos: bool = Form(False), menus: list[str] = Form([]), menus_form: str = Form(""),
-                   en_indicador_personas: bool = Form(False),
+                   en_indicador_personas: bool = Form(False), jefe_id: OptInt = Form(None),
+                   costo_hora: str = Form("__sin_cambio__"),
                    db: Session = Depends(get_db), u: Usuario = Depends(requiere_direccion)):
     x = db.get(Usuario, uid)
     if not x or rol not in ROLES:
@@ -96,7 +97,26 @@ def editar_usuario(uid: int, request: Request, nombre: str = Form(...), rol: str
     cambios = {"rol": (x.rol, rol), "confidencial": (x.puede_confidencial, puede_confidencial)}
     x.nombre, x.rol, x.area_id = nombre.strip(), rol, area_id or None
     x.puede_confidencial, x.recibe_correos = puede_confidencial, recibe_correos
-    if menus_form:  # el formulario completo de edición trae también esta casilla
+    if menus_form:  # el formulario completo de edición trae también jefe, costo y casilla del indicador
+        if jefe_id:
+            j, vistos = db.get(Usuario, jefe_id), {x.id}
+            while j is not None:  # sin ciclos: nadie puede ser jefe de su propio jefe
+                if j.id in vistos:
+                    raise HTTPException(400, "Ese jefe crearía un ciclo en la jerarquía.")
+                vistos.add(j.id)
+                j = j.jefe
+        cambios["jefe"] = (x.jefe_id, jefe_id or None)
+        x.jefe_id = jefe_id or None
+        if costo_hora != "__sin_cambio__":
+            txt = costo_hora.strip().replace("$", "").replace(",", "")
+            try:
+                nuevo = round(float(txt), 2) if txt else None
+            except ValueError:
+                raise HTTPException(400, "El costo por hora debe ser un número.")
+            if nuevo is not None and nuevo < 0:
+                raise HTTPException(400, "El costo por hora no puede ser negativo.")
+            cambios["costo_hora"] = (float(x.costo_hora) if x.costo_hora is not None else None, nuevo)
+            x.costo_hora = nuevo
         cambios["indicador_personas"] = (x.en_indicador_personas, en_indicador_personas)
         x.en_indicador_personas = en_indicador_personas
         bloq = sorted(m.clave for m in accesos.MENUS if not m.opt_in and accesos.por_rol(rol, m) and m.clave not in menus)

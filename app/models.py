@@ -18,6 +18,7 @@ from datetime import date, datetime, timezone
 from sqlalchemy import false as sa_false
 from sqlalchemy import (
     JSON,
+    BigInteger,
     Boolean,
     Date,
     DateTime,
@@ -66,12 +67,15 @@ class Usuario(Base):
     en_indicador_personas: Mapped[bool] = mapped_column(Boolean, default=True)
     menus_bloqueados: Mapped[list | None] = mapped_column(JSON)  # claves de menú que Dirección le quitó
     menus_extra: Mapped[list | None] = mapped_column(JSON)  # menús por otorgamiento que Dirección le dio
+    jefe_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))  # jefe directo (recibe copia de sus tickets)
+    costo_hora: Mapped[float | None] = mapped_column(Numeric(10, 2))  # pesos por hora, para el costo de los tickets
     creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     ultimo_acceso: Mapped[datetime | None] = mapped_column(DateTime)
     baja_en: Mapped[datetime | None] = mapped_column(DateTime)
     baja_motivo: Mapped[str | None] = mapped_column(Text)
 
     area: Mapped[Area | None] = relationship()
+    jefe: Mapped["Usuario | None"] = relationship(remote_side="Usuario.id", foreign_keys=[jefe_id])
 
     @property
     def es_lider(self) -> bool:
@@ -293,7 +297,7 @@ class EvidenciaArchivo(Base):
     nombre: Mapped[str] = mapped_column(String(255))
     ruta: Mapped[str] = mapped_column(String(300))
     tipo: Mapped[str] = mapped_column(String(120), default="")
-    bytes: Mapped[int] = mapped_column(Integer, default=0)
+    bytes: Mapped[int] = mapped_column(BigInteger, default=0)
     sha256: Mapped[str] = mapped_column(String(64), default="")
     subido_por: Mapped[int] = mapped_column(ForeignKey("usuarios.id"))
     creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
@@ -763,8 +767,8 @@ def _ocultar_archivados(st):
 
 TICKET_TIPOS = {"error": "Error", "duda": "Duda", "mejora": "Mejora", "configuracion": "Configuración"}
 TICKET_IMPACTOS = {"bloquea": "Bloquea la operación", "afecta": "Afecta pero hay forma de seguir", "menor": "Molestia menor"}
-TICKET_ESTADOS = {"nuevo": "Por triage", "pendiente": "Pendiente", "en_curso": "En curso", "revision": "En revisión",
-                  "info": "Esperando información", "cerrado": "Cerrado"}
+TICKET_ESTADOS = {"nuevo": "Por triage", "pendiente": "Pendiente", "planeado": "Planeado", "en_curso": "En curso",
+                  "revision": "En revisión", "info": "Esperando información", "cerrado": "Cerrado"}
 TICKET_CIERRES = {"corregido": "Corregido en código", "configuracion": "Ajuste de configuración o datos",
                   "capacitacion": "Uso / capacitación", "no_reproducible": "No se pudo reproducir",
                   "duplicado": "Duplicado", "backlog": "Pasa a backlog de mejoras"}
@@ -845,15 +849,52 @@ class Ticket(Base):
     actualizado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     triage_en: Mapped[datetime | None] = mapped_column(DateTime)
     cerrado_en: Mapped[datetime | None] = mapped_column(DateTime)
+    cc: Mapped[list] = mapped_column(JSON, default=list)  # correos extra que reciben copia de los avisos
+    # planeación y costo: horas y fecha de entrega al planearlo; horas reales y tarifa del ingeniero al cerrarlo
+    horas_estimadas: Mapped[float | None] = mapped_column(Numeric(8, 2))
+    fecha_entrega: Mapped[date | None] = mapped_column(Date)
+    planeado_en: Mapped[datetime | None] = mapped_column(DateTime)
+    horas_reales: Mapped[float | None] = mapped_column(Numeric(8, 2))
+    costo_hora: Mapped[float | None] = mapped_column(Numeric(10, 2))
+    pago_id: Mapped[int | None] = mapped_column(ForeignKey("ticket_pagos.id"), index=True)
 
     autor: Mapped[Usuario] = relationship(foreign_keys=[creado_por])
     asignado: Mapped[Usuario | None] = relationship(foreign_keys=[asignado_id])
     anexos: Mapped[list["TicketAnexo"]] = relationship(back_populates="ticket", order_by="TicketAnexo.id")
     comentarios: Mapped[list["TicketComentario"]] = relationship(back_populates="ticket", order_by="TicketComentario.id")
 
+    pago: Mapped["TicketPago | None"] = relationship(back_populates="tickets")
+
     @property
     def folio(self) -> str:
         return f"ONE-{self.id}"
+
+    @property
+    def costo(self) -> float | None:
+        """Costo del trabajo cerrado (horas reales × tarifa del ingeniero al cerrar)."""
+        if self.horas_reales is None or self.costo_hora is None:
+            return None
+        return round(float(self.horas_reales) * float(self.costo_hora), 2)
+
+
+class TicketPago(Base):
+    """Pago a un ingeniero por tickets cerrados, con su comprobante (en el almacén) como evidencia."""
+    __tablename__ = "ticket_pagos"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ingeniero_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), index=True)
+    fecha: Mapped[date] = mapped_column(Date)
+    monto: Mapped[float] = mapped_column(Numeric(12, 2))
+    nota: Mapped[str] = mapped_column(Text, default="")
+    comprobante_ruta: Mapped[str] = mapped_column(String(300), default="")
+    comprobante_nombre: Mapped[str] = mapped_column(String(255), default="")
+    comprobante_tipo: Mapped[str] = mapped_column(String(120), default="")
+    comprobante_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    registrado_por: Mapped[int] = mapped_column(ForeignKey("usuarios.id"))
+    creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    ingeniero: Mapped[Usuario] = relationship(foreign_keys=[ingeniero_id])
+    autor: Mapped[Usuario] = relationship(foreign_keys=[registrado_por])
+    tickets: Mapped[list[Ticket]] = relationship(back_populates="pago", order_by="Ticket.id")
 
 
 class TicketAnexo(Base):
@@ -864,7 +905,7 @@ class TicketAnexo(Base):
     nombre: Mapped[str] = mapped_column(String(255))
     ruta: Mapped[str] = mapped_column(String(300))
     tipo: Mapped[str] = mapped_column(String(120), default="")
-    bytes: Mapped[int] = mapped_column(Integer, default=0)
+    bytes: Mapped[int] = mapped_column(BigInteger, default=0)
     sha256: Mapped[str] = mapped_column(String(64), default="")
     subido_por: Mapped[int] = mapped_column(ForeignKey("usuarios.id"))
     creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

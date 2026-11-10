@@ -57,7 +57,7 @@
       {% endfor %}
     </div>
     {% if t.estado != 'cerrado' %}
-    <form method="post" action="/tickets/{{ t.id }}/comentar" enctype="multipart/form-data" class="col" style="gap:10px">
+    <form method="post" action="/tickets/{{ t.id }}/comentar" enctype="multipart/form-data" data-subidas="ticket" class="col" style="gap:10px">
       <textarea class="input" name="texto" rows="3" style="padding:10px 12px;min-height:84px" maxlength="8000"
         placeholder="{{ 'Responde lo que te piden…' if t.estado == 'info' and u.id == t.creado_por else 'Escribe un comentario…' }}"></textarea>
       <div class="row between"><input type="file" name="archivos" multiple accept="{{ aceptar }}" class="small">
@@ -85,11 +85,17 @@
       <dt>Prioridad</dt><dd>{{ t.prioridad or 'Por triage' }}</dd>
       <dt>Responsable</dt><dd>{{ t.asignado.nombre if t.asignado else '—' }}</dd>
       {% if t.sla_vence %}<dt>Atender antes</dt><dd>{{ hora_local(t.sla_vence) }}</dd>{% endif %}
+      {% if t.fecha_entrega %}<dt>Entrega</dt><dd><b {% if t.estado != 'cerrado' and t.fecha_entrega < hoy %}style="color:var(--red)"{% endif %}>{{ t.fecha_entrega.strftime('%d/%m/%Y') }}</b></dd>{% endif %}
+      {% if t.horas_estimadas is not none %}<dt>Horas</dt><dd>{{ t.horas_estimadas|float|round(1) }} h estimadas{% if t.horas_reales is not none %} · {{ t.horas_reales|float|round(1) }} h reales{% endif %}</dd>{% endif %}
+      {% if ve_costos and t.costo %}<dt>Costo</dt><dd>${{ '{:,.2f}'.format(t.costo) }} MXN · {{ 'Pagado' if t.pago_id else 'Por pagar' }}</dd>{% endif %}
     </dl>
+    {% if dev and t.estado != 'cerrado' %}
+    <button class="btn sm {{ 'yellow' if t.estado in ('nuevo','pendiente','info') else 'soft' }}" type="button" data-open="planear" style="align-self:flex-start;margin-top:10px">{{ icon('cal', 15) }}{{ 'Mover a Planeados' if t.estado in ('nuevo','pendiente','info') else 'Cambiar plan' }}</button>
+    {% endif %}
     {% if dev and t.estado not in ('cerrado',) %}
     <div class="col" style="gap:8px;border-top:1px solid var(--line);padding-top:12px">
       <span class="lbl">Mover a</span>
-      <div class="row" style="gap:6px">{% for e in ('pendiente','en_curso','revision') if e != t.estado %}
+      <div class="row" style="gap:6px">{% for e in ('pendiente','en_curso','revision') if e != t.estado and not (e != 'pendiente' and t.horas_estimadas is none) %}
         <form method="post" action="/tickets/{{ t.id }}/mover"><input type="hidden" name="estado" value="{{ e }}"><button class="btn sm soft" type="submit">{{ estados[e] }}</button></form>{% endfor %}</div>
       <div class="row" style="gap:6px">
         <button class="btn sm soft" type="button" data-open="pedir">{{ icon('alert', 15) }}Pedir más información</button>
@@ -100,6 +106,16 @@
     <form method="post" action="/tickets/{{ t.id }}/reabrir" class="col" style="gap:8px;border-top:1px solid var(--line);padding-top:12px">
       <input class="input" name="motivo" required minlength="5" placeholder="¿Por qué se reabre?"><button class="btn sm soft" type="submit">Reabrir</button></form>
     {% endif %}
+  </section>
+
+  <section class="card pad">
+    <h3>Reciben avisos</h3>
+    <span class="small">{{ t.autor.nombre }}{% if t.autor.jefe %} · su jefe {{ t.autor.jefe.nombre }}{% endif %}{% if t.asignado %} · {{ t.asignado.nombre }}{% endif %}</span>
+    {% if edita_cc %}
+    <form method="post" action="/tickets/{{ t.id }}/cc" class="col" style="gap:8px">
+      <input class="input" name="cc" maxlength="1000" value="{{ (t.cc or [])|join(', ') }}" placeholder="Otros correos, separados por coma" aria-label="Correos en copia">
+      <button class="btn sm soft" type="submit" style="align-self:flex-start">Guardar copias</button></form>
+    {% elif t.cc %}<span class="muted small">Copia: {{ t.cc|join(', ') }}</span>{% endif %}
   </section>
 
   {% if t.estado == 'cerrado' and t.resolucion %}
@@ -151,6 +167,22 @@
   </div>
   <div class="mf"><button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn dark">{{ icon('send') }}Pedir al usuario</button></div></form></div>
 
+<div class="overlay" id="planear"><form class="modal" method="post" action="/tickets/{{ t.id }}/planear" role="dialog" aria-modal="true" aria-labelledby="t-pla">
+  <div class="mh"><div class="row"><h2 id="t-pla">Planear ticket</h2><span class="muted" style="font-weight:600">{{ t.folio }}</span></div>
+    <button class="btn ghost" type="button" data-close aria-label="Cerrar" style="width:42px;padding:0">{{ icon('x') }}</button></div>
+  <div class="sec" style="border-top:0">
+    <div class="grid2">
+      <div class="field"><label for="pla-h">Horas que se invertirán</label><input class="input" id="pla-h" name="horas" inputmode="decimal" required placeholder="Ej. 6"
+        value="{{ t.horas_estimadas|float if t.horas_estimadas is not none else '' }}"></div>
+      <div class="field"><label for="pla-f">Fecha de entrega</label><input class="input" id="pla-f" name="fecha_entrega" type="date" required
+        value="{{ t.fecha_entrega.isoformat() if t.fecha_entrega else '' }}"></div>
+    </div>
+    <div class="field"><label for="pla-a">Ingeniero que lo ejecuta</label><select class="input" id="pla-a" name="asignado_id" required><option value="">Elige…</option>
+      {% for g in gente %}<option value="{{ g.id }}" {{ 'selected' if t.asignado_id == g.id }}>{{ g.nombre }}</option>{% endfor %}</select></div>
+    <span class="muted small">Se avisa por correo a quien levantó el ticket, a su jefe y al ingeniero.</span>
+  </div>
+  <div class="mf"><button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn yellow">{{ icon('ok') }}Planear</button></div></form></div>
+
 <div class="overlay" id="cerrar"><form class="modal" method="post" action="/tickets/{{ t.id }}/cerrar" role="dialog" aria-modal="true" aria-labelledby="t-cer">
   <div class="mh"><div class="row"><h2 id="t-cer">Cerrar ticket</h2><span class="muted" style="font-weight:600">{{ t.folio }}</span></div>
     <button class="btn ghost" type="button" data-close aria-label="Cerrar" style="width:42px;padding:0">{{ icon('x') }}</button></div>
@@ -160,12 +192,24 @@
       {% for k, v in cierres.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></div>
     <div class="field"><label for="cer-c">Causa raíz</label><textarea class="input" id="cer-c" name="causa" required minlength="10" rows="2" style="padding:10px 12px"></textarea></div>
     <div class="field"><label for="cer-s">Solución (qué se hizo y qué debe hacer el usuario si vuelve a pasar)</label><textarea class="input" id="cer-s" name="solucion" required minlength="15" rows="3" style="padding:10px 12px"></textarea></div>
-    <div class="field"><label for="cer-m">Módulos o archivos tocados (opcional)</label><input class="input" id="cer-m" name="modulos" maxlength="1000"></div>
+    <div class="grid2">
+      <div class="field"><label for="cer-m">Módulos o archivos tocados (opcional)</label><input class="input" id="cer-m" name="modulos" maxlength="1000"></div>
+      <div class="field"><label for="cer-h">Horas reales invertidas</label><input class="input" id="cer-h" name="horas_reales" inputmode="decimal"
+        value="{{ t.horas_estimadas|float if t.horas_estimadas is not none else '' }}" placeholder="Ej. 5.5">
+        <span class="muted small">Si lo dejas vacío se toman las horas planeadas. Con ellas se calcula el pago del ingeniero.</span></div>
+    </div>
   </div>
   <div class="mf"><button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn dark">{{ icon('ok') }}Cerrar ticket</button></div></form></div>
 {% endif %}
 {% endblock %}
 {% block scripts %}<script>
+(function () {
+  var h = location.hash.slice(1);
+  if (["planear", "cerrar", "pedir"].indexOf(h) < 0 || !document.getElementById(h)) return;
+  var b = document.createElement("button"); b.type = "button"; b.dataset.open = h; b.hidden = true;
+  document.body.appendChild(b); b.click(); b.remove();
+  history.replaceState(null, "", location.pathname);
+})();
 document.addEventListener("click", function (e) {
   var b = e.target.closest("[data-copiar]"); if (!b) return;
   var el = document.querySelector(b.dataset.copiar); if (!el || !navigator.clipboard) return;

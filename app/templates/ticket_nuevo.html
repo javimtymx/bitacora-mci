@@ -40,6 +40,10 @@
       <input class="input" id="tk-cliente" name="cliente" maxlength="200" placeholder="Razón social (RFC), si el caso es de un cliente"></div>
   </div>
 
+  <div class="field"><label for="tk-cc">Mantener informado a (correos, opcional)</label>
+    <input class="input" id="tk-cc" name="cc" maxlength="1000" placeholder="nombre@empresa.com, otra@onecore.mx">
+    <span class="muted small">Recibirán copia de cada aviso del ticket.{% if u.jefe %} Tu jefe directo, {{ u.jefe.nombre }}, recibe copia automáticamente.{% endif %}</span></div>
+
   <div class="tkt-sep"><h3>Ayuda a resolverlo más rápido</h3><span class="muted small" id="tk-sep-nota">Lo marcado como <span class="rec" style="margin:0">recomendado</span> es lo que suele hacer falta para este tipo de ticket; {{ guardia }} solo te preguntará lo necesario.</span></div>
   <div class="grid3">
     <div class="field" data-req="pantalla"><label for="tk-menu">Menú</label>
@@ -54,7 +58,7 @@
       <textarea class="input tkt-auto" id="tk-pasos" name="pasos" rows="4" placeholder="1. Entré a…&#10;2. Cargué…&#10;3. Di clic en…&#10;Esperaba … y obtuve …"></textarea>
       <span class="muted small">Incluye qué esperabas y qué obtuviste.</span></div>
     <div class="field" data-req="anexo"><label>Anexos</label>
-    <div class="tkt-files"><span class="muted small" id="tk-files-vacio">Captura, archivo o reporte. Máx. 10 MB cada uno.</span>
+    <div class="tkt-files"><span class="muted small" id="tk-files-vacio">Captura, archivo o reporte. Sin límite de tamaño; los grandes tardan más en subir.</span>
       <span id="tk-files"></span>
       <label class="btn sm soft" style="margin-left:auto">{{ icon('upload', 15) }}Adjuntar<input type="file" id="tk-archivos" multiple accept="{{ aceptar }}" hidden></label></div>
     </div>
@@ -80,4 +84,4 @@
 </div>
 <script type="application/json" id="tk-datos">{{ {"catalogo": catalogo, "requeridos": requeridos, "campos": campos_req, "prompt_version": prompt_version, "ia": ia_ok} | tojson }}</script>
 {% endblock %}
-{% block scripts %}<script src="/static/js/ticket.js?v=7"></script>{% endblock %}
+{% block scripts %}<script src="/static/js/ticket.js?v=8"></script>{% endblock %}

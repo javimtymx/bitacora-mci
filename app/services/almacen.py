@@ -132,3 +132,42 @@ def probar() -> str:
     assert leer(ruta) == b"ok"
     borrar(ruta)
     return f"S3 funciona: bucket {_bucket()} ({get_settings().s3_region or 'región por defecto'})."
+
+
+# ---------------------------------------------------------------- subida directa del navegador a S3
+
+MAX_PUT = 5 * 1024 ** 3  # límite de S3 para una subida en una sola pieza (5 GB)
+
+
+def llave_nueva(carpeta: str, nombre: str) -> str:
+    return _llave(carpeta, nombre)
+
+
+def url_subida(llave: str, tipo: str, segundos: int = 6 * 3600) -> str:
+    """URL firmada para que el navegador suba el archivo directo a S3 (sin pasar por el servidor)."""
+    return _cliente_s3().generate_presigned_url(
+        "put_object", Params={"Bucket": _bucket(), "Key": llave, "ContentType": tipo, "ServerSideEncryption": "AES256"},
+        ExpiresIn=segundos)
+
+
+def tamano(ruta: str) -> int:
+    """Tamaño del objeto en S3; lanza AlmacenError si no existe (la subida no terminó)."""
+    try:
+        return int(_cliente_s3().head_object(Bucket=_bucket(), Key=ruta[len(PREFIJO_S3):])["ContentLength"])
+    except Exception as e:  # noqa: BLE001
+        raise AlmacenError("El archivo no terminó de subir. Intenta de nuevo.") from e
+
+
+def url_descarga(ruta: str, nombre: str, tipo: str = "", segundos: int = 600) -> str | None:
+    """URL firmada de descarga directa desde S3 (los archivos grandes no pasan por el servidor). None si no es S3."""
+    if not es_s3(ruta):
+        return None
+    from urllib.parse import quote
+    try:
+        return _cliente_s3().generate_presigned_url(
+            "get_object", Params={"Bucket": _bucket(), "Key": ruta[len(PREFIJO_S3):],
+                                  "ResponseContentDisposition": f"attachment; filename*=UTF-8''{quote(nombre)}",
+                                  "ResponseContentType": tipo or "application/octet-stream"}, ExpiresIn=segundos)
+    except Exception as e:  # noqa: BLE001
+        log.warning("No se pudo firmar la descarga de %s: %s", ruta, e)
+        return None

@@ -1,0 +1,67 @@
+{% extends "base.html" %}{% from "_ui.html" import icon with context %}
+{% block title %}Pagos a ingenieros{% endblock %}
+{% macro mxn(v) %}${{ '{:,.2f}'.format(v or 0) }}{% endmacro %}
+{% block content %}
+<div class="top">
+  <div class="col" style="gap:4px"><span class="muted small">Soporte · Guard<span class="gia">IA</span> Ticket</span><h1>Pagos a ingenieros</h1></div>
+  <a class="btn soft" href="/tickets-informe">Horas y costos</a>
+</div>
+
+<section class="card pad">
+  <h2>Tickets sin pagar</h2>
+  <span class="muted small">Elige los tickets cerrados que cubre el pago y adjunta el comprobante. El monto se propone con la suma; puedes ajustarlo.</span>
+  {% for g in grupos %}
+  <form method="post" action="/tickets-pagos" enctype="multipart/form-data" data-subidas="pago" class="pago-grupo" style="border-top:1px solid var(--line);padding-top:14px;margin-top:6px">
+    <input type="hidden" name="ingeniero_id" value="{{ g.clave }}">
+    <div class="row between" style="gap:8px;flex-wrap:wrap"><h3 style="margin:0">{{ g.nombre }}</h3>
+      <span class="small">{{ g.n }} tickets · {{ '{:,.1f}'.format(g.horas) }} h · <b>{{ mxn(g.costo) }}</b>{% if g.sin_tarifa %} · <span style="color:var(--red)">{{ g.sin_tarifa }} sin tarifa</span>{% endif %}</span></div>
+    <div class="tbl"><table>
+      <thead><tr><th style="width:36px"><input type="checkbox" class="pg-todos" checked aria-label="Elegir todos"></th><th>Ticket</th><th>Cerrado</th><th class="num">Horas</th><th class="num">Costo</th></tr></thead>
+      <tbody>{% for t in g.tickets %}
+        <tr><td><input type="checkbox" name="tickets" value="{{ t.id }}" data-costo="{{ t.costo or 0 }}" checked aria-label="{{ t.folio }}"></td>
+          <td><a href="/tickets/{{ t.id }}"><b>{{ t.folio }}</b></a> {{ t.titulo }}<div class="muted small">{{ t.producto }} · {{ t.autor.nombre }}</div></td>
+          <td class="small">{{ hora_local(t.cerrado_en) }}</td><td class="num">{{ '{:,.1f}'.format(t.horas_reales|float if t.horas_reales is not none else 0) }} h</td>
+          <td class="num">{{ mxn(t.costo) if t.costo is not none else '—' }}</td></tr>{% endfor %}</tbody></table></div>
+    <div class="grid3" style="grid-template-columns:150px 170px minmax(0,1fr)">
+      <div class="field"><label>Fecha del pago</label><input class="input" type="date" name="fecha" value="{{ hoy.isoformat() }}" required></div>
+      <div class="field"><label>Monto (MXN)</label><input class="input pg-monto" name="monto" inputmode="decimal" required value="{{ '%.2f'|format(g.costo) }}"></div>
+      <div class="field"><label>Nota (opcional)</label><input class="input" name="nota" maxlength="2000" placeholder="Ej. Transferencia SPEI, factura A-123"></div>
+    </div>
+    <div class="row between" style="gap:10px;flex-wrap:wrap">
+      <label class="small">Comprobante (PDF, imagen, XML o ZIP) <input type="file" name="comprobante" accept="{{ aceptar }}" required></label>
+      <button class="btn yellow" type="submit">{{ icon('ok') }}Registrar pago</button></div>
+  </form>
+  {% else %}<p class="muted">No hay tickets cerrados pendientes de pago.</p>{% endfor %}
+</section>
+
+<section class="card">
+  <div class="hdr-tabla row between" style="gap:8px;flex-wrap:wrap"><h2>Pagos registrados</h2>
+    <form method="get"><select class="input" name="ingeniero" onchange="this.form.submit()" aria-label="Filtrar por ingeniero"><option value="">Todos los ingenieros</option>
+      {% for x in gente %}<option value="{{ x.id }}" {{ 'selected' if ingeniero == x.id }}>{{ x.nombre }}</option>{% endfor %}</select></form></div>
+  <div class="tbl"><table>
+    <thead><tr><th>Fecha</th><th>Ingeniero</th><th>Tickets</th><th class="num">Monto</th><th>Comprobante</th><th>Registró</th></tr></thead>
+    <tbody>{% for p in pagos %}
+      <tr id="pago-{{ p.id }}"><td>{{ p.fecha.strftime('%d/%m/%Y') }}</td><td><b>{{ p.ingeniero.nombre }}</b>{% if p.nota %}<div class="muted small">{{ p.nota }}</div>{% endif %}</td>
+        <td class="small">{% for t in p.tickets %}<a href="/tickets/{{ t.id }}">{{ t.folio }}</a>{{ ', ' if not loop.last }}{% endfor %}</td>
+        <td class="num"><b>{{ mxn(p.monto|float) }}</b></td>
+        <td>{% if p.comprobante_ruta %}<a href="/tickets-pagos/{{ p.id }}/comprobante">{{ icon('clip', 13) }}{{ p.comprobante_nombre }}</a>{% else %}—{% endif %}</td>
+        <td class="small">{{ p.autor.nombre }}</td></tr>
+    {% else %}<tr><td colspan="6" class="muted" style="padding:20px;text-align:center">Aún no hay pagos.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+{% endblock %}
+{% block scripts %}<script>
+document.querySelectorAll(".pago-grupo").forEach(function (f) {
+  var monto = f.querySelector(".pg-monto"), tocado = false;
+  monto.addEventListener("input", function () { tocado = true; });
+  function suma() {
+    if (tocado) return;
+    var s = 0; f.querySelectorAll("input[name=tickets]:checked").forEach(function (c) { s += parseFloat(c.dataset.costo) || 0; });
+    monto.value = s.toFixed(2);
+  }
+  f.addEventListener("change", function (e) {
+    if (e.target.classList.contains("pg-todos")) f.querySelectorAll("input[name=tickets]").forEach(function (c) { c.checked = e.target.checked; });
+    suma();
+  });
+});
+</script>{% endblock %}

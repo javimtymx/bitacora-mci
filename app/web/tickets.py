@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import timedelta
+from datetime import date, timedelta
 from urllib.parse import quote
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import JSONResponse, Response
-from sqlalchemy import or_, select
+from fastapi.responses import JSONResponse, RedirectResponse, Response
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
@@ -16,8 +16,9 @@ from ..db import get_db
 from ..models import (TICKET_CIERRES, TICKET_ESTADOS, TICKET_IMPACTOS, TICKET_TIPOS, Ticket, TicketAnexo,
                       TicketDiagnostico, TicketPrompt, TicketRegla, Usuario, utcnow)
 from ..services import accesos, almacen, correo, ia
+from ..services import subidas as subidas_srv
 from ..services import tickets as tk
-from .base import OptInt, flash, ir, render, usuario_actual
+from .base import OptDate, OptInt, flash, ir, render, usuario_actual
 
 router = APIRouter()
 log = logging.getLogger("bitacora.web.tickets")
@@ -51,19 +52,45 @@ async def _archivos(lista: list[UploadFile] | None) -> list[tuple[str, bytes]]:
 
 # ---------------------------------------------------------------- usuario: mis tickets y alta
 
+PESTANAS = {
+    "pendientes": ("Pendientes", ("nuevo", "pendiente", "info")),
+    "programados": ("Programados", ("planeado", "en_curso")),
+    "cerrar": ("Por cerrar y cerrados", ("revision", "cerrado")),
+    "todos": ("Todos", None),
+}
+
+
 @router.get("/tickets")
-def lista(request: Request, ver: str = "mios", estado: str = "abiertos", db: Session = Depends(get_db),
+def lista(request: Request, tab: str = "pendientes", ver: str = "mios", q: str = "", db: Session = Depends(get_db),
           u: Usuario = Depends(usuario_actual)):
-    staff = tk.es_staff(u)
-    q = select(Ticket).order_by(Ticket.creado.desc())
-    if not (staff and ver == "todos"):
-        q = q.where(or_(Ticket.creado_por == u.id, Ticket.asignado_id == u.id))
-    if estado == "abiertos":
-        q = q.where(Ticket.estado != "cerrado")
-    elif estado == "cerrados":
-        q = q.where(Ticket.estado == "cerrado")
-    ts = db.scalars(q.limit(300)).all()
-    return render(request, "tickets.html", u, "tickets", ts=ts, ver=ver, estado=estado, staff=staff,
+    tab = tab if tab in PESTANAS else "pendientes"
+    ver = ver if ver in ("mios", "equipo", "empresa") else "mios"
+    equipo = db.scalars(select(Usuario.id).where(Usuario.jefe_id == u.id)).all()
+    base = select(Ticket)
+    if ver == "mios":
+        base = base.where(or_(Ticket.creado_por == u.id, Ticket.asignado_id == u.id))
+    elif ver == "equipo":
+        base = base.where(Ticket.creado_por.in_([u.id, *equipo]))
+    q = q.strip()[:120]
+    if q:
+        base = base.where(tk.filtro_busqueda(q))
+    conteo = {}
+    for k, (_, estados) in PESTANAS.items():
+        cq = base.with_only_columns(func.count(Ticket.id))
+        if estados:
+            cq = cq.where(Ticket.estado.in_(estados))
+        conteo[k] = db.scalar(cq) or 0
+    estados = PESTANAS[tab][1]
+    lq = base.where(Ticket.estado.in_(estados)) if estados else base
+    if tab == "programados":
+        lq = lq.order_by(Ticket.fecha_entrega.is_(None), Ticket.fecha_entrega, Ticket.id)
+    elif tab == "cerrar":
+        lq = lq.order_by((Ticket.estado == "cerrado"), Ticket.cerrado_en.desc(), Ticket.id.desc())
+    else:
+        lq = lq.order_by(Ticket.creado.desc())
+    ts = db.scalars(lq.limit(400)).all()
+    return render(request, "tickets.html", u, "tickets", ts=ts, ver=ver, tab=tab, q=q, pestanas=PESTANAS,
+                  conteo=conteo, tiene_equipo=bool(equipo), staff=tk.es_staff(u), hoy=date.today(),
                   estados=TICKET_ESTADOS, tipos=tk.tipos(db, True), vence_en=tk.vence_en)
 
 
@@ -108,7 +135,7 @@ async def api_nuevo(request: Request, bg: BackgroundTasks, descripcion: str = Fo
                     titulo: str = Form(""), pasos: str = Form(""), esperado: str = Form(""), obtenido: str = Form(""),
                     referencia: str = Form(""), cliente: str = Form(""), validacion: str = Form("sin_ia"),
                     faltantes: str = Form("[]"), conversacion: str = Form("[]"), prompt_version: OptInt = Form(None),
-                    archivos: list[UploadFile] | None = File(None),
+                    archivos: list[UploadFile] | None = File(None), subidas: list[str] = Form([]), cc: str = Form(""),
                     db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
     campos = dict(descripcion=descripcion, producto=producto, menu=menu, pantalla=pantalla, tipo=tipo, impacto=impacto,
                   titulo=titulo, pasos=pasos, esperado=esperado, obtenido=obtenido, referencia=referencia, cliente=cliente)
@@ -118,11 +145,12 @@ async def api_nuevo(request: Request, bg: BackgroundTasks, descripcion: str = Fo
     except (json.JSONDecodeError, TypeError):
         falt, conv = [], []
     try:
+        subidos = [subidas_srv.recibir(x, u.id, "ticket") for x in subidas]
         t = tk.crear(db, u, campos, await _archivos(archivos), validacion=validacion, faltantes=falt,
                      conversacion=[{"de": str(h.get("de"))[:2], "t": str(h.get("t", ""))[:2000]} for h in conv],
-                     prompt_version=prompt_version)
+                     prompt_version=prompt_version, subidos=subidos, cc=tk.limpiar_cc(cc))
         db.commit()
-    except tk.TicketInvalido as e:
+    except (tk.TicketInvalido, subidas_srv.SubidaInvalida) as e:
         db.rollback()
         return JSONResponse({"ok": False, "mensaje": str(e)}, status_code=400)
     bg.add_task(tk.triage_en_fondo, t.id)
@@ -140,25 +168,31 @@ def detalle(tid: int, request: Request, db: Session = Depends(get_db), u: Usuari
                   triage=accesos.puede(u, "tickets-triage"), dev=accesos.puede(u, "tickets-tablero"),
                   estados=TICKET_ESTADOS, tipos=tk.tipos(db, True), impactos=tk.impactos(db, True), cierres=TICKET_CIERRES,
                   campos_req=tk.CAMPOS_REQ, asignables=tk.asignables(db) if staff else [], vence_en=tk.vence_en,
-                  aceptar=",".join("." + e for e in tk.PERMITIDOS))
+                  aceptar=",".join("." + e for e in tk.PERMITIDOS), ve_costos=tk.ve_costos(u),
+                  edita_cc=tk.puede_editar_cc(u, t), hoy=date.today(),
+                  gente=tk.asignables(db) if accesos.puede(u, "tickets-tablero") else [])
 
 
 @router.post("/tickets/{tid}/comentar")
 async def comentar(tid: int, request: Request, bg: BackgroundTasks, texto: str = Form(""),
-                   archivos: list[UploadFile] | None = File(None),
+                   archivos: list[UploadFile] | None = File(None), subidas: list[str] = Form([]),
                    db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
     t = _ticket(db, tid, u)
     era_info = t.estado == "info"
+    lista_: list = []
     try:
         lista_ = await _archivos(archivos)
         for nombre, contenido in lista_:
             tk.guardar_anexo(db, t, nombre, contenido, u)
+        for x in subidas:
+            a = tk.registrar_subida(db, t, subidas_srv.recibir(x, u.id, "ticket"), u)
+            lista_.append((a.nombre, b""))
         if texto.strip() or not lista_:
             tk.comentar(db, u, t, texto or "")
         elif era_info and u.id == t.creado_por:
             tk.comentar(db, u, t, "Adjunté " + ", ".join(n for n, _ in lista_) + ".")
         db.commit()
-    except tk.TicketInvalido as e:
+    except (tk.TicketInvalido, subidas_srv.SubidaInvalida) as e:
         db.rollback()
         flash(request, str(e), "error")
         return ir(f"/tickets/{tid}")
@@ -175,6 +209,8 @@ def descargar(aid: int, db: Session = Depends(get_db), u: Usuario = Depends(usua
     a = db.get(TicketAnexo, aid)
     if not a or not tk.puede_ver(u, a.ticket):
         raise HTTPException(404, "Archivo no encontrado.")
+    if (a.bytes or 0) > 20 * 1024 * 1024 and (url := almacen.url_descarga(a.ruta, a.nombre, a.tipo)):
+        return RedirectResponse(url, status_code=302)  # los grandes bajan directo de S3
     try:
         contenido = almacen.leer(a.ruta)
     except almacen.AlmacenError as e:
@@ -189,18 +225,60 @@ def descargar(aid: int, db: Session = Depends(get_db), u: Usuario = Depends(usua
 @router.post("/tickets/{tid}/mover")
 def mover(tid: int, request: Request, bg: BackgroundTasks, estado: str = Form(...), db: Session = Depends(get_db),
           u: Usuario = Depends(usuario_actual)):
+    """Cambio de etapa (botones o arrastrar en el Kanban). Responde JSON cuando lo pide el Kanban."""
     _exigir(u, "tickets-tablero")
     t = _ticket(db, tid, u)
+    quiere_json = "application/json" in (request.headers.get("accept") or "")
     try:
         antes = t.estado
         tk.mover(db, u, t, estado)
         db.commit()
-        if estado == "en_curso" and antes != "en_curso":
-            _avisar(bg, "en_curso", t, u)
+        if t.estado != antes:
+            _avisar(bg, "etapa", t, u)
     except tk.TicketInvalido as e:
+        if quiere_json:
+            return JSONResponse({"ok": False, "mensaje": str(e), "planear": "planéalo" in str(e)}, status_code=400)
         flash(request, str(e), "error")
+    if quiere_json:
+        return JSONResponse({"ok": True, "estado": t.estado})
     destino = request.headers.get("referer") or f"/tickets/{tid}"
     return ir(destino if "/tickets" in destino else f"/tickets/{tid}")
+
+
+@router.post("/tickets/{tid}/planear")
+def planear(tid: int, request: Request, bg: BackgroundTasks, horas: str = Form(""), fecha_entrega: OptDate = Form(None),
+            asignado_id: OptInt = Form(None), volver: str = Form(""), db: Session = Depends(get_db),
+            u: Usuario = Depends(usuario_actual)):
+    _exigir(u, "tickets-tablero")
+    t = _ticket(db, tid, u)
+    asignado = db.get(Usuario, asignado_id) if asignado_id else None
+    if asignado and asignado not in tk.asignables(db):
+        raise HTTPException(400, "Esa persona no atiende tickets.")
+    antes = t.estado
+    try:
+        tk.planear(db, u, t, horas=horas, fecha_entrega=fecha_entrega, asignado=asignado)
+        db.commit()
+    except tk.TicketInvalido as e:
+        flash(request, str(e), "error")
+        return ir(f"/tickets/{tid}#planear")
+    _avisar(bg, "etapa", t, u)
+    flash(request, f"{t.folio} {'planeado' if antes != t.estado else 'actualizado'}: entrega {t.fecha_entrega:%d/%m/%Y}.")
+    return ir("/tickets-tablero" if volver == "tablero" else f"/tickets/{tid}")
+
+
+@router.post("/tickets/{tid}/cc")
+def editar_cc(tid: int, request: Request, cc: str = Form(""), db: Session = Depends(get_db),
+              u: Usuario = Depends(usuario_actual)):
+    t = _ticket(db, tid, u)
+    if not tk.puede_editar_cc(u, t):
+        raise HTTPException(403, "Solo quien levantó el ticket, su jefe o soporte cambian las copias.")
+    try:
+        t.cc = tk.limpiar_cc(cc)
+        db.commit()
+        flash(request, "Copias actualizadas.")
+    except tk.TicketInvalido as e:
+        flash(request, str(e), "error")
+    return ir(f"/tickets/{tid}")
 
 
 @router.post("/tickets/{tid}/pedir-info")
@@ -230,12 +308,13 @@ def paquete(tid: int, request: Request, db: Session = Depends(get_db), u: Usuari
 
 @router.post("/tickets/{tid}/cerrar")
 def cerrar(tid: int, request: Request, bg: BackgroundTasks, tipo_cierre: str = Form(""), causa: str = Form(""),
-           solucion: str = Form(""), modulos: str = Form(""), db: Session = Depends(get_db),
+           solucion: str = Form(""), modulos: str = Form(""), horas_reales: str = Form(""), db: Session = Depends(get_db),
            u: Usuario = Depends(usuario_actual)):
     _exigir(u, "tickets-tablero")
     t = _ticket(db, tid, u)
     try:
-        tk.cerrar(db, u, t, tipo_cierre=tipo_cierre, causa=causa, solucion=solucion, modulos=modulos)
+        tk.cerrar(db, u, t, tipo_cierre=tipo_cierre, causa=causa, solucion=solucion, modulos=modulos,
+                  horas_reales=horas_reales or None)
         db.commit()
     except tk.TicketInvalido as e:
         flash(request, str(e), "error")
@@ -262,17 +341,17 @@ def reabrir(tid: int, request: Request, bg: BackgroundTasks, motivo: str = Form(
 
 @router.get("/tickets-tablero")
 def tablero(request: Request, persona: OptInt = None, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
-    q = select(Ticket).where(or_(Ticket.estado.in_(("pendiente", "en_curso", "revision", "info")),
+    q = select(Ticket).where(or_(Ticket.estado.in_(tk.ABIERTOS_ATENCION),
                                  Ticket.cerrado_en >= utcnow() - timedelta(days=7)))
     if persona:
         q = q.where(Ticket.asignado_id == persona)
     orden = {"P1": 0, "P2": 1, "P3": 2, "P4": 3}
     ts = sorted(db.scalars(q).all(), key=lambda t: (orden.get(t.prioridad or "", 4), t.sla_vence or t.creado))
     columnas = [(e, TICKET_ESTADOS[e], [t for t in ts if t.estado == e])
-                for e in ("pendiente", "en_curso", "revision", "info", "cerrado")]
+                for e in ("pendiente", "planeado", "en_curso", "revision", "info", "cerrado")]
     n_nuevos = len(db.scalars(select(Ticket.id).where(Ticket.estado == "nuevo")).all())
     return render(request, "tickets_tablero.html", u, "tickets-tablero", columnas=columnas, persona=persona,
-                  gente=tk.asignables(db), vence_en=tk.vence_en, n_nuevos=n_nuevos, tipos=tk.tipos(db, True))
+                  gente=tk.asignables(db), vence_en=tk.vence_en, n_nuevos=n_nuevos, hoy=date.today(), tipos=tk.tipos(db, True))
 
 
 # ---------------------------------------------------------------- triage

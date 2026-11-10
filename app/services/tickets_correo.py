@@ -44,16 +44,43 @@ def personas_triage(db: Session) -> list[Usuario]:
     return [u for u in us if accesos.puede(u, "tickets-triage")]
 
 
+def _fecha(d) -> str:
+    return d.strftime("%d/%m/%Y") if d else "—"
+
+
+ETAPAS_TEXTO = {
+    "pendiente": "Está en la fila de atención; el equipo lo planeará pronto.",
+    "planeado": "Ya está planeado.",
+    "en_curso": "El ingeniero ya está trabajando en él.",
+    "revision": "La solución está en revisión antes de entregarse.",
+    "info": "Está en pausa: se necesita información (revisa el ticket).",
+    "cerrado": "Quedó resuelto.",
+}
+
+
 def avisos(db: Session, evento: str, t: Ticket, actor: Usuario | None, **x) -> list[tuple[list[str], str, str, str]]:
-    """Regresa [(correos, asunto, cuerpo, texto del botón)]."""
+    """Regresa [(correos, asunto, cuerpo, texto del botón)].
+
+    Todo lo que se le avisa a quien levantó el ticket se copia a su jefe directo y a los correos extra del ticket."""
+    from ..models import TICKET_ESTADOS
     out = []
     donde = " › ".join(p for p in (t.producto, t.menu, t.pantalla) if p)
     ficha = (f"Ticket: {t.folio} · {t.titulo}\nDónde: {donde or '—'}\n"
              f"Tipo: {_tipos(db).get(t.tipo, t.tipo)} · {_impactos(db).get(t.impacto, t.impacto)}"
              + (f"\nCliente: {t.cliente}" if t.cliente else ""))
+    plan = ""
+    if t.fecha_entrega or t.asignado:
+        plan = (f"\nIngeniero: {t.asignado.nombre if t.asignado else 'por asignar'}"
+                + (f"\nFecha de entrega: {_fecha(t.fecha_entrega)}" if t.fecha_entrega else ""))
 
-    def a(usuarios, asunto, cuerpo, boton="Abrir el ticket", al_actor=False):
-        correos = [u.email for u in usuarios if _ok(u, None if al_actor else actor)]
+    def a(usuarios, asunto, cuerpo, boton="Abrir el ticket", al_actor=False, interesados=False):
+        correos = [u.email.lower() for u in usuarios if _ok(u, None if al_actor else actor)]
+        if interesados:  # copia al jefe directo de quien levantó y a los correos extra del ticket
+            jefe = t.autor.jefe if t.autor else None
+            if _ok(jefe, actor):
+                correos.append(jefe.email.lower())
+            correos += [c for c in (t.cc or []) if not actor or c.lower() != (actor.email or "").lower()]
+        correos = list(dict.fromkeys(correos))
         if correos:
             out.append((correos, asunto, cuerpo, boton))
 
@@ -64,9 +91,9 @@ def avisos(db: Session, evento: str, t: Ticket, actor: Usuario | None, **x) -> l
             falt = ("\nSe levantó sin: " + ", ".join(CAMPOS_REQ.get(f, f).lower() for f in t.faltantes)
                     + ". Si lo consigues, agrégalo en el ticket: acelera la atención.")
         a([t.autor], f"{t.folio} recibido: {t.titulo}",
-          f"Hola {t.autor.nombre.split()[0]}, recibimos tu ticket.\n{ficha}{falt}\n"
-          "Qué sigue: el equipo de soporte le asigna prioridad y responsable; te avisaremos por este medio.", "Ver mi ticket",
-          al_actor=True)
+          f"{t.autor.nombre} levantó un ticket y ya lo recibimos.\n{ficha}{falt}\n"
+          "Qué sigue: soporte le asigna prioridad, lo planea con fecha de entrega e ingeniero, y avisamos en cada etapa.",
+          "Ver el ticket", al_actor=True, interesados=True)
         a([u for u in personas_triage(db) if u.id != t.creado_por], f"Nuevo ticket por clasificar: {t.folio}",
           f"{t.autor.nombre} levantó un ticket.\n{ficha}\n"
           + ("GuardIA no pudo revisarlo al levantarlo." if t.validacion == "sin_ia" else
@@ -76,33 +103,43 @@ def avisos(db: Session, evento: str, t: Ticket, actor: Usuario | None, **x) -> l
         if t.asignado:
             a([t.asignado], f"{t.folio} ({t.prioridad}) te fue asignado",
               f"Te asignaron un ticket {t.prioridad}. Atender antes de: {_hora(t.sla_vence)}.\n{ficha}", "Atender el ticket")
-        a([t.autor], f"{t.folio}: ya tiene prioridad {t.prioridad}",
-          f"Tu ticket ya fue clasificado.\n{ficha}\nPrioridad: {t.prioridad}"
+        a([t.autor], f"{t.folio}: etapa Pendiente · prioridad {t.prioridad}",
+          f"El ticket ya fue clasificado.\n{ficha}\nPrioridad: {t.prioridad}"
           + (f"\nResponsable: {t.asignado.nombre}" if t.asignado else "")
-          + f"\nTiempo objetivo de atención: antes de {_hora(t.sla_vence)}.", "Ver mi ticket")
-    elif evento == "en_curso":
-        a([t.autor], f"{t.folio}: estamos trabajando en tu ticket",
-          f"{(t.asignado or actor).nombre} ya está atendiendo tu ticket «{t.titulo}».\nTe avisaremos cuando esté resuelto.",
-          "Ver mi ticket")
+          + f"\nTiempo objetivo de atención: antes de {_hora(t.sla_vence)}.", "Ver el ticket", interesados=True)
+    elif evento == "etapa":
+        etapa = TICKET_ESTADOS.get(t.estado, t.estado)
+        cuerpo = f"El ticket pasó a la etapa «{etapa}». {ETAPAS_TEXTO.get(t.estado, '')}\n{ficha}{plan}"
+        if t.estado == "planeado" and t.asignado and t.asignado.id != (actor.id if actor else None):
+            a([t.asignado], f"{t.folio}: planeado para ti · entrega {_fecha(t.fecha_entrega)}",
+              f"{actor.nombre if actor else 'Soporte'} te planeó este ticket: {float(t.horas_estimadas or 0):g} h estimadas, "
+              f"entrega {_fecha(t.fecha_entrega)}.\n{ficha}", "Ver el ticket")
+        a([t.autor], f"{t.folio}: etapa {etapa}", cuerpo, "Ver el ticket", interesados=True)
     elif evento == "pedir_info":
         a([t.autor], f"Acción requerida · {t.folio}: necesitamos información",
-          f"Para seguir con tu ticket «{t.titulo}», {actor.nombre} necesita:\n- {x.get('pregunta', '').strip()}\n"
-          "Responde en el ticket (puedes adjuntar archivos). Mientras no respondas, el ticket queda en pausa.",
-          "Responder en el ticket")
+          f"Para seguir con el ticket «{t.titulo}», {actor.nombre} necesita:\n- {x.get('pregunta', '').strip()}\n"
+          "Responde en el ticket (puedes adjuntar archivos). Mientras no haya respuesta, el ticket queda en pausa "
+          "(etapa «Esperando información»).", "Responder en el ticket", interesados=True)
     elif evento == "respuesta":
         a([t.asignado], f"{t.folio}: el usuario respondió",
           f"{actor.nombre} respondió en «{t.titulo}»:\n{x.get('texto', '')[:1500]}\nEl ticket regresó a atención.", "Ver respuesta")
     elif evento == "comentario":
-        destino = [t.autor] if actor.id != t.creado_por else [t.asignado]
-        a(destino, f"{t.folio}: nuevo comentario",
-          f"{actor.nombre} comentó en «{t.titulo}»:\n{x.get('texto', '')[:1500]}", "Ver el ticket")
+        if actor.id != t.creado_por:
+            a([t.autor], f"{t.folio}: nuevo comentario",
+              f"{actor.nombre} comentó en «{t.titulo}»:\n{x.get('texto', '')[:1500]}", "Ver el ticket", interesados=True)
+        else:
+            a([t.asignado], f"{t.folio}: nuevo comentario",
+              f"{actor.nombre} comentó en «{t.titulo}»:\n{x.get('texto', '')[:1500]}", "Ver el ticket")
     elif evento == "cerrado":
         r = t.resolucion or {}
-        a([t.autor], f"{t.folio} resuelto: {t.titulo}",
-          f"Tu ticket quedó resuelto.\nCómo: {TICKET_CIERRES.get(r.get('tipo'), r.get('tipo', ''))}\n"
-          f"Solución: {r.get('solucion', '')}\nSi vuelve a pasar, entra al ticket y usa «Reabrir».", "Ver la solución")
+        a([t.autor], f"{t.folio}: etapa Cerrado · resuelto",
+          f"El ticket quedó resuelto.\n{ficha}{plan}\nCómo: {TICKET_CIERRES.get(r.get('tipo'), r.get('tipo', ''))}\n"
+          f"Solución: {r.get('solucion', '')}\nSi vuelve a pasar, entra al ticket y usa «Reabrir».", "Ver la solución",
+          interesados=True)
     elif evento == "reabierto":
         a([t.asignado], f"{t.folio} reabierto", f"{actor.nombre} reabrió «{t.titulo}»: {x.get('motivo', '')}", "Ver el ticket")
+        a([t.autor], f"{t.folio}: reabierto", f"{actor.nombre} reabrió el ticket: {x.get('motivo', '')}\n{ficha}",
+          "Ver el ticket", interesados=True)
     return out
 
 

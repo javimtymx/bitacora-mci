@@ -90,9 +90,9 @@
         <span class="small muted">{{ tamano(ev.bytes) }} · {{ ev.autor.nombre }} · {{ hora_local(ev.creado) }}</span></div>
       {% if puede and c.estado == 'abierto' and (u.es_direccion or ev.subido_por == u.id) %}<form method="post" action="/evidencias/{{ ev.id }}/quitar" data-sin-bloqueo><button class="btn sm ghost" aria-label="Quitar {{ ev.nombre }}">{{ icon('x', 14) }}</button></form>{% endif %}</div>
     {% else %}<span class="small muted">Aún no hay archivos. Sube la captura, el documento, el correo o el folio que demuestre lo hecho.</span>{% endfor %}
-    {% if puede and c.estado in ('abierto', 'cumplido') %}<form method="post" action="/compromisos/{{ c.id }}/evidencias" enctype="multipart/form-data" class="col" style="gap:8px">
+    {% if puede and c.estado in ('abierto', 'cumplido') %}<form method="post" action="/compromisos/{{ c.id }}/evidencias" enctype="multipart/form-data" data-subidas="evidencia" class="col" style="gap:8px">
       <div class="drop"><input type="file" name="archivos" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.txt,.csv,.md,.eml,.docx,.xlsx,.pptx" aria-label="Archivos de evidencia" required></div>
-      <span class="small muted">PDF, imagen, Word, Excel, PowerPoint o texto · hasta 10 MB cada uno.</span>
+      <span class="small muted">PDF, imagen, Word, Excel, PowerPoint o texto · sin límite de tamaño cada uno.</span>
       <button class="btn soft sm" style="align-self:flex-start">{{ icon('upload', 15) }}Subir evidencia</button></form>{% endif %}
   </section>
   <section class="card pad"><div class="row between"><h3>Evidencia de la sesión</h3>{% if pide_evidencia %}<span class="tag {{ 'r' if evidencia_obligatoria else 'n' }}">{{ 'Obligatoria' if evidencia_obligatoria else 'Recomendada' }}</span>{% endif %}</div>
@@ -126,7 +126,7 @@
     <div class="field"><label for="edc-mot">Motivo del cambio (opcional)</label><input class="input" id="edc-mot" name="motivo" maxlength="1000" placeholder="Ej. El cliente movió la reunión al jueves"></div>
   </div>
   <div class="mf"><button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn yellow">{{ icon('ok') }}Guardar cambios</button></div></form></div>
-<div class="overlay" id="cerrar"><form class="modal" method="post" action="/compromisos/{{ c.id }}/cumplido" enctype="multipart/form-data" role="dialog" aria-modal="true" aria-labelledby="t-cer">
+<div class="overlay" id="cerrar"><form class="modal" method="post" action="/compromisos/{{ c.id }}/cumplido" enctype="multipart/form-data" data-subidas="evidencia" role="dialog" aria-modal="true" aria-labelledby="t-cer">
   <div class="mh"><div class="row"><h2 id="t-cer">Cerrar como cumplido</h2><span class="muted" style="font-weight:600">CMP-{{ '%04d' % c.id }}</span></div>
     <button class="btn ghost" type="button" data-close aria-label="Cerrar" style="width:42px;padding:0">{{ icon('x') }}</button></div>
   <div class="sec" style="border-top:0">

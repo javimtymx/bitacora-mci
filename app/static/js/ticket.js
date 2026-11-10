@@ -9,7 +9,7 @@
   const form = $("#tk-form"), lay = $("#tk-lay"), panel = $("#tk-panel"), tab = $("#tk-tab");
   const msgs = $("#tk-msgs"), chat = $("#tk-chat"), btn = $("#tk-levantar"), btnTxt = $("#tk-levantar span");
   const input = $("#tk-archivos"), err = $("#tk-error");
-  const CAMPOS = ["descripcion", "producto", "menu", "pantalla", "tipo", "impacto", "titulo", "pasos", "referencia", "cliente"];
+  const CAMPOS = ["descripcion", "producto", "menu", "pantalla", "tipo", "impacto", "titulo", "pasos", "referencia", "cliente", "cc"];
   const st = { modo: datos.ia ? "ia" : "manual", historial: [], faltan: [], completo: false, ocupado: false,
                tituloManual: false, sugerido: "", leyendo: false, omitidos: new Set(), respondiendo: null };
   let archivos = new DataTransfer();
@@ -211,7 +211,20 @@
     error("");
     const fd = new FormData(form);
     fd.delete("archivos");
-    Array.from(archivos.files).forEach((f) => fd.append("archivos", f, f.name));
+    // los anexos suben directo a S3 (sin límite de tamaño); si no hay S3, viajan con el formulario
+    if (archivos.files.length) {
+      ocupado(true, "Subiendo anexos…");
+      try {
+        for (const f of Array.from(archivos.files)) {
+          const token = window.Subidas ? await window.Subidas.subir(f, "ticket") : null;
+          if (token) fd.append("subidas", token); else fd.append("archivos", f, f.name);
+        }
+      } catch (e) {
+        error(e.message || "No se pudo subir un anexo.");
+        ocupado(false);
+        return;
+      }
+    }
     if (st.omitidos.size && validacion === "completo") validacion = "incompleto";
     fd.append("validacion", validacion);
     fd.append("faltantes", JSON.stringify(Array.from(new Set([...st.omitidos, ...(validacion === "incompleto" ? st.faltan.map((f) => f.campo) : [])]))));
@@ -257,6 +270,13 @@
   chat.addEventListener("input", () => { chat.style.height = "auto"; chat.style.height = Math.min(chat.scrollHeight, 140) + "px"; });
 
   // ------------------------------------------------------------ anexos
+  function mensajeGrande(nombres) {
+    const n = $("#tk-files-vacio").parentElement.parentElement;
+    let a = $(".aviso-grande", n);
+    if (!a) { a = document.createElement("span"); a.className = "small aviso-grande"; n.appendChild(a); }
+    a.textContent = "Archivo grande (" + nombres.join(", ") + "): puede tardar en subir al levantar el ticket. No cierres la página.";
+  }
+
   function pintarArchivos() {
     const cont = $("#tk-files");
     cont.innerHTML = Array.from(archivos.files).map((f, i) =>
@@ -265,9 +285,9 @@
   }
   input.addEventListener("change", () => {
     const grandes = [];
-    Array.from(input.files).forEach((f) => { if (f.size > 10 * 1024 * 1024) grandes.push(f.name); else archivos.items.add(f); });
+    Array.from(input.files).forEach((f) => { archivos.items.add(f); if (f.size > 50 * 1024 * 1024) grandes.push(f.name); });
     input.value = "";
-    if (grandes.length) error("Pasan de 10 MB: " + grandes.join(", "));
+    if (grandes.length) mensajeGrande(grandes);
     pintarArchivos();
     if (archivos.files.length && st.faltan.some((f) => f.campo === "anexo")) {
       st.faltan = st.faltan.filter((f) => f.campo !== "anexo");

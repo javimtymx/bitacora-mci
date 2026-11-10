@@ -1,0 +1,31 @@
+{% extends "base.html" %}{% from "_ui.html" import icon with context %}
+{% block title %}Mis horas y pagos{% endblock %}
+{% block content %}
+<div class="top">
+  <div class="col" style="gap:4px"><span class="muted small"><a href="/tickets-tablero">Tablero de desarrollo</a> · Mis horas y pagos</span><h1>Mis horas y pagos</h1></div>
+</div>
+<section class="card pad">
+  <h2>Cerrados sin pagar</h2>
+  {% if pendiente %}
+  <span class="small">{{ pendiente.n }} tickets · {{ '{:,.1f}'.format(pendiente.horas) }} h</span>
+  <div class="tbl"><table>
+    <thead><tr><th>Ticket</th><th>Cerrado</th><th class="num">Horas</th></tr></thead>
+    <tbody>{% for t in pendiente.tickets %}<tr><td><a href="/tickets/{{ t.id }}"><b>{{ t.folio }}</b></a> {{ t.titulo }}</td>
+      <td class="small">{{ hora_local(t.cerrado_en) }}</td><td class="num">{{ '{:,.1f}'.format(t.horas_reales|float if t.horas_reales is not none else 0) }} h</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="muted">No tienes tickets cerrados pendientes de pago.</p>{% endif %}
+</section>
+<section class="card">
+  <div class="hdr-tabla"><h2>Pagos recibidos</h2></div>
+  <div class="tbl"><table>
+    <thead><tr><th>Fecha</th><th>Tickets</th><th class="num">Horas</th><th class="num">Monto</th><th>Comprobante</th></tr></thead>
+    <tbody>{% for p in pagos %}
+      <tr><td>{{ p.fecha.strftime('%d/%m/%Y') }}{% if p.nota %}<div class="muted small">{{ p.nota }}</div>{% endif %}</td>
+        <td class="small">{% for t in p.tickets %}<a href="/tickets/{{ t.id }}">{{ t.folio }}</a>{{ ', ' if not loop.last }}{% endfor %}</td>
+        <td class="num">{{ '{:,.1f}'.format(p.tickets|map(attribute='horas_reales')|reject('none')|map('float')|sum) }} h</td>
+        <td class="num"><b>${{ '{:,.2f}'.format(p.monto|float) }}</b></td>
+        <td>{% if p.comprobante_ruta %}<a href="/tickets-tablero/mis-pagos/{{ p.id }}/comprobante">{{ icon('clip', 13) }}{{ p.comprobante_nombre }}</a>{% else %}—{% endif %}</td></tr>
+    {% else %}<tr><td colspan="5" class="muted" style="padding:20px;text-align:center">Aún no hay pagos registrados.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+{% endblock %}

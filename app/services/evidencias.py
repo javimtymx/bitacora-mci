@@ -22,7 +22,7 @@ from .util import auditar
 
 log = logging.getLogger("bitacora.evidencias")
 
-MAX_BYTES = 10 * 1024 * 1024
+MAX_BYTES = 50 * 1024 * 1024  # solo para el envío tradicional (sin S3); con S3 sube directo, sin límite
 MAX_POR_COMPROMISO = 20
 PERMITIDOS = {  # extensión -> tipo
     "pdf": "application/pdf", "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "webp": "image/webp",
@@ -55,7 +55,7 @@ def guardar(db: Session, c: Compromiso, nombre: str, contenido: bytes, u: Usuari
     if not contenido:
         raise EvidenciaInvalida(f"«{nombre}» está vacío.")
     if len(contenido) > MAX_BYTES:
-        raise EvidenciaInvalida(f"«{nombre}» pasa de 10 MB.")
+        raise EvidenciaInvalida(f"«{nombre}» pasa de 50 MB; con el almacén S3 activo no hay límite.")
     if len(c.evidencias) >= MAX_POR_COMPROMISO:
         raise EvidenciaInvalida(f"Este compromiso ya tiene {MAX_POR_COMPROMISO} archivos de evidencia.")
     seguro = _seguro(nombre)
@@ -71,6 +71,24 @@ def guardar(db: Session, c: Compromiso, nombre: str, contenido: bytes, u: Usuari
         c.evidencias.append(ev)
     auditar(db, "subir_evidencia", "compromiso", c.id, u.id, archivo=seguro, bytes=len(contenido), sha256=ev.sha256)
     return ev
+
+
+def registrar_subida(db: Session, c: Compromiso, info: dict, u: Usuario) -> EvidenciaArchivo:
+    """Evidencia subida directo a S3 (ver subidas.py): sin límite de tamaño."""
+    if len(c.evidencias) >= MAX_POR_COMPROMISO:
+        raise EvidenciaInvalida(f"Este compromiso ya tiene {MAX_POR_COMPROMISO} archivos de evidencia.")
+    ext = extension(info["nombre"])
+    ev = EvidenciaArchivo(compromiso_id=c.id, nombre=_seguro(info["nombre"]), ruta=info["ruta"],
+                          tipo=PERMITIDOS.get(ext, info["tipo"]), bytes=info["bytes"], sha256="", subido_por=u.id)
+    db.add(ev)
+    db.flush()
+    if ev not in c.evidencias:
+        c.evidencias.append(ev)
+    auditar(db, "subir_evidencia", "compromiso", c.id, u.id, archivo=ev.nombre, bytes=ev.bytes, s3_directo=True)
+    return ev
+
+
+LEER_MAX = 20 * 1024 * 1024  # más grande que esto, GuardIA solo ve el nombre (no se descarga para revisarlo)
 
 
 def leer(ev: EvidenciaArchivo) -> bytes:
@@ -131,6 +149,9 @@ def bloques(evs: list[EvidenciaArchivo]) -> tuple[list[dict], list[str]]:
     imagenes = 0
     for ev in evs[:10]:
         ext = extension(ev.nombre)
+        if (ev.bytes or 0) > LEER_MAX:
+            lista.append(f"- {ev.nombre}: archivo grande ({ev.bytes // (1024 * 1024)} MB), no se revisó su contenido")
+            continue
         try:
             contenido = leer(ev)
         except (OSError, EvidenciaInvalida):

@@ -83,7 +83,7 @@ Estilo: amable, directo y rápido de leer.
 PRODUCTOS_INICIALES = ("SAFE", "Smart Files", "Manifestación de Valor", "CIVA", "Activos Fijos", "Reconstrucción",
                        "Anexo 24", "Panel AyF")
 
-MAX_BYTES = 10 * 1024 * 1024
+MAX_BYTES = 50 * 1024 * 1024  # envío tradicional (sin S3); con S3 se sube directo y sin límite
 MAX_ANEXOS = 15
 PERMITIDOS = {
     "pdf": "application/pdf", "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "webp": "image/webp",
@@ -91,7 +91,8 @@ PERMITIDOS = {
     "xml": "application/xml", "json": "application/json", "eml": "message/rfc822", "zip": "application/zip",
     "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "xls": "application/vnd.ms-excel",
+    "xls": "application/vnd.ms-excel", "mp4": "video/mp4", "mov": "video/quicktime", "webm": "video/webm",
+    "7z": "application/x-7z-compressed", "rar": "application/vnd.rar",
 }
 
 
@@ -106,7 +107,29 @@ def es_staff(u: Usuario) -> bool:
 
 
 def puede_ver(u: Usuario, t: Ticket) -> bool:
-    return t.creado_por == u.id or t.asignado_id == u.id or es_staff(u)
+    """Los tickets son visibles para toda la empresa (vista «Toda la empresa» y buscador)."""
+    return u is not None and accesos.puede(u, "tickets")
+
+
+def puede_editar_cc(u: Usuario, t: Ticket) -> bool:
+    return t.creado_por == u.id or es_staff(u) or (t.autor and t.autor.jefe_id == u.id)
+
+
+def filtro_busqueda(q: str):
+    """Folio (ONE-12, 12) o palabras en título, descripción, cliente, referencia o pantalla."""
+    import re
+    from sqlalchemy import and_, or_
+    m = re.fullmatch(r"(?:[A-Za-z]+-?)?0*(\d{1,9})", q.strip())
+    palabras = [p for p in re.split(r"\s+", q.strip()) if p][:6]
+    cond = and_(*[or_(Ticket.titulo.ilike(f"%{p}%"), Ticket.descripcion.ilike(f"%{p}%"), Ticket.cliente.ilike(f"%{p}%"),
+                      Ticket.referencia.ilike(f"%{p}%"), Ticket.pantalla.ilike(f"%{p}%"), Ticket.producto.ilike(f"%{p}%"))
+                  for p in palabras])
+    return or_(Ticket.id == int(m.group(1)), cond) if m else cond
+
+
+def ve_costos(u: Usuario) -> bool:
+    """Tarifas y costos: solo Dirección (o quien tenga el informe de horas y costos)."""
+    return bool(u and (u.es_direccion or accesos.puede(u, "tickets-informe") or accesos.puede(u, "tickets-pagos")))
 
 
 def asignables(db: Session) -> list[Usuario]:
@@ -475,7 +498,7 @@ def validar_anexo(nombre: str, contenido: bytes) -> str:
     if not contenido:
         raise TicketInvalido(f"«{nombre}» está vacío.")
     if len(contenido) > MAX_BYTES:
-        raise TicketInvalido(f"«{nombre}» pasa de 10 MB.")
+        raise TicketInvalido(f"«{nombre}» pasa de 50 MB; con el almacén S3 activo no hay límite.")
     return PERMITIDOS[ext]
 
 
@@ -498,8 +521,23 @@ def guardar_anexo(db: Session, t: Ticket, nombre: str, contenido: bytes, u: Usua
     return a
 
 
+def registrar_subida(db: Session, t: Ticket, info: dict, u: Usuario) -> TicketAnexo:
+    """Anexo que el navegador subió directo a S3 (ver subidas.py): sin límite de tamaño."""
+    if len(t.anexos) >= MAX_ANEXOS:
+        raise TicketInvalido(f"El ticket ya tiene {MAX_ANEXOS} anexos.")
+    a = TicketAnexo(ticket_id=t.id, nombre=_seguro(info["nombre"]), ruta=info["ruta"], tipo=info["tipo"],
+                    bytes=info["bytes"], sha256="", subido_por=u.id)
+    db.add(a)
+    db.flush()
+    if a not in t.anexos:
+        t.anexos.append(a)
+    auditar(db, "ticket_anexo", "ticket", t.id, u.id, archivo=a.nombre, bytes=a.bytes, s3_directo=True)
+    return a
+
+
 def crear(db: Session, u: Usuario, campos: dict, archivos: list[tuple[str, bytes]], *, validacion: str,
-          faltantes: list[str], conversacion: list[dict], prompt_version: int | None) -> Ticket:
+          faltantes: list[str], conversacion: list[dict], prompt_version: int | None,
+          subidos: list[dict] | None = None, cc: list[str] | None = None) -> Ticket:
     c = limpiar_campos(campos, db)
     if len(c["descripcion"]) < 15:
         raise TicketInvalido("Describe qué pasa (al menos una frase).")
@@ -513,7 +551,7 @@ def crear(db: Session, u: Usuario, campos: dict, archivos: list[tuple[str, bytes
     if validacion not in ("completo", "incompleto", "sin_ia"):
         validacion = "sin_ia"
     if validacion == "sin_ia":  # sin GuardIA, el formulario exige los datos requeridos del tipo (salvo anexos)
-        faltan = [x for x in faltan_por_reglas(c, requeridos(p, c["tipo"]), len(archivos)) if x != "anexo"]
+        faltan = [x for x in faltan_por_reglas(c, requeridos(p, c["tipo"]), len(archivos) + len(subidos or [])) if x != "anexo"]
         if faltan:
             raise TicketInvalido("Faltan datos: " + ", ".join(CAMPOS_REQ[x].lower() for x in faltan) + ".")
     faltantes = [f for f in faltantes if f in CAMPOS_REQ]
@@ -522,17 +560,39 @@ def crear(db: Session, u: Usuario, campos: dict, archivos: list[tuple[str, bytes
                cliente=c["cliente"], referencia=c["referencia"][:300], pasos=c["pasos"], esperado=c["esperado"],
                obtenido=c["obtenido"], creado_por=u.id, validacion=validacion,
                faltantes=faltantes if validacion == "incompleto" else [],
-               captura={"conversacion": conversacion[-30:]}, prompt_version=prompt_version or p.version)
+               captura={"conversacion": conversacion[-30:]}, prompt_version=prompt_version or p.version,
+               cc=limpiar_cc(cc or []))
     db.add(t)
     db.flush()
     for nombre, contenido in archivos:
         guardar_anexo(db, t, nombre, contenido, u)
+    for info in subidos or []:
+        registrar_subida(db, t, info, u)
     nota = {"completo": "Levantado con la revisión de GuardIA completa.",
             "incompleto": "Levantado sin: " + ", ".join(CAMPOS_REQ[f].lower() for f in t.faltantes) + ".",
             "sin_ia": "Levantado sin validar por IA (GuardIA no respondió); se completa en segundo plano."}[validacion]
     db.add(TicketComentario(ticket_id=t.id, tipo="sistema", texto=nota))
     auditar(db, "ticket_nuevo", "ticket", t.id, u.id, validacion=validacion)
     return t
+
+
+_CORREO = re.compile(r"^[^@\s,;<>]+@[^@\s,;<>]+\.[a-z]{2,}$", re.I)
+
+
+def limpiar_cc(correos) -> list[str]:
+    """Correos extra que reciben copia de los avisos del ticket (máximo 10, sin repetidos)."""
+    if isinstance(correos, str):
+        correos = re.split(r"[,;\s]+", correos)
+    out = []
+    for c in correos or []:
+        c = str(c).strip().lower()
+        if not c:
+            continue
+        if not _CORREO.match(c):
+            raise TicketInvalido(f"«{c}» no parece un correo válido.")
+        if c not in out:
+            out.append(c)
+    return out[:10]
 
 
 # ---------------------------------------------------------------- triage
@@ -553,7 +613,7 @@ def prioridad_reglas(t: Ticket, db: Session | None = None) -> str:
 
 def _carga(db: Session) -> dict[int, int]:
     filas = db.execute(select(Ticket.asignado_id, func.count(Ticket.id))
-                       .where(Ticket.estado.in_(("pendiente", "en_curso", "revision", "info")))
+                       .where(Ticket.estado.in_(ABIERTOS_ATENCION))
                        .group_by(Ticket.asignado_id)).all()
     return {a: n for a, n in filas if a}
 
@@ -638,16 +698,55 @@ def triage(db: Session, u: Usuario, t: Ticket, prioridad: str, asignado: Usuario
 
 # ---------------------------------------------------------------- atención
 
+ABIERTOS_ATENCION = ("pendiente", "planeado", "en_curso", "revision", "info")
+
+
 def mover(db: Session, u: Usuario, t: Ticket, estado: str) -> None:
+    """Cambios de etapa sin datos extra. A «planeado» se llega con planear(); a «cerrado», con cerrar()."""
     if estado not in ("pendiente", "en_curso", "revision") or t.estado == "cerrado":
         raise TicketInvalido("Movimiento no válido.")
     if t.estado == estado:
         return
+    if estado in ("en_curso", "revision") and t.horas_estimadas is None:
+        raise TicketInvalido("Primero planéalo: horas estimadas, fecha de entrega e ingeniero.")
     db.add(TicketComentario(ticket_id=t.id, autor_id=u.id, tipo="sistema",
                             texto=f"Pasó de «{TICKET_ESTADOS[t.estado]}» a «{TICKET_ESTADOS[estado]}»."))
     t.estado, t.actualizado = estado, utcnow()
     if estado == "en_curso" and not t.asignado_id:
         t.asignado_id = u.id
+
+
+def planear(db: Session, u: Usuario, t: Ticket, *, horas, fecha_entrega, asignado: Usuario | None) -> None:
+    """Pendiente → Planeado: horas que se invertirán, fecha de entrega e ingeniero que lo ejecuta.
+    Si el ticket ya va más adelante, solo actualiza la planeación sin regresarlo de etapa."""
+    from datetime import date as _date
+    if t.estado == "cerrado":
+        raise TicketInvalido("El ticket ya está cerrado.")
+    try:
+        horas = round(float(str(horas).replace(",", ".")), 2)
+    except (TypeError, ValueError):
+        raise TicketInvalido("Indica las horas estimadas.")
+    if not 0 < horas <= 2000:
+        raise TicketInvalido("Las horas estimadas deben ser mayores a 0.")
+    if not isinstance(fecha_entrega, _date):
+        raise TicketInvalido("Indica la fecha de entrega.")
+    if fecha_entrega < t.creado.date():
+        raise TicketInvalido("La fecha de entrega no puede ser anterior a la fecha del ticket.")
+    ingeniero = asignado or t.asignado
+    if ingeniero is None:
+        raise TicketInvalido("Indica qué ingeniero lo ejecuta.")
+    antes = t.estado
+    t.horas_estimadas, t.fecha_entrega, t.asignado = horas, fecha_entrega, ingeniero
+    t.planeado_en, t.actualizado = utcnow(), utcnow()
+    if t.estado in ("nuevo", "pendiente", "info"):
+        t.estado = "planeado"
+        if antes == "nuevo" and not t.prioridad:
+            t.prioridad = prioridad_reglas(t, db)
+    texto = (f"Planeado: {horas:g} h · entrega {fecha_entrega:%d/%m/%Y} · ingeniero {ingeniero.nombre}."
+             if t.estado == "planeado" and antes != "planeado" else
+             f"Planeación actualizada: {horas:g} h · entrega {fecha_entrega:%d/%m/%Y} · ingeniero {ingeniero.nombre}.")
+    db.add(TicketComentario(ticket_id=t.id, autor_id=u.id, tipo="sistema", texto=texto))
+    auditar(db, "ticket_planear", "ticket", t.id, u.id, horas=horas, entrega=str(fecha_entrega), ingeniero=ingeniero.id)
 
 
 def pedir_info(db: Session, u: Usuario, t: Ticket, pregunta: str, regla: str = "") -> TicketRegla | None:
@@ -679,16 +778,31 @@ def comentar(db: Session, u: Usuario, t: Ticket, texto: str) -> None:
     t.actualizado = utcnow()
 
 
-def cerrar(db: Session, u: Usuario, t: Ticket, *, tipo_cierre: str, causa: str, solucion: str, modulos: str = "") -> None:
+def cerrar(db: Session, u: Usuario, t: Ticket, *, tipo_cierre: str, causa: str, solucion: str, modulos: str = "",
+           horas_reales=None) -> None:
     if tipo_cierre not in TICKET_CIERRES:
         raise TicketInvalido("Elige cómo se resolvió.")
+    if horas_reales in (None, ""):
+        horas_reales = t.horas_estimadas
+    try:
+        horas_reales = round(float(str(horas_reales).replace(",", ".")), 2) if horas_reales is not None else None
+    except ValueError:
+        raise TicketInvalido("Las horas invertidas deben ser un número.")
+    if horas_reales is None or horas_reales < 0 or horas_reales > 5000:
+        raise TicketInvalido("Indica las horas que realmente se invirtieron.")
     causa, solucion = (causa or "").strip(), (solucion or "").strip()
     if len(causa) < 10 or len(solucion) < 15:
         raise TicketInvalido("Para cerrar escribe la causa y la solución: con eso GuardIA resuelve los próximos tickets parecidos.")
     t.resolucion = {"tipo": tipo_cierre, "causa": causa[:3000], "solucion": solucion[:5000], "modulos": (modulos or "").strip()[:1000],
                     "por": u.id, "por_nombre": u.nombre}
+    if not t.asignado_id:
+        t.asignado_id = u.id
+    ingeniero = db.get(Usuario, t.asignado_id)
+    t.horas_reales = horas_reales
+    t.costo_hora = ingeniero.costo_hora if ingeniero else None  # tarifa vigente al cerrar: el costo ya no cambia
     t.estado, t.cerrado_en, t.actualizado = "cerrado", utcnow(), utcnow()
-    db.add(TicketComentario(ticket_id=t.id, autor_id=u.id, tipo="sistema", texto=f"Cerrado: {TICKET_CIERRES[tipo_cierre]}."))
+    db.add(TicketComentario(ticket_id=t.id, autor_id=u.id, tipo="sistema",
+                            texto=f"Cerrado: {TICKET_CIERRES[tipo_cierre]} · {horas_reales:g} h invertidas."))
     auditar(db, "ticket_cerrar", "ticket", t.id, u.id, tipo=tipo_cierre)
 
 
@@ -697,7 +811,9 @@ def reabrir(db: Session, u: Usuario, t: Ticket, motivo: str) -> None:
         raise TicketInvalido("El ticket no está cerrado.")
     if len((motivo or "").strip()) < 5:
         raise TicketInvalido("Escribe por qué se reabre.")
-    t.estado, t.cerrado_en, t.actualizado = "pendiente", None, utcnow()
+    if t.pago_id:
+        raise TicketInvalido("Este ticket ya se pagó; no se puede reabrir. Levanta uno nuevo y referencia este folio.")
+    t.estado, t.cerrado_en, t.actualizado = ("planeado" if t.horas_estimadas else "pendiente"), None, utcnow()
     db.add(TicketComentario(ticket_id=t.id, autor_id=u.id, tipo="sistema", texto=f"Reabierto: {motivo.strip()[:1000]}"))
 
 

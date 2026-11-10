@@ -14,6 +14,7 @@ from ..services.util import auditar, hoy
 from .base import flash, ir, puede_actuar, render, requiere_lider, usuario_actual, OptInt
 
 router = APIRouter()
+MAX_BYTES_S3 = 25 * 1024 * 1024  # transcripción subida directo a S3 (texto)
 MAX_BYTES = 2 * 1024 * 1024
 
 
@@ -55,18 +56,32 @@ async def crear_sesion(request: Request, fondo: BackgroundTasks, tipo: str = For
                        cliente: str = Form(""), cliente_nombre: str = Form(""), compromiso_id: OptInt = Form(None),
                        area_id: OptInt = Form(None), consentimiento: bool = Form(False),
                        p_nombre: list[str] = Form([]), p_email: list[str] = Form([]), p_lado: list[str] = Form([]),
-                       archivo: UploadFile = File(...), db: Session = Depends(get_db),
-                       u: Usuario = Depends(usuario_actual)):
+                       archivo: UploadFile | None = File(None), subidas: list[str] = Form([]),
+                       db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
     if tipo not in vozcliente.TIPOS_SESION:
         raise HTTPException(400)
     c = db.get(Compromiso, compromiso_id) if compromiso_id else None
     if c and not puede_actuar(u, c):
         raise HTTPException(403)
-    raw = await archivo.read(MAX_BYTES + 1)
-    if len(raw) > MAX_BYTES:
-        raise HTTPException(400, "La transcripción pasa de 2 MB; súbela en texto plano (.txt).")
-    if not (archivo.filename or "").lower().endswith((".txt", ".vtt", ".srt", ".md")):
-        raise HTTPException(400, "Sube la transcripción como archivo de texto (.txt).")
+    origen_s3 = None
+    if subidas:  # el navegador la subió directo a S3: se lee de ahí y luego se borra el original
+        from ..services import almacen
+        from ..services import subidas as subidas_srv
+        try:
+            info = subidas_srv.recibir(subidas[0], u.id, "transcripcion")
+        except subidas_srv.SubidaInvalida as e:
+            raise HTTPException(400, str(e)) from e
+        if info["bytes"] > MAX_BYTES_S3:
+            raise HTTPException(400, "La transcripción pasa de 25 MB de texto; divídela en partes.")
+        raw, origen_s3 = almacen.leer(info["ruta"]), info["ruta"]
+    elif archivo is not None and archivo.filename:
+        raw = await archivo.read(MAX_BYTES + 1)
+        if len(raw) > MAX_BYTES:
+            raise HTTPException(400, "La transcripción pasa de 2 MB; con el almacén S3 activo se aceptan archivos más grandes.")
+        if not (archivo.filename or "").lower().endswith((".txt", ".vtt", ".srt", ".md")):
+            raise HTTPException(400, "Sube la transcripción como archivo de texto (.txt).")
+    else:
+        raise HTTPException(400, "Adjunta la transcripción.")
     texto = vozcliente.decodificar(raw).strip()
     if len(texto.split()) < 80:
         raise HTTPException(400, "La transcripción es demasiado corta para analizarla (menos de 80 palabras).")
@@ -86,6 +101,9 @@ async def crear_sesion(request: Request, fondo: BackgroundTasks, tipo: str = For
     vozcliente.guardar_texto(s, texto)
     db.add(s)
     db.flush()
+    if origen_s3:
+        from ..services import almacen
+        almacen.borrar(origen_s3)  # ya quedó guardada (cifrada) aparte
     auditar(db, "cargar", "sesion_cliente", s.id, u.id, compromiso=s.compromiso_id, palabras=s.palabras)
     db.commit()
     vozcliente.marcar_en_analisis(db, s)

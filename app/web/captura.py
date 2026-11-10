@@ -254,9 +254,16 @@ def _visible_comp(u: Usuario, c: Compromiso) -> bool:
     return u.es_direccion or c.area_id == u.area_id or c.responsable_id == u.id
 
 
-async def _guardar_archivos(db: Session, c: Compromiso, archivos: list[UploadFile], u: Usuario) -> tuple[int, list[str]]:
-    from ..services import evidencias
+async def _guardar_archivos(db: Session, c: Compromiso, archivos: list[UploadFile], u: Usuario,
+                            subidas_: list[str] | None = None) -> tuple[int, list[str]]:
+    from ..services import evidencias, subidas
     n, errores = 0, []
+    for token in subidas_ or []:  # archivos que el navegador ya subió directo a S3
+        try:
+            evidencias.registrar_subida(db, c, subidas.recibir(token, u.id, "evidencia"), u)
+            n += 1
+        except (subidas.SubidaInvalida, evidencias.EvidenciaInvalida) as e:
+            errores.append(str(e))
     for a in archivos or []:
         if not a or not a.filename:
             continue
@@ -271,7 +278,7 @@ async def _guardar_archivos(db: Session, c: Compromiso, archivos: list[UploadFil
 
 @router.post("/compromisos/{cid}/cumplido")
 async def cumplido(cid: int, request: Request, fondo: BackgroundTasks, comentario: str = Form(""),
-                   archivos: list[UploadFile] = File([]), db: Session = Depends(get_db),
+                   archivos: list[UploadFile] = File([]), subidas: list[str] = Form([]), db: Session = Depends(get_db),
                    u: Usuario = Depends(usuario_actual)):
     from ..services import evidencias
     c = _comp_editable(db, cid, u)
@@ -280,7 +287,7 @@ async def cumplido(cid: int, request: Request, fondo: BackgroundTasks, comentari
     if requiere_evidencia(db, c) and not tiene_evidencia(db, c):
         flash(request, "Este compromiso necesita la transcripción de la sesión como evidencia. Cárgala en «Evidencia de la sesión».", "error")
         return ir(f"/compromisos/{cid}")
-    n, errores = await _guardar_archivos(db, c, archivos, u)
+    n, errores = await _guardar_archivos(db, c, archivos, u, subidas)
     if errores:
         db.rollback()
         flash(request, " ".join(errores), "error")
@@ -305,10 +312,10 @@ async def cumplido(cid: int, request: Request, fondo: BackgroundTasks, comentari
 
 @router.post("/compromisos/{cid}/evidencias")
 async def subir_evidencias(cid: int, request: Request, fondo: BackgroundTasks, archivos: list[UploadFile] = File([]),
-                           db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+                           subidas: list[str] = Form([]), db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
     from ..services import evidencias
     c = _comp_editable(db, cid, u)
-    n, errores = await _guardar_archivos(db, c, archivos, u)
+    n, errores = await _guardar_archivos(db, c, archivos, u, subidas)
     if errores:
         db.rollback()
         flash(request, " ".join(errores), "error")
@@ -331,6 +338,10 @@ def descargar_evidencia(eid: int, db: Session = Depends(get_db), u: Usuario = De
     c = db.get(Compromiso, ev.compromiso_id) if ev else None
     if not ev or not c or not _visible_comp(u, c):
         raise HTTPException(404)
+    from ..services import almacen
+    if (ev.bytes or 0) > 20 * 1024 * 1024 and (url := almacen.url_descarga(ev.ruta, ev.nombre, ev.tipo)):
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url, status_code=302)  # los grandes bajan directo de S3
     try:
         contenido = evidencias.leer(ev)
     except (OSError, evidencias.EvidenciaInvalida):

@@ -1,0 +1,79 @@
+{% extends "base.html" %}{% from "_ui.html" import icon with context %}
+{% block title %}Horas y costos{% endblock %}
+{% macro mxn(v) %}${{ '{:,.2f}'.format(v or 0) }}{% endmacro %}
+{% macro h(v) %}{{ '{:,.1f}'.format(v or 0) }} h{% endmacro %}
+{% macro tabla(titulo, grupos, col) %}
+<section class="card">
+  <div class="hdr-tabla"><h2>{{ titulo }}</h2></div>
+  <div class="tbl"><table>
+    <thead><tr><th>{{ col }}</th><th class="num">Tickets</th><th class="num">Horas</th><th class="num">Costo</th><th class="num">Pagado</th><th class="num">Por pagar</th></tr></thead>
+    <tbody>{% for g in grupos %}
+      <tr><td><b>{{ g.nombre }}</b>{% if g.sin_tarifa %}<div class="small" style="color:var(--orange,#B45309)">{{ g.sin_tarifa }} sin tarifa</div>{% endif %}</td>
+        <td class="num">{{ g.n }}</td><td class="num">{{ h(g.horas) }}</td><td class="num">{{ mxn(g.costo) }}</td>
+        <td class="num">{{ mxn(g.pagado) }}</td><td class="num"><b>{{ mxn(g.por_pagar) }}</b></td></tr>
+    {% else %}<tr><td colspan="6" class="muted" style="padding:20px;text-align:center">Sin tickets cerrados en el periodo.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+{% endmacro %}
+{% block content %}
+<div class="top">
+  <div class="col" style="gap:4px"><span class="muted small">Soporte · Guard<span class="gia">IA</span> Ticket</span><h1>Horas y costos · {{ etiqueta }}</h1></div>
+  <div class="row" style="gap:8px">
+    <a class="btn soft" href="?{{ 'desde=' ~ d1.isoformat() ~ '&hasta=' ~ d2.isoformat() if rango else 'mes=' ~ mes }}&formato=csv">{{ icon('down', 15) }}Descargar CSV</a>
+    <a class="btn soft" href="/tickets-pagos">Pagos a ingenieros</a>
+  </div>
+</div>
+<form method="get" class="card pad"><div class="row" style="gap:12px;flex-wrap:wrap;align-items:flex-end">
+  <div class="field" style="margin:0"><label for="inf-mes">Mes</label><input class="input" id="inf-mes" type="month" name="mes" value="{{ mes }}" onchange="this.form.desde.value='';this.form.hasta.value='';this.form.submit()"></div>
+  <span class="muted small" style="padding-bottom:10px">o del</span>
+  <div class="field" style="margin:0"><label for="inf-d">Desde</label><input class="input" id="inf-d" type="date" name="desde" value="{{ d1.isoformat() if rango else '' }}"></div>
+  <div class="field" style="margin:0"><label for="inf-h">Hasta</label><input class="input" id="inf-h" type="date" name="hasta" value="{{ d2.isoformat() if rango else '' }}"></div>
+  <button class="btn dark" type="submit">Ver periodo</button>
+</div></form>
+
+{% set t = r.total %}{% set p = r.pronostico_total %}
+<div class="tka-kpis">
+  <div class="card tka-k"><span class="lbl">Ejecutado</span><b>{{ mxn(t.costo) }}</b><span class="small muted">{{ t.n }} tickets cerrados · {{ h(t.horas) }}</span></div>
+  <div class="card tka-k"><span class="lbl">Pagado</span><b>{{ mxn(t.pagado) }}</b><span class="small muted">del trabajo cerrado en el periodo</span></div>
+  <div class="card tka-k {{ 'mal' if t.por_pagar > 0 }}"><span class="lbl">Por pagar</span><b>{{ mxn(t.por_pagar) }}</b><span class="small muted">cerrado y sin pago registrado</span></div>
+  <div class="card tka-k"><span class="lbl">Pronóstico en curso</span><b>{{ mxn(p.costo) }}</b><span class="small muted">{{ p.n }} tickets planeados o en curso · {{ h(p.horas) }}</span></div>
+  <div class="card tka-k"><span class="lbl">Entregas del periodo</span><b>{{ r.entregas_periodo }}</b><span class="small muted">abiertos con entrega en estas fechas · {{ h(r.horas_entregas_periodo) }}</span></div>
+</div>
+{% if t.sin_tarifa or p.sin_tarifa %}<div class="flash">Hay tickets de ingenieros sin costo por hora: no suman al costo. Captúralo en Configurar › Usuarios.</div>{% endif %}
+
+<div class="grid2" style="align-items:start">
+  {{ tabla('Por ingeniero', r.ingenieros, 'Ingeniero') }}
+  {{ tabla('Por usuario que lo pidió', r.solicitantes, 'Solicitante') }}
+</div>
+{{ tabla('Por módulo', r.modulos, 'Módulo') }}
+
+<section class="card">
+  <div class="hdr-tabla"><h2>Pronóstico: trabajo planeado y en curso</h2>
+    <span class="muted small">Horas estimadas × costo por hora actual del ingeniero. Es el presupuesto que falta pagar cuando se cierren.</span></div>
+  <div class="tbl"><table>
+    <thead><tr><th>Ingeniero</th><th>Ticket</th><th>Estado</th><th>Entrega</th><th class="num">Horas</th><th class="num">Costo estimado</th></tr></thead>
+    <tbody>{% for g in r.pronostico %}{% for x in g.tickets %}
+      <tr><td>{% if loop.first %}<b>{{ g.nombre }}</b><div class="muted small">{{ g.n }} · {{ h(g.horas) }} · {{ mxn(g.costo) }}</div>{% endif %}</td>
+        <td><a href="/tickets/{{ x.id }}"><b>{{ x.folio }}</b></a> {{ x.titulo }}<div class="muted small">{{ x.producto }} · {{ x.autor.nombre }}</div></td>
+        <td>{{ estados[x.estado] }}</td>
+        <td>{% if x.fecha_entrega %}<span {% if x.fecha_entrega < hoy %}style="color:var(--red);font-weight:700"{% endif %}>{{ x.fecha_entrega.strftime('%d/%m/%Y') }}</span>{% else %}—{% endif %}</td>
+        <td class="num">{{ h(x.horas_estimadas|float if x.horas_estimadas is not none else 0) }}</td>
+        <td class="num">{% if x.asignado and x.asignado.costo_hora is not none %}{{ mxn((x.horas_estimadas or 0)|float * x.asignado.costo_hora|float) }}{% else %}<span class="muted small">sin tarifa</span>{% endif %}</td></tr>
+    {% endfor %}{% else %}<tr><td colspan="6" class="muted" style="padding:20px;text-align:center">No hay tickets planeados ni en curso.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+
+<section class="card">
+  <div class="hdr-tabla"><h2>Tickets cerrados en el periodo</h2></div>
+  <div class="tbl"><table>
+    <thead><tr><th>Ticket</th><th>Módulo</th><th>Solicitante</th><th>Ingeniero</th><th>Cerrado</th><th class="num">Horas</th><th class="num">Costo</th><th>Pago</th></tr></thead>
+    <tbody>{% for x in r.tickets %}
+      <tr><td><a href="/tickets/{{ x.id }}"><b>{{ x.folio }}</b></a> {{ x.titulo }}</td><td>{{ x.producto }}</td><td>{{ x.autor.nombre }}</td>
+        <td>{{ x.asignado.nombre if x.asignado else '—' }}</td><td class="small">{{ hora_local(x.cerrado_en) }}</td>
+        <td class="num">{{ h(x.horas_reales|float if x.horas_reales is not none else 0) }}</td>
+        <td class="num">{{ mxn(x.costo) if x.costo is not none else '—' }}</td>
+        <td>{% if x.pago_id %}<span class="tag g">Pagado {{ x.pago.fecha.strftime('%d/%m') }}</span>{% else %}<span class="tag o">Por pagar</span>{% endif %}</td></tr>
+    {% else %}<tr><td colspan="8" class="muted" style="padding:20px;text-align:center">Sin tickets cerrados en el periodo.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+{% endblock %}

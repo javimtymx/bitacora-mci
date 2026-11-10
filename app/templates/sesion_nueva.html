@@ -3,7 +3,7 @@
 {% block content %}
 <div class="top"><div class="col" style="gap:4px">{% if c %}<span class="muted small"><a href="/compromisos/{{ c.id }}">CMP-{{ '%04d' % c.id }}</a> · {{ c.area.nombre }} · {{ c.responsable.nombre }}</span>{% endif %}
   <h1 style="font-size:24px">{{ c.texto if c else 'Nueva sesión con cliente' }}</h1></div>{{ ai_badge() }}</div>
-<form class="card pad" method="post" action="/sesiones" enctype="multipart/form-data" style="max-width:820px">
+<form class="card pad" method="post" action="/sesiones" enctype="multipart/form-data" data-subidas="transcripcion" style="max-width:820px">
   {% if c %}<input type="hidden" name="compromiso_id" value="{{ c.id }}">{% endif %}
   <div class="sech"><span class="secic">{{ icon('doc') }}</span>Cargar la transcripción de la sesión</div>
   <div class="grid2">
@@ -26,7 +26,7 @@
     </div>
     <div class="ptags" data-tg-lista></div>
   </div>
-  <div class="field"><label for="s-arch">Transcripción (.txt, hasta 2 MB)</label><div class="drop"><input type="file" id="s-arch" name="archivo" accept=".txt,.vtt,.srt,.md,text/plain" required></div></div>
+  <div class="field"><label for="s-arch">Transcripción (.txt)</label><div class="drop"><input type="file" id="s-arch" name="archivo" accept=".txt,.vtt,.srt,.md,text/plain" required></div></div>
   <label class="check"><input type="checkbox" name="consentimiento" value="true" required><span>El cliente sabe que la sesión se grabó y que se usará para mejorar el servicio</span></label>
   <span class="small muted">La IA guarda la síntesis y las citas textuales. La transcripción completa solo la ven Dirección y quien la carga. El análisis tarda de 20 a 60 segundos.</span>
   <button class="btn aibtn" style="align-self:flex-start">{{ icon('ia') }}<span>Cargar y analizar con Guard<span class="gia">IA</span></span></button>

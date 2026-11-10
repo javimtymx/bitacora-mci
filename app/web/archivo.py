@@ -135,3 +135,19 @@ def archivados(request: Request, area: str = "", tipo: str = "", db: Session = D
     areas = list(db.scalars(select(Area).where(Area.activo.is_(True)).order_by(Area.nombre)))
     return render(request, "archivados.html", u, "compromisos", lista=lista, sol=sol, area=a, areas=areas, tipo=tipo,
                   n_elim=sum(1 for x in todos if x[1] == "eliminado"), n_canc=sum(1 for x in todos if x[1] == "cancelado"))
+
+
+# ---------------------------------------------------------------- subida directa a S3 (archivos grandes)
+
+@router.post("/api/subidas/firmar")
+async def firmar_subida(request: Request, u: Usuario = Depends(usuario_actual)):
+    from fastapi.responses import JSONResponse
+    from ..services import subidas
+    if not subidas.disponible():
+        return JSONResponse({"ok": False, "sin_s3": True}, status_code=409)
+    try:
+        d = await request.json()
+        r = subidas.firmar(u.id, str(d.get("destino") or ""), str(d.get("nombre") or ""), int(d.get("tamano") or 0))
+    except (subidas.SubidaInvalida, ValueError) as e:
+        return JSONResponse({"ok": False, "mensaje": str(e)}, status_code=400)
+    return JSONResponse({"ok": True, **r})
