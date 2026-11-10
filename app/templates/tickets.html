@@ -38,7 +38,7 @@
         {% if tab == 'programados' %}
         <td data-v="{{ t.fecha_entrega.isoformat() if t.fecha_entrega else '' }}" data-l="{{ t.fecha_entrega.strftime('%d/%m/%Y') if t.fecha_entrega else 'Sin fecha' }}">{% if t.fecha_entrega %}<b {% if t.fecha_entrega < hoy %}style="color:var(--red)" title="Entrega vencida"{% endif %}>{{ t.fecha_entrega.strftime('%d/%m/%Y') }}</b>{% if t.fecha_entrega < hoy %}<div class="small" style="color:var(--red);font-weight:700">Vencida</div>{% endif %}{% else %}<span class="muted small">Sin fecha</span>{% endif %}</td>
         <td>{{ t.asignado.nombre if t.asignado else '—' }}</td>
-        <td>{{ (t.horas_estimadas|float|round(1)) ~ ' h' if t.horas_estimadas is not none else '—' }}</td>
+        <td data-v="{{ t.horas_estimadas|float if t.horas_estimadas is not none else '' }}">{{ (t.horas_estimadas|float|round(1)) ~ ' h' if t.horas_estimadas is not none else '—' }}{% if t.horas_modificadas %}<div><span class="tag o" title="Original {{ t.horas_originales|float }} h">Modificadas</span></div>{% endif %}</td>
         {% else %}
         <td>{{ tipos.get(t.tipo, t.tipo) }}</td>
         <td data-l="{{ t.prioridad or '—' }}">{% if t.prioridad %}<span class="prio {{ t.prioridad }}">{{ t.prioridad }}</span>{% else %}<span class="muted small">—</span>{% endif %}</td>

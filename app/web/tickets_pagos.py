@@ -43,13 +43,18 @@ def informe(request: Request, mes: str = "", desde: OptDate = None, hasta: OptDa
     if formato == "csv":
         buf = io.StringIO()
         w = csv.writer(buf)
-        w.writerow(["Folio", "Título", "Módulo", "Solicitante", "Ingeniero", "Cerrado", "Horas estimadas", "Horas reales",
-                    "Tarifa", "Costo", "Pagado"])
+        areas = tk.areas_usuario(db, True)
+        w.writerow(["Folio", "Título", "Módulo", "Área", "Solicitante", "Ingeniero", "Cerrado", "Horas originales",
+                    "Versiones de estimación", "Horas modificadas", "Última estimación", "Horas reales",
+                    "Desviación (h)", "Desviación (%)", "Tarifa", "Costo", "Pagado"])
         for t in r["tickets"]:
-            w.writerow([t.folio, t.titulo, t.producto, t.autor.nombre if t.autor else "",
+            w.writerow([t.folio, t.titulo, t.producto, areas.get(t.area, t.area or ""), t.autor.nombre if t.autor else "",
                         t.asignado.nombre if t.asignado else "", t.cerrado_en.strftime("%Y-%m-%d") if t.cerrado_en else "",
-                        float(t.horas_estimadas or 0), float(t.horas_reales or 0), float(t.costo_hora or 0),
-                        t.costo or 0, "sí" if t.pago_id else "no"])
+                        float(t.horas_originales) if t.horas_originales is not None else "", len(t.estimaciones),
+                        "sí" if t.horas_modificadas else "no", float(t.horas_estimadas or 0), float(t.horas_reales or 0),
+                        t.desviacion_real if t.desviacion_real is not None else "",
+                        t.desviacion_pct if t.desviacion_pct is not None else "",
+                        float(t.costo_hora or 0), t.costo or 0, "sí" if t.pago_id else "no"])
         nombre = f"horas-costos_{d1:%Y%m%d}-{d2:%Y%m%d}.csv"
         return Response("﻿" + buf.getvalue(), media_type="text/csv",
                         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(nombre)}"})

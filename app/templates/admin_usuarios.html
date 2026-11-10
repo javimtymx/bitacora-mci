@@ -6,9 +6,10 @@
 <section class="card pad">
   <div class="row between"><div class="row"><a class="btn sm {{ 'dark' if ver=='activos' else 'soft' }}" href="?ver=activos">Activos</a><a class="btn sm {{ 'dark' if ver!='activos' else 'soft' }}" href="?ver=bajas">Bajas</a></div>
     <label class="search" style="height:40px;border-radius:8px">{{ icon('search', 18) }}<input type="search" placeholder="Buscar" data-filtra="t-u"></label></div>
-  <div class="tbl"><table id="t-u"><thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th>Área</th><th>Jefe directo</th><th class="num">Costo/hora</th><th>Datos confidenciales</th><th>Menús</th><th>Último acceso</th><th></th></tr></thead><tbody>
+  <div class="tbl"><table id="t-u"><thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th>Área MCI</th><th>Área del usuario</th><th>Jefe directo</th><th class="num">Costo/hora</th><th>Datos confidenciales</th><th>Menús</th><th>Último acceso</th><th></th></tr></thead><tbody>
   {% for x in lista %}<tr><td><b>{{ x.nombre }}</b>{% if not x.activo %}<div class="muted small">Baja {{ fmt_fecha(x.baja_en) }}: {{ x.baja_motivo }}</div>{% endif %}</td><td>{{ x.email }}</td>
     <td><span class="tag {{ 'b' if x.rol=='colaborador' else 'o' if x.rol=='lider' else 'g' }}">{{ x.rol }}</span></td><td>{{ x.area.nombre if x.area else '—' }}</td>
+    <td>{% set au = areas_u|selectattr('clave', 'equalto', x.area_ticket)|first %}{{ au.etiqueta if au else '—' }}</td>
     <td class="small">{{ x.jefe.nombre if x.jefe else '—' }}</td><td class="num small">{{ '$' ~ '{:,.2f}'.format(x.costo_hora|float) if x.costo_hora is not none else '—' }}</td>
     <td>{% if x.puede_confidencial %}<span class="tag r">{{ icon('lock', 12) }} Sí</span>{% else %}<span class="muted">No</span>{% endif %}</td>
     {% set ns = namespace(t=0, v=0) %}{% for m in menus if x.rol=='admin' or por_rol(x.rol, m) %}{% set ns.t = ns.t + 1 %}{% if puede_menu(x, m.clave) %}{% set ns.v = ns.v + 1 %}{% endif %}{% endfor %}
@@ -26,7 +27,9 @@
     <div class="field"><label for="al-n">Nombre completo</label><input class="input" id="al-n" name="nombre" required></div>
     <div class="field"><label for="al-e">Correo</label><input class="input" id="al-e" type="email" name="email" required></div>
     <div class="grid2"><div class="field"><label for="al-r">Rol</label><select class="input" id="al-r" name="rol">{% for r in roles if r != 'admin' or u.rol=='admin' %}<option>{{ r }}</option>{% endfor %}</select></div>
-      <div class="field"><label for="al-a">Área</label><select class="input" id="al-a" name="area_id"><option value="">—</option>{% for a in areas %}<option value="{{ a.id }}">{{ a.nombre }}</option>{% endfor %}</select></div></div>
+      <div class="field"><label for="al-a">Área MCI (tablero)</label><select class="input" id="al-a" name="area_id"><option value="">—</option>{% for a in areas %}<option value="{{ a.id }}">{{ a.nombre }}</option>{% endfor %}</select></div></div>
+    <div class="field"><label for="al-au">Área del usuario</label><select class="input" id="al-au" name="area_ticket"><option value="">—</option>{% for o in areas_u if o.activo %}<option value="{{ o.clave }}">{{ o.etiqueta }}</option>{% endfor %}</select>
+      <span class="muted small">Se usa en tickets e informes. El catálogo se edita en «Áreas de usuarios».</span></div>
     <label class="check"><input type="checkbox" name="puede_confidencial" value="true"><span>Puede ver y descargar datos confidenciales (clientes y montos)</span></label>
     <label class="check"><input type="checkbox" name="enviar_invitacion" value="true" checked><span>Enviar invitación por correo con contraseña temporal</span></label>
   </div>
@@ -37,7 +40,9 @@
   <div class="sec" style="border-top:0">
     <div class="field"><label>Nombre</label><input class="input" name="nombre" value="{{ x.nombre }}" required></div>
     <div class="grid2"><div class="field"><label>Rol</label><select class="input" name="rol">{% for r in roles if r != 'admin' or u.rol=='admin' or x.rol=='admin' %}<option {{ 'selected' if r==x.rol }}>{{ r }}</option>{% endfor %}</select></div>
-      <div class="field"><label>Área</label><select class="input" name="area_id"><option value="">—</option>{% for a in areas %}<option value="{{ a.id }}" {{ 'selected' if a.id==x.area_id }}>{{ a.nombre }}</option>{% endfor %}</select></div></div>
+      <div class="field"><label>Área MCI (tablero)</label><select class="input" name="area_id"><option value="">—</option>{% for a in areas %}<option value="{{ a.id }}" {{ 'selected' if a.id==x.area_id }}>{{ a.nombre }}</option>{% endfor %}</select></div></div>
+    <div class="field"><label>Área del usuario</label><select class="input" name="area_ticket"><option value="">—</option>{% for o in areas_u if o.activo or o.clave == x.area_ticket %}<option value="{{ o.clave }}" {{ 'selected' if o.clave == x.area_ticket }}>{{ o.etiqueta }}{{ '' if o.activo else ' (retirada)' }}</option>{% endfor %}</select>
+      <span class="muted small">Para tickets e informes de horas y costos.</span></div>
     <div class="grid2"><div class="field"><label>Jefe directo</label><select class="input" name="jefe_id"><option value="">— Sin jefe —</option>{% for y in activos if y.id != x.id %}<option value="{{ y.id }}" {{ 'selected' if y.id == x.jefe_id }}>{{ y.nombre }}</option>{% endfor %}</select>
         <span class="muted small">Recibe copia de los avisos de los tickets que levante esta persona.</span></div>
       <div class="field"><label>Costo por hora (MXN)</label><input class="input" name="costo_hora" inputmode="decimal" value="{{ '%.2f'|format(x.costo_hora|float) if x.costo_hora is not none else '' }}" placeholder="Ej. 450.00">

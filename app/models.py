@@ -69,6 +69,7 @@ class Usuario(Base):
     menus_extra: Mapped[list | None] = mapped_column(JSON)  # menús por otorgamiento que Dirección le dio
     jefe_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))  # jefe directo (recibe copia de sus tickets)
     costo_hora: Mapped[float | None] = mapped_column(Numeric(10, 2))  # pesos por hora, para el costo de los tickets
+    area_ticket: Mapped[str | None] = mapped_column(String(40))  # clave del catálogo «área del usuario» (ticket_opciones)
     creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     ultimo_acceso: Mapped[datetime | None] = mapped_column(DateTime)
     baja_en: Mapped[datetime | None] = mapped_column(DateTime)
@@ -780,7 +781,7 @@ class TicketOpcion(Base):
     __tablename__ = "ticket_opciones"
     __table_args__ = (UniqueConstraint("catalogo", "clave"),)
     id: Mapped[int] = mapped_column(primary_key=True)
-    catalogo: Mapped[str] = mapped_column(String(12))  # tipo | impacto
+    catalogo: Mapped[str] = mapped_column(String(12))  # tipo | impacto | area (área del usuario)
     clave: Mapped[str] = mapped_column(String(40))     # no cambia aunque se renombre la etiqueta
     etiqueta: Mapped[str] = mapped_column(String(120))
     orden: Mapped[int] = mapped_column(Integer, default=0)
@@ -857,6 +858,8 @@ class Ticket(Base):
     horas_reales: Mapped[float | None] = mapped_column(Numeric(8, 2))
     costo_hora: Mapped[float | None] = mapped_column(Numeric(10, 2))
     pago_id: Mapped[int | None] = mapped_column(ForeignKey("ticket_pagos.id"), index=True)
+    horas_originales: Mapped[float | None] = mapped_column(Numeric(8, 2))  # primera estimación (no cambia)
+    area: Mapped[str | None] = mapped_column(String(40))  # área de quien lo levantó, fija al levantarlo
 
     autor: Mapped[Usuario] = relationship(foreign_keys=[creado_por])
     asignado: Mapped[Usuario | None] = relationship(foreign_keys=[asignado_id])
@@ -864,10 +867,38 @@ class Ticket(Base):
     comentarios: Mapped[list["TicketComentario"]] = relationship(back_populates="ticket", order_by="TicketComentario.id")
 
     pago: Mapped["TicketPago | None"] = relationship(back_populates="tickets")
+    estimaciones: Mapped[list["TicketEstimacion"]] = relationship(back_populates="ticket",
+                                                                  order_by="TicketEstimacion.version")
 
     @property
     def folio(self) -> str:
         return f"ONE-{self.id}"
+
+    @property
+    def horas_modificadas(self) -> bool:
+        """Las horas planeadas ya no son las de la estimación original."""
+        return (self.horas_originales is not None and self.horas_estimadas is not None
+                and round(float(self.horas_estimadas), 2) != round(float(self.horas_originales), 2))
+
+    @property
+    def desviacion_plan(self) -> float | None:
+        """Horas estimadas vigentes − originales (cuánto se movió la estimación)."""
+        if self.horas_originales is None or self.horas_estimadas is None:
+            return None
+        return round(float(self.horas_estimadas) - float(self.horas_originales), 2)
+
+    @property
+    def desviacion_real(self) -> float | None:
+        """Horas reales − originales (contra la primera estimación)."""
+        if self.horas_originales is None or self.horas_reales is None:
+            return None
+        return round(float(self.horas_reales) - float(self.horas_originales), 2)
+
+    @property
+    def desviacion_pct(self) -> float | None:
+        base = float(self.horas_originales or 0)
+        d = self.desviacion_real if self.horas_reales is not None else self.desviacion_plan
+        return None if d is None or not base else round(100 * d / base, 1)
 
     @property
     def costo(self) -> float | None:
@@ -875,6 +906,24 @@ class Ticket(Base):
         if self.horas_reales is None or self.costo_hora is None:
             return None
         return round(float(self.horas_reales) * float(self.costo_hora), 2)
+
+
+class TicketEstimacion(Base):
+    """Historia de la planeación del ticket: cada cambio de horas, fecha de entrega o ingeniero es una versión."""
+    __tablename__ = "ticket_estimaciones"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ticket_id: Mapped[int] = mapped_column(ForeignKey("tickets.id"), index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    horas: Mapped[float] = mapped_column(Numeric(8, 2))
+    fecha_entrega: Mapped[date | None] = mapped_column(Date)
+    asignado_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+    motivo: Mapped[str] = mapped_column(Text, default="")
+    por: Mapped[int] = mapped_column(ForeignKey("usuarios.id"))
+    creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    ticket: Mapped[Ticket] = relationship(back_populates="estimaciones")
+    asignado: Mapped[Usuario | None] = relationship(foreign_keys=[asignado_id])
+    autor: Mapped[Usuario] = relationship(foreign_keys=[por])
 
 
 class TicketPago(Base):

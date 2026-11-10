@@ -36,10 +36,21 @@ def _regresado(t: Ticket) -> bool:
     return any(c.tipo == "pedir_info" for c in t.comentarios)
 
 
+_AREAS: dict[str, str] = {}
+
+
 def grupo_de(t: Ticket, dimension: str) -> str:
     if dimension == "producto":
         return t.producto or "Sin producto"
+    if t.area:  # área del usuario guardada al levantar el ticket
+        return _AREAS.get(t.area, t.area)
     return (t.autor.area.nombre if t.autor and t.autor.area else "Sin área")
+
+
+def _cargar_areas(db: Session) -> None:
+    from .tickets import areas_usuario
+    _AREAS.clear()
+    _AREAS.update(areas_usuario(db, True))
 
 
 def _resumen(ts: list[Ticket], cerrados: list[Ticket], ahora, desde) -> dict:
@@ -63,6 +74,7 @@ def metricas(db: Session, dias: int = 30, dimension: str = "area") -> dict:
     from .tickets import tipos
     global _TIPOS
     _TIPOS = tipos(db, True) or dict(TICKET_TIPOS)
+    _cargar_areas(db)
     ahora = utcnow()
     desde = ahora - timedelta(days=dias)
     ts = db.scalars(select(Ticket).where(Ticket.creado >= desde).order_by(Ticket.creado)).all()
@@ -164,6 +176,7 @@ def diagnostico_reglas(m: dict) -> dict:
 
 
 def _prompt(db: Session, m: dict) -> str:
+    _cargar_areas(db)
     desde = utcnow() - timedelta(days=m["dias"])
     ts = db.scalars(select(Ticket).where(or_(Ticket.creado >= desde, Ticket.estado != "cerrado"))
                     .order_by(Ticket.creado.desc()).limit(400)).all()

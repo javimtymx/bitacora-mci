@@ -169,7 +169,7 @@ def detalle(tid: int, request: Request, db: Session = Depends(get_db), u: Usuari
                   estados=TICKET_ESTADOS, tipos=tk.tipos(db, True), impactos=tk.impactos(db, True), cierres=TICKET_CIERRES,
                   campos_req=tk.CAMPOS_REQ, asignables=tk.asignables(db) if staff else [], vence_en=tk.vence_en,
                   aceptar=",".join("." + e for e in tk.PERMITIDOS), ve_costos=tk.ve_costos(u),
-                  edita_cc=tk.puede_editar_cc(u, t), hoy=date.today(),
+                  edita_cc=tk.puede_editar_cc(u, t), hoy=date.today(), areas_u=tk.areas_usuario(db, True),
                   gente=tk.asignables(db) if accesos.puede(u, "tickets-tablero") else [])
 
 
@@ -247,7 +247,7 @@ def mover(tid: int, request: Request, bg: BackgroundTasks, estado: str = Form(..
 
 @router.post("/tickets/{tid}/planear")
 def planear(tid: int, request: Request, bg: BackgroundTasks, horas: str = Form(""), fecha_entrega: OptDate = Form(None),
-            asignado_id: OptInt = Form(None), volver: str = Form(""), db: Session = Depends(get_db),
+            asignado_id: OptInt = Form(None), volver: str = Form(""), motivo: str = Form(""), db: Session = Depends(get_db),
             u: Usuario = Depends(usuario_actual)):
     _exigir(u, "tickets-tablero")
     t = _ticket(db, tid, u)
@@ -256,7 +256,7 @@ def planear(tid: int, request: Request, bg: BackgroundTasks, horas: str = Form("
         raise HTTPException(400, "Esa persona no atiende tickets.")
     antes = t.estado
     try:
-        tk.planear(db, u, t, horas=horas, fecha_entrega=fecha_entrega, asignado=asignado)
+        tk.planear(db, u, t, horas=horas, fecha_entrega=fecha_entrega, asignado=asignado, motivo=motivo)
         db.commit()
     except tk.TicketInvalido as e:
         flash(request, str(e), "error")

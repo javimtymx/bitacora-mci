@@ -1,0 +1,28 @@
+{% extends "base.html" %}{% from "_ui.html" import icon with context %}{% set tab='areas' %}
+{% block title %}Áreas de usuarios{% endblock %}
+{% block content %}
+<div class="top"><h1>Configuración</h1></div>
+{% include "_admin_tabs.html" %}
+<form class="card pad" method="post" action="/admin/areas-usuario">
+  <div class="row between"><h2>Áreas de usuarios</h2>
+    <span class="muted small">Para quitar un área desmarca «Activa»: deja de ofrecerse, pero las personas y tickets que ya la tienen la conservan en el histórico.</span></div>
+  <span class="muted small">Cada usuario tiene un área (en Usuarios › Editar). El ticket guarda el área de quien lo levantó y con ella se agrupan la analítica y el informe de horas y costos. Es independiente de las áreas MCI del tablero.</span>
+  <div class="tbl"><table><thead><tr><th style="width:70px">Orden</th><th>Nombre</th><th>Activa</th><th class="num">Personas</th><th class="num">Tickets</th></tr></thead><tbody>
+  {% for o in ops %}{% set i = loop.index0 %}<tr class="{{ '' if o.activo else 'muted' }}">
+    <td><input type="hidden" name="id_{{ i }}" value="{{ o.id }}"><input class="input" name="orden_{{ i }}" value="{{ o.orden }}" inputmode="numeric" style="width:60px" aria-label="Orden"></td>
+    <td><input class="input" name="etiqueta_{{ i }}" value="{{ o.etiqueta }}" maxlength="120" required aria-label="Nombre"></td>
+    <td><label class="check"><input type="checkbox" name="activo_{{ i }}" value="1" {{ 'checked' if o.activo }}><span>{{ 'Sí' if o.activo else 'Retirada' }}</span></label></td>
+    <td class="num">{{ personas.get(o.clave, 0) }}</td><td class="num">{{ tickets.get(o.clave, 0) }}</td></tr>{% endfor %}
+  {% set base = ops|length %}{% for k in range(3) %}{% set i = base + k %}<tr>
+    <td><input class="input" name="orden_{{ i }}" value="{{ 90 + k }}" inputmode="numeric" style="width:60px" aria-label="Orden"></td>
+    <td><input class="input" name="etiqueta_{{ i }}" maxlength="120" placeholder="Nueva área (opcional)" aria-label="Nueva área"></td>
+    <td class="muted small">Nueva</td><td></td><td></td></tr>{% endfor %}
+  </tbody></table></div>
+  <button class="btn dark" type="submit" style="align-self:flex-start">{{ icon('ok') }}Guardar áreas</button>
+</form>
+{% if sin_area %}
+<section class="card pad"><h3>Usuarios activos sin área</h3>
+  <span class="small">{% for x in sin_area %}{{ x.nombre }}{{ ', ' if not loop.last }}{% endfor %}</span>
+  <span class="muted small">Asígnales área en <a href="/admin/usuarios">Usuarios</a> para que sus tickets no salgan como «Sin área».</span></section>
+{% endif %}
+{% endblock %}

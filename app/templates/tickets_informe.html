@@ -1,7 +1,10 @@
 {% extends "base.html" %}{% from "_ui.html" import icon with context %}
 {% block title %}Horas y costos{% endblock %}
-{% macro mxn(v) %}${{ '{:,.2f}'.format(v or 0) }}{% endmacro %}
+{% macro mxn(v) %}{{ '-' if (v or 0) < 0 }}${{ '{:,.2f}'.format((v or 0)|abs) }}{% endmacro %}
 {% macro h(v) %}{{ '{:,.1f}'.format(v or 0) }} h{% endmacro %}
+{% macro dh(v) %}{% if v is none %}—{% else %}<span style="font-weight:700;color:{{ 'var(--red)' if v > 0 else ('var(--green,#15803D)' if v < 0 else 'inherit') }}">{{ '+' if v > 0 }}{{ '{:,.1f}'.format(v) }} h</span>{% endif %}{% endmacro %}
+{% macro dp(v) %}{% if v is none %}—{% else %}<span style="color:{{ 'var(--red)' if v > 0 else ('var(--green,#15803D)' if v < 0 else 'inherit') }}">{{ '+' if v > 0 }}{{ v }}%</span>{% endif %}{% endmacro %}
+{% macro modif(t) %}{% if t.horas_modificadas %}<span class="tag o" title="La estimación cambió {{ t.estimaciones|length - 1 }} vez/veces desde la original">Horas modificadas</span>{% endif %}{% endmacro %}
 {% macro tabla(titulo, grupos, col) %}
 <section class="card">
   <div class="hdr-tabla"><h2>{{ titulo }}</h2></div>
@@ -45,35 +48,70 @@
   {{ tabla('Por ingeniero', r.ingenieros, 'Ingeniero') }}
   {{ tabla('Por usuario que lo pidió', r.solicitantes, 'Solicitante') }}
 </div>
-{{ tabla('Por módulo', r.modulos, 'Módulo') }}
+<div class="grid2" style="align-items:start">
+  {{ tabla('Por módulo', r.modulos, 'Módulo') }}
+  {{ tabla('Por área del usuario', r.areas, 'Área') }}
+</div>
+
+{% set d = r.desv_total %}
+<section class="card">
+  <div class="hdr-tabla"><h2>Desviación contra la estimación original</h2>
+    <span class="muted small">Horas de la primera estimación contra las reales de los tickets cerrados en el periodo. Rojo: se invirtió más de lo estimado; verde: menos.</span></div>
+  <div class="tka-kpis" style="padding:0 22px">
+    <div class="card tka-k"><span class="lbl">Estimado original</span><b>{{ h(d.originales) }}</b><span class="small muted">{{ d.n }} tickets con estimación</span></div>
+    <div class="card tka-k"><span class="lbl">Real</span><b>{{ h(d.reales) }}</b><span class="small muted">horas invertidas</span></div>
+    <div class="card tka-k {{ 'mal' if d.horas > 0 }}"><span class="lbl">Desviación</span><b>{{ dh(d.horas) }}</b><span class="small muted">{{ dp(d.pct) }} contra lo original</span></div>
+    <div class="card tka-k"><span class="lbl">Costo de la desviación</span><b>{{ mxn(d.costo_desviacion) }}</b><span class="small muted">horas de más (o de menos) × tarifa</span></div>
+    <div class="card tka-k {{ 'mal' if d.modificados }}"><span class="lbl">Estimación modificada</span><b>{{ d.modificados }}</b><span class="small muted">tickets a los que se les cambiaron las horas</span></div>
+  </div>
+  <div class="tbl"><table data-tabla id="inf-desv-ing"><thead><tr><th data-f="lista">Ingeniero</th><th class="num" data-o="num">Tickets</th><th class="num" data-o="num">Modificados</th>
+    <th class="num" data-o="num">Original</th><th class="num" data-o="num">Última estimación</th><th class="num" data-o="num">Real</th><th class="num" data-o="num">Desviación</th><th class="num" data-o="num">%</th><th class="num" data-o="num">Costo desviación</th></tr></thead>
+    <tbody>{% for g in r.desv_ingenieros %}<tr><td><b>{{ g.nombre }}</b></td><td class="num">{{ g.n }}</td><td class="num">{{ g.modificados }}</td>
+      <td class="num">{{ h(g.originales) }}</td><td class="num">{{ h(g.estimadas) }}</td><td class="num">{{ h(g.reales) }}</td>
+      <td class="num" data-v="{{ g.horas }}">{{ dh(g.horas) }}</td><td class="num" data-v="{{ g.pct if g.pct is not none else '' }}">{{ dp(g.pct) }}</td><td class="num" data-v="{{ g.costo_desviacion }}">{{ mxn(g.costo_desviacion) }}</td></tr>
+    {% else %}<tr><td colspan="9" class="muted" style="padding:20px;text-align:center">Sin tickets cerrados con estimación en el periodo.</td></tr>{% endfor %}</tbody></table></div>
+  {% if r.desv_tickets %}
+  <div class="hdr-tabla"><h3>Tickets con desviación</h3></div>
+  <div class="tbl"><table data-tabla id="inf-desv-t"><thead><tr><th data-f="texto">Ticket</th><th data-f="lista">Ingeniero</th><th class="num" data-o="num">Original</th><th>Cambios de estimación</th>
+    <th class="num" data-o="num">Real</th><th class="num" data-o="num">Desviación</th><th class="num" data-o="num">%</th></tr></thead>
+    <tbody>{% for x in r.desv_tickets %}<tr><td data-v="{{ x.folio }} {{ x.titulo }}"><a href="/tickets/{{ x.id }}"><b>{{ x.folio }}</b></a> {{ x.titulo }} {{ modif(x) }}</td>
+      <td>{{ x.asignado.nombre if x.asignado else '—' }}</td><td class="num">{{ h(x.horas_originales|float) }}</td>
+      <td class="small">{% for e in x.estimaciones %}{{ e.horas|float }} h{% if e.motivo %} <span class="muted">({{ e.motivo }})</span>{% endif %}{{ ' → ' if not loop.last }}{% else %}—{% endfor %}</td>
+      <td class="num">{{ h(x.horas_reales|float if x.horas_reales is not none else 0) }}</td>
+      <td class="num" data-v="{{ x.desviacion_real }}">{{ dh(x.desviacion_real) }}</td><td class="num" data-v="{{ x.desviacion_pct if x.desviacion_pct is not none else '' }}">{{ dp(x.desviacion_pct) }}</td></tr>{% endfor %}</tbody></table></div>
+  {% endif %}
+</section>
 
 <section class="card">
   <div class="hdr-tabla"><h2>Pronóstico: trabajo planeado y en curso</h2>
     <span class="muted small">Horas estimadas × costo por hora actual del ingeniero. Es el presupuesto que falta pagar cuando se cierren.</span></div>
   <div class="tbl"><table>
-    <thead><tr><th>Ingeniero</th><th>Ticket</th><th>Estado</th><th>Entrega</th><th class="num">Horas</th><th class="num">Costo estimado</th></tr></thead>
+    <thead><tr><th>Ingeniero</th><th>Ticket</th><th>Estado</th><th>Entrega</th><th class="num">Original</th><th class="num">Horas</th><th class="num">Costo estimado</th></tr></thead>
     <tbody>{% for g in r.pronostico %}{% for x in g.tickets %}
       <tr><td>{% if loop.first %}<b>{{ g.nombre }}</b><div class="muted small">{{ g.n }} · {{ h(g.horas) }} · {{ mxn(g.costo) }}</div>{% endif %}</td>
-        <td><a href="/tickets/{{ x.id }}"><b>{{ x.folio }}</b></a> {{ x.titulo }}<div class="muted small">{{ x.producto }} · {{ x.autor.nombre }}</div></td>
+        <td><a href="/tickets/{{ x.id }}"><b>{{ x.folio }}</b></a> {{ x.titulo }} {{ modif(x) }}<div class="muted small">{{ x.producto }} · {{ x.autor.nombre }}</div></td>
         <td>{{ estados[x.estado] }}</td>
         <td>{% if x.fecha_entrega %}<span {% if x.fecha_entrega < hoy %}style="color:var(--red);font-weight:700"{% endif %}>{{ x.fecha_entrega.strftime('%d/%m/%Y') }}</span>{% else %}—{% endif %}</td>
-        <td class="num">{{ h(x.horas_estimadas|float if x.horas_estimadas is not none else 0) }}</td>
+        <td class="num">{{ h(x.horas_originales|float) if x.horas_originales is not none else '—' }}</td>
+        <td class="num">{{ h(x.horas_estimadas|float if x.horas_estimadas is not none else 0) }}{% if x.horas_modificadas %}<div class="small">{{ dh(x.desviacion_plan) }}</div>{% endif %}</td>
         <td class="num">{% if x.asignado and x.asignado.costo_hora is not none %}{{ mxn((x.horas_estimadas or 0)|float * x.asignado.costo_hora|float) }}{% else %}<span class="muted small">sin tarifa</span>{% endif %}</td></tr>
-    {% endfor %}{% else %}<tr><td colspan="6" class="muted" style="padding:20px;text-align:center">No hay tickets planeados ni en curso.</td></tr>{% endfor %}</tbody>
+    {% endfor %}{% else %}<tr><td colspan="7" class="muted" style="padding:20px;text-align:center">No hay tickets planeados ni en curso.</td></tr>{% endfor %}</tbody>
   </table></div>
 </section>
 
 <section class="card">
   <div class="hdr-tabla"><h2>Tickets cerrados en el periodo</h2></div>
   <div class="tbl"><table>
-    <thead><tr><th>Ticket</th><th>Módulo</th><th>Solicitante</th><th>Ingeniero</th><th>Cerrado</th><th class="num">Horas</th><th class="num">Costo</th><th>Pago</th></tr></thead>
+    <thead><tr><th>Ticket</th><th>Módulo</th><th>Solicitante</th><th>Ingeniero</th><th>Cerrado</th><th class="num">Original</th><th class="num">Horas reales</th><th class="num">Desviación</th><th class="num">Costo</th><th>Pago</th></tr></thead>
     <tbody>{% for x in r.tickets %}
-      <tr><td><a href="/tickets/{{ x.id }}"><b>{{ x.folio }}</b></a> {{ x.titulo }}</td><td>{{ x.producto }}</td><td>{{ x.autor.nombre }}</td>
+      <tr><td><a href="/tickets/{{ x.id }}"><b>{{ x.folio }}</b></a> {{ x.titulo }} {{ modif(x) }}</td><td>{{ x.producto }}</td><td>{{ x.autor.nombre }}</td>
         <td>{{ x.asignado.nombre if x.asignado else '—' }}</td><td class="small">{{ hora_local(x.cerrado_en) }}</td>
+        <td class="num">{{ h(x.horas_originales|float) if x.horas_originales is not none else '—' }}</td>
         <td class="num">{{ h(x.horas_reales|float if x.horas_reales is not none else 0) }}</td>
+        <td class="num">{{ dh(x.desviacion_real) }}</td>
         <td class="num">{{ mxn(x.costo) if x.costo is not none else '—' }}</td>
         <td>{% if x.pago_id %}<span class="tag g">Pagado {{ x.pago.fecha.strftime('%d/%m') }}</span>{% else %}<span class="tag o">Por pagar</span>{% endif %}</td></tr>
-    {% else %}<tr><td colspan="8" class="muted" style="padding:20px;text-align:center">Sin tickets cerrados en el periodo.</td></tr>{% endfor %}</tbody>
+    {% else %}<tr><td colspan="10" class="muted" style="padding:20px;text-align:center">Sin tickets cerrados en el periodo.</td></tr>{% endfor %}</tbody>
   </table></div>
 </section>
 {% endblock %}

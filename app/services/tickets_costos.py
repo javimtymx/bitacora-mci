@@ -90,7 +90,47 @@ def cerrados(db: Session, desde: date, hasta: date) -> list[Ticket]:
     return [t for t in db.scalars(q).all() if desde <= _local(t.cerrado_en) <= hasta]
 
 
+@dataclass
+class Desviacion:
+    """Estimación original contra lo planeado al final y lo realmente invertido."""
+    clave: str
+    nombre: str
+    n: int = 0
+    modificados: int = 0
+    originales: float = 0.0
+    estimadas: float = 0.0
+    reales: float = 0.0
+    costo_desviacion: float = 0.0  # (reales − originales) × tarifa
+
+    @property
+    def horas(self) -> float:
+        return round(self.reales - self.originales, 2)
+
+    @property
+    def pct(self) -> float | None:
+        return round(100 * (self.reales - self.originales) / self.originales, 1) if self.originales else None
+
+
+def _desviaciones(ts: list[Ticket], llave) -> list[Desviacion]:
+    gs: dict[str, Desviacion] = {}
+    for t in ts:
+        if t.horas_originales is None:
+            continue
+        k, nombre = llave(t)
+        for g in (gs.setdefault(k, Desviacion(k, nombre)),):
+            g.n += 1
+            g.modificados += 1 if t.horas_modificadas else 0
+            g.originales += float(t.horas_originales)
+            g.estimadas += float(t.horas_estimadas or t.horas_originales)
+            g.reales += float(t.horas_reales if t.horas_reales is not None else t.horas_estimadas or 0)
+            if t.costo_hora is not None and t.desviacion_real is not None:
+                g.costo_desviacion += t.desviacion_real * float(t.costo_hora)
+    return sorted(gs.values(), key=lambda g: -abs(g.horas))
+
+
 def informe(db: Session, desde: date, hasta: date) -> dict:
+    from .tickets import areas_usuario
+    nombres_area = areas_usuario(db, True)
     ts = cerrados(db, desde, hasta)
     total = Grupo("total", "Total")
     for t in ts:
@@ -117,6 +157,14 @@ def informe(db: Session, desde: date, hasta: date) -> dict:
         "ingenieros": _agrupar(ts, lambda t: (str(t.asignado_id or 0), t.asignado.nombre if t.asignado else "Sin ingeniero")),
         "solicitantes": _agrupar(ts, lambda t: (str(t.creado_por), t.autor.nombre if t.autor else "—")),
         "modulos": _agrupar(ts, lambda t: ((t.producto or "—").upper(), t.producto or "—")),
+        "areas": _agrupar(ts, lambda t: (t.area or "", nombres_area.get(t.area, t.area) if t.area else "Sin área")),
+        "desv_total": (_desviaciones(ts, lambda t: ("total", "Total")) or [Desviacion("total", "Total")])[0],
+        "desv_ingenieros": _desviaciones(ts, lambda t: (str(t.asignado_id or 0),
+                                                        t.asignado.nombre if t.asignado else "Sin ingeniero")),
+        "desv_tickets": sorted([t for t in ts if t.horas_originales is not None
+                                and (t.horas_modificadas or (t.desviacion_real or 0) != 0)],
+                               key=lambda t: -abs(t.desviacion_real or 0)),
+        "modificados_abiertos": [t for t in abiertos if t.horas_modificadas],
         "tickets": sorted(ts, key=lambda t: t.cerrado_en, reverse=True),
         "pronostico": sorted(pron.values(), key=lambda g: -g.costo),
         "pronostico_total": pron_total,

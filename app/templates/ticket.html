@@ -86,7 +86,10 @@
       <dt>Responsable</dt><dd>{{ t.asignado.nombre if t.asignado else '—' }}</dd>
       {% if t.sla_vence %}<dt>Atender antes</dt><dd>{{ hora_local(t.sla_vence) }}</dd>{% endif %}
       {% if t.fecha_entrega %}<dt>Entrega</dt><dd><b {% if t.estado != 'cerrado' and t.fecha_entrega < hoy %}style="color:var(--red)"{% endif %}>{{ t.fecha_entrega.strftime('%d/%m/%Y') }}</b></dd>{% endif %}
-      {% if t.horas_estimadas is not none %}<dt>Horas</dt><dd>{{ t.horas_estimadas|float|round(1) }} h estimadas{% if t.horas_reales is not none %} · {{ t.horas_reales|float|round(1) }} h reales{% endif %}</dd>{% endif %}
+      {% if t.horas_estimadas is not none %}<dt>Horas</dt><dd>{{ t.horas_estimadas|float|round(1) }} h estimadas{% if t.horas_reales is not none %} · {{ t.horas_reales|float|round(1) }} h reales{% endif %}
+        {% if t.horas_modificadas %}<div><span class="tag o">Horas modificadas</span> <span class="small">original {{ t.horas_originales|float|round(1) }} h ({{ '+' if t.desviacion_plan > 0 }}{{ t.desviacion_plan }} h)</span></div>{% endif %}
+        {% if t.horas_reales is not none and t.desviacion_real %}<div class="small" style="color:{{ 'var(--red)' if t.desviacion_real > 0 else 'inherit' }}">Real contra la original: {{ '+' if t.desviacion_real > 0 }}{{ t.desviacion_real }} h ({{ '+' if t.desviacion_pct > 0 }}{{ t.desviacion_pct }}%)</div>{% endif %}</dd>{% endif %}
+      {% if t.area %}<dt>Área</dt><dd>{{ areas_u.get(t.area, t.area) }}</dd>{% endif %}
       {% if ve_costos and t.costo %}<dt>Costo</dt><dd>${{ '{:,.2f}'.format(t.costo) }} MXN · {{ 'Pagado' if t.pago_id else 'Por pagar' }}</dd>{% endif %}
     </dl>
     {% if dev and t.estado != 'cerrado' %}
@@ -117,6 +120,18 @@
       <button class="btn sm soft" type="submit" style="align-self:flex-start">Guardar copias</button></form>
     {% elif t.cc %}<span class="muted small">Copia: {{ t.cc|join(', ') }}</span>{% endif %}
   </section>
+
+  {% if t.estimaciones %}
+  <section class="card pad">
+    <h3>Historia de la estimación</h3>
+    <div class="col" style="gap:10px">
+    {% for e in t.estimaciones|reverse %}<div class="small" style="border-left:3px solid {{ 'var(--line)' if e.version == 1 else '#F59E0B' }};padding-left:10px">
+      <b>v{{ e.version }}{{ ' · original' if e.version == 1 }}</b> · <b>{{ e.horas|float|round(1) }} h</b>{% if e.fecha_entrega %} · entrega {{ e.fecha_entrega.strftime('%d/%m/%Y') }}{% endif %}{% if e.asignado %} · {{ e.asignado.nombre }}{% endif %}
+      <div class="muted">{{ e.autor.nombre }} · {{ hora_local(e.creado) }}</div>
+      {% if e.motivo %}<div>Motivo: {{ e.motivo }}</div>{% endif %}</div>{% endfor %}
+    </div>
+  </section>
+  {% endif %}
 
   {% if t.estado == 'cerrado' and t.resolucion %}
   <section class="card pad">
@@ -179,6 +194,11 @@
     </div>
     <div class="field"><label for="pla-a">Ingeniero que lo ejecuta</label><select class="input" id="pla-a" name="asignado_id" required><option value="">Elige…</option>
       {% for g in gente %}<option value="{{ g.id }}" {{ 'selected' if t.asignado_id == g.id }}>{{ g.nombre }}</option>{% endfor %}</select></div>
+    {% if t.horas_estimadas is not none %}
+    <div class="field" id="pla-m-campo"><label for="pla-m">Motivo del cambio <span class="muted small">(obligatorio si cambias las horas)</span></label>
+      <input class="input" id="pla-m" name="motivo" maxlength="1000" data-horas="{{ t.horas_estimadas|float }}" placeholder="Ej. Se encontró que también afecta el reporte de diferencias">
+      <span class="muted small">Estimación original: {{ (t.horas_originales or t.horas_estimadas)|float }} h. Cada cambio queda en la historia y el ticket se marca como «Horas modificadas».</span></div>
+    {% endif %}
     <span class="muted small">Se avisa por correo a quien levantó el ticket, a su jefe y al ingeniero.</span>
   </div>
   <div class="mf"><button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn yellow">{{ icon('ok') }}Planear</button></div></form></div>
@@ -203,6 +223,13 @@
 {% endif %}
 {% endblock %}
 {% block scripts %}<script>
+(function () {
+  var m = document.getElementById("pla-m"), hh = document.getElementById("pla-h");
+  if (m && hh) {
+    var req = function () { m.required = (parseFloat(hh.value.replace(",", ".")) || 0) !== parseFloat(m.dataset.horas); };
+    hh.addEventListener("input", req); req();
+  }
+})();
 (function () {
   var h = location.hash.slice(1);
   if (["planear", "cerrar", "pedir"].indexOf(h) < 0 || !document.getElementById(h)) return;

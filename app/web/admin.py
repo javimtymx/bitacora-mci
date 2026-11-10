@@ -33,6 +33,20 @@ def _areas(db: Session) -> list[Area]:
     return list(db.scalars(select(Area).order_by(Area.nombre)))
 
 
+def _areas_usuario(db: Session) -> list:
+    from ..services import tickets as tk
+    return tk.opciones(db, "area", todas=True)
+
+
+def _area_valida(db: Session, clave: str) -> str | None:
+    clave = (clave or "").strip()
+    if not clave:
+        return None
+    if clave not in {o.clave for o in _areas_usuario(db)}:
+        raise HTTPException(400, "Área de usuario inválida.")
+    return clave
+
+
 # ---------------------------------------------------------------- usuarios
 
 @router.get("/usuarios")
@@ -40,13 +54,13 @@ def usuarios(request: Request, ver: str = "activos", db: Session = Depends(get_d
     q = select(Usuario).where(Usuario.activo.is_(ver == "activos"))
     return render(request, "admin_usuarios.html", u, "admin", lista=list(db.scalars(q.order_by(Usuario.nombre))),
                   areas=_areas(db), roles=ROLES, ver=ver, menus=accesos.MENUS, grupos={**dict((g, t) for g, t, _ in accesos.GRUPOS), "configurar": "Configurar"},
-                  por_rol=accesos.por_rol,
+                  por_rol=accesos.por_rol, areas_u=_areas_usuario(db),
                   activos=list(db.scalars(select(Usuario).where(Usuario.activo.is_(True)).order_by(Usuario.nombre))))
 
 
 @router.post("/usuarios")
 def alta_usuario(request: Request, nombre: str = Form(...), email: str = Form(...), rol: str = Form("colaborador"),
-                 area_id: OptInt = Form(None), puede_confidencial: bool = Form(False),
+                 area_id: OptInt = Form(None), puede_confidencial: bool = Form(False), area_ticket: str = Form(""),
                  enviar_invitacion: bool = Form(False), db: Session = Depends(get_db),
                  u: Usuario = Depends(requiere_direccion)):
     email = email.strip().lower()
@@ -68,6 +82,7 @@ def alta_usuario(request: Request, nombre: str = Form(...), email: str = Form(..
         nu = Usuario(nombre=nombre.strip(), email=email, rol=rol, area_id=area_id or None,
                      puede_confidencial=puede_confidencial, password_hash=hash_password(temporal))
         db.add(nu)
+    nu.area_ticket = _area_valida(db, area_ticket)
     db.flush()
     auditar(db, "alta", "usuario", nu.id, u.id, rol=rol, confidencial=puede_confidencial)
     db.commit()
@@ -87,7 +102,7 @@ def editar_usuario(uid: int, request: Request, nombre: str = Form(...), rol: str
                    area_id: OptInt = Form(None), puede_confidencial: bool = Form(False),
                    recibe_correos: bool = Form(False), menus: list[str] = Form([]), menus_form: str = Form(""),
                    en_indicador_personas: bool = Form(False), jefe_id: OptInt = Form(None),
-                   costo_hora: str = Form("__sin_cambio__"),
+                   costo_hora: str = Form("__sin_cambio__"), area_ticket: str = Form("__sin_cambio__"),
                    db: Session = Depends(get_db), u: Usuario = Depends(requiere_direccion)):
     x = db.get(Usuario, uid)
     if not x or rol not in ROLES:
@@ -117,6 +132,10 @@ def editar_usuario(uid: int, request: Request, nombre: str = Form(...), rol: str
                 raise HTTPException(400, "El costo por hora no puede ser negativo.")
             cambios["costo_hora"] = (float(x.costo_hora) if x.costo_hora is not None else None, nuevo)
             x.costo_hora = nuevo
+        if area_ticket != "__sin_cambio__":
+            nueva = _area_valida(db, area_ticket)
+            cambios["area_usuario"] = (x.area_ticket, nueva)
+            x.area_ticket = nueva
         cambios["indicador_personas"] = (x.en_indicador_personas, en_indicador_personas)
         x.en_indicador_personas = en_indicador_personas
         bloq = sorted(m.clave for m in accesos.MENUS if not m.opt_in and accesos.por_rol(rol, m) and m.clave not in menus)
@@ -129,6 +148,43 @@ def editar_usuario(uid: int, request: Request, nombre: str = Form(...), rol: str
     db.commit()
     flash(request, "Usuario actualizado.")
     return ir("/admin/usuarios")
+
+
+@router.get("/areas-usuario")
+def areas_usuario(request: Request, db: Session = Depends(get_db), u: Usuario = Depends(requiere_direccion)):
+    from sqlalchemy import func
+    from ..models import Ticket
+    ops = _areas_usuario(db)
+    db.commit()
+    personas = dict(db.execute(select(Usuario.area_ticket, func.count(Usuario.id)).where(Usuario.activo.is_(True))
+                               .group_by(Usuario.area_ticket)).all())
+    tickets = dict(db.execute(select(Ticket.area, func.count(Ticket.id)).group_by(Ticket.area)).all())
+    sin_area = list(db.scalars(select(Usuario).where(Usuario.activo.is_(True), Usuario.area_ticket.is_(None))
+                               .order_by(Usuario.nombre)))
+    return render(request, "admin_areas_usuario.html", u, "admin", ops=ops, personas=personas, tickets=tickets,
+                  sin_area=sin_area)
+
+
+@router.post("/areas-usuario")
+async def guardar_areas_usuario(request: Request, db: Session = Depends(get_db), u: Usuario = Depends(requiere_direccion)):
+    from ..services import tickets as tk
+    form = await request.form()
+    filas = []
+    for i in range(200):
+        if f"etiqueta_{i}" not in form:
+            continue
+        oid = str(form.get(f"id_{i}") or "")
+        orden = str(form.get(f"orden_{i}") or "0").strip()
+        filas.append({"id": int(oid) if oid.isdigit() else None, "etiqueta": str(form.get(f"etiqueta_{i}") or ""),
+                      "orden": int(orden) if orden.lstrip("-").isdigit() else 0, "activo": bool(form.get(f"activo_{i}"))})
+    try:
+        n = tk.guardar_opciones(db, u, "area", filas)
+        db.commit()
+        flash(request, f"Áreas de usuarios guardadas ({n}).")
+    except tk.TicketInvalido as e:
+        db.rollback()
+        flash(request, str(e), "error")
+    return ir("/admin/areas-usuario")
 
 
 @router.post("/usuarios/{uid}/password")

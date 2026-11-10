@@ -25,7 +25,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..models import (TICKET_CIERRES, TICKET_ESTADOS, TICKET_IMPACTOS, TICKET_TIPOS, Ticket, TicketAnexo, TicketOpcion,
-                      TicketCatalogo, TicketComentario, TicketPrompt, TicketRegla, Usuario, utcnow)
+                      TicketCatalogo, TicketEstimacion, TicketComentario, TicketPrompt, TicketRegla, Usuario, utcnow)
 from . import accesos, almacen, ia, parametros
 from .util import auditar
 
@@ -235,6 +235,15 @@ def opciones(db: Session, catalogo: str, todas: bool = False) -> list[TicketOpci
     """Opciones del combo. `todas` incluye las desactivadas (para mostrar tickets viejos con su nombre)."""
     filas = list(db.scalars(select(TicketOpcion).where(TicketOpcion.catalogo == catalogo)
                             .order_by(TicketOpcion.orden, TicketOpcion.id)))
+    if not filas and catalogo == "area":  # se arranca con las áreas de la empresa
+        from ..models import Area
+        areas = list(db.scalars(select(Area).order_by(Area.id)))
+        if not areas:
+            return []
+        for i, a in enumerate(areas, 1):
+            db.add(TicketOpcion(catalogo="area", clave=a.clave[:40], etiqueta=a.nombre[:120], orden=i, activo=a.activo))
+        db.flush()
+        return opciones(db, catalogo, todas)
     if not filas:  # instalación nueva: se cargan las opciones iniciales
         base = TICKET_TIPOS if catalogo == "tipo" else TICKET_IMPACTOS
         for i, (k, e) in enumerate(base.items(), 1):
@@ -254,6 +263,11 @@ def impactos(db: Session, todas: bool = False) -> dict[str, str]:
     return {o.clave: o.etiqueta for o in opciones(db, "impacto", todas)}
 
 
+def areas_usuario(db: Session, todas: bool = False) -> dict[str, str]:
+    """Catálogo «área del usuario» (para tickets e informes); al quitar un área se conserva en el histórico."""
+    return {o.clave: o.etiqueta for o in opciones(db, "area", todas)}
+
+
 def _clave(etiqueta: str, usadas: set[str]) -> str:
     t = unicodedata.normalize("NFKD", etiqueta.lower())
     t = "".join(c for c in t if not unicodedata.combining(c))
@@ -266,7 +280,7 @@ def _clave(etiqueta: str, usadas: set[str]) -> str:
 
 def guardar_opciones(db: Session, u: Usuario, catalogo: str, filas: list[dict]) -> int:
     """filas: [{id|None, etiqueta, orden, activo, prioridad, menor}]. Nunca borra: desactiva."""
-    if catalogo not in ("tipo", "impacto"):
+    if catalogo not in ("tipo", "impacto", "area"):
         raise TicketInvalido("Catálogo inválido.")
     existentes = {o.id: o for o in opciones(db, catalogo, todas=True)}
     usadas = {o.clave for o in existentes.values()}
@@ -561,7 +575,7 @@ def crear(db: Session, u: Usuario, campos: dict, archivos: list[tuple[str, bytes
                obtenido=c["obtenido"], creado_por=u.id, validacion=validacion,
                faltantes=faltantes if validacion == "incompleto" else [],
                captura={"conversacion": conversacion[-30:]}, prompt_version=prompt_version or p.version,
-               cc=limpiar_cc(cc or []))
+               cc=limpiar_cc(cc or []), area=u.area_ticket)
     db.add(t)
     db.flush()
     for nombre, contenido in archivos:
@@ -716,7 +730,8 @@ def mover(db: Session, u: Usuario, t: Ticket, estado: str) -> None:
         t.asignado_id = u.id
 
 
-def planear(db: Session, u: Usuario, t: Ticket, *, horas, fecha_entrega, asignado: Usuario | None) -> None:
+def planear(db: Session, u: Usuario, t: Ticket, *, horas, fecha_entrega, asignado: Usuario | None,
+            motivo: str = "") -> None:
     """Pendiente → Planeado: horas que se invertirán, fecha de entrega e ingeniero que lo ejecuta.
     Si el ticket ya va más adelante, solo actualiza la planeación sin regresarlo de etapa."""
     from datetime import date as _date
@@ -736,17 +751,41 @@ def planear(db: Session, u: Usuario, t: Ticket, *, horas, fecha_entrega, asignad
     if ingeniero is None:
         raise TicketInvalido("Indica qué ingeniero lo ejecuta.")
     antes = t.estado
+    motivo = (motivo or "").strip()[:1000]
+    previas = float(t.horas_estimadas) if t.horas_estimadas is not None else None
+    cambia_horas = previas is not None and round(previas, 2) != horas
+    if cambia_horas and len(motivo) < 5:
+        raise TicketInvalido(f"Cambias la estimación de {previas:g} h a {horas:g} h: escribe el motivo del cambio.")
+    cambio = (previas is None or cambia_horas or t.fecha_entrega != fecha_entrega or t.asignado_id != ingeniero.id)
+    if t.horas_originales is None:
+        t.horas_originales = previas if previas is not None else horas
     t.horas_estimadas, t.fecha_entrega, t.asignado = horas, fecha_entrega, ingeniero
     t.planeado_en, t.actualizado = utcnow(), utcnow()
+    if cambio:
+        v = len(t.estimaciones) + 1
+        if v == 1 and previas is not None and cambia_horas:  # planeado antes de existir la historia
+            db.add(TicketEstimacion(ticket=t, version=1, horas=previas, fecha_entrega=None, asignado_id=t.asignado_id,
+                                    motivo="", por=u.id))
+            v = 2
+        db.add(TicketEstimacion(ticket=t, version=v, horas=horas, fecha_entrega=fecha_entrega, asignado_id=ingeniero.id,
+                                motivo=motivo, por=u.id))
     if t.estado in ("nuevo", "pendiente", "info"):
         t.estado = "planeado"
         if antes == "nuevo" and not t.prioridad:
             t.prioridad = prioridad_reglas(t, db)
-    texto = (f"Planeado: {horas:g} h · entrega {fecha_entrega:%d/%m/%Y} · ingeniero {ingeniero.nombre}."
-             if t.estado == "planeado" and antes != "planeado" else
-             f"Planeación actualizada: {horas:g} h · entrega {fecha_entrega:%d/%m/%Y} · ingeniero {ingeniero.nombre}.")
+    if cambia_horas:
+        dif = horas - float(t.horas_originales)
+        texto = (f"Estimación modificada: {previas:g} h → {horas:g} h "
+                 f"({'+' if dif >= 0 else ''}{dif:g} h contra la original de {float(t.horas_originales):g} h). "
+                 f"Motivo: {motivo}. Entrega {fecha_entrega:%d/%m/%Y} · ingeniero {ingeniero.nombre}.")
+    elif t.estado == "planeado" and antes != "planeado":
+        texto = f"Planeado: {horas:g} h · entrega {fecha_entrega:%d/%m/%Y} · ingeniero {ingeniero.nombre}."
+    else:
+        texto = (f"Planeación actualizada: {horas:g} h · entrega {fecha_entrega:%d/%m/%Y} · ingeniero {ingeniero.nombre}."
+                 + (f" Motivo: {motivo}." if motivo else ""))
     db.add(TicketComentario(ticket_id=t.id, autor_id=u.id, tipo="sistema", texto=texto))
-    auditar(db, "ticket_planear", "ticket", t.id, u.id, horas=horas, entrega=str(fecha_entrega), ingeniero=ingeniero.id)
+    auditar(db, "ticket_planear", "ticket", t.id, u.id, horas=horas, antes=previas, entrega=str(fecha_entrega),
+            ingeniero=ingeniero.id, motivo=motivo)
 
 
 def pedir_info(db: Session, u: Usuario, t: Ticket, pregunta: str, regla: str = "") -> TicketRegla | None:
