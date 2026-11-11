@@ -6,7 +6,37 @@
                  "notas": c.notas|selectattr("texto")|map("nota_json")|list} | tojson }}'
   data-arch='{{ c.evidencias|map("evid_json")|list|tojson }}' title="Ver evidencias y notas">{{ icon('clip', 13) }}{{ etiqueta if etiqueta is not none else 'Ver evidencias (%d)'|format(c.evidencias|length) }}</button>
 {%- endmacro %}
+{% macro boton_sospecha(c) -%}
+{%- if c.cierre_veredicto in ('dudoso', 'no_corresponde') -%}{% set d = c.cierre_detalle or {} %}
+<button type="button" class="tt-sosp noprint" data-sospecha
+  data-info='{{ {"folio": "CMP-%04d" % c.id, "texto": c.texto, "url": "/compromisos/%d" % c.id,
+                 "titulo": "La evidencia no corresponde al compromiso" if c.cierre_veredicto == "no_corresponde" else "No se ve concluido satisfactoriamente",
+                 "confianza": d.confianza or "", "motivo": d.motivo or "", "falta": d.falta or [], "cumple": d.cumple or [],
+                 "comentario": d.comentario or "", "verificado": d.verificado_en or "", "cerrado": hora_local(c.cerrado) if c.cerrado else "",
+                 "responsable": c.responsable.nombre if c.responsable else ""} | tojson }}'
+  data-evid='{{ {"folio": "CMP-%04d" % c.id, "texto": c.texto, "url": "/compromisos/%d" % c.id,
+                 "responsable": c.responsable.nombre if c.responsable else "", "limite": c.fecha_limite.strftime("%d/%m/%Y"),
+                 "notas": c.notas|selectattr("texto")|map("nota_json")|list} | tojson }}'
+  data-arch='{{ c.evidencias|map("evid_json")|list|tojson }}' title="GuardIA tiene dudas de este cierre: ver diagnóstico">{{ icon('alert', 12) }}Sospecha</button>
+{%- endif -%}
+{%- endmacro %}
 {% macro dialogo() %}
+<dialog class="rp-sosp" id="rp-sosp" aria-labelledby="rp-sosp-t">
+  <div class="rp-visor-cab"><div class="rp-visor-tit"><div class="row" style="gap:10px;align-items:baseline;flex-wrap:wrap">
+      <span class="tag r">{{ icon('alert', 12) }} Cierre con sospecha</span><b id="rp-sosp-t"></b><span class="rp-sm" id="rp-sosp-meta" style="margin:0"></span></div>
+      <div class="rp-visor-texto" id="rp-sosp-texto"></div></div>
+    <button type="button" class="btn ghost" data-sosp-x aria-label="Cerrar" style="width:42px;padding:0">{{ icon('x') }}</button></div>
+  <div class="rp-sosp-cuerpo">
+    <div class="rp-sosp-diag"><span class="rp-visor-lbl">Diagnóstico de Guard<span class="gia">IA</span></span>
+      <h3 id="rp-sosp-titulo"></h3><p id="rp-sosp-motivo"></p>
+      <div id="rp-sosp-falta-box"><b>Falta demostrar</b><ul id="rp-sosp-falta"></ul></div>
+      <div id="rp-sosp-cumple-box"><b>Sí se ve en la evidencia</b><ul id="rp-sosp-cumple"></ul></div>
+      <div id="rp-sosp-com-box"><b>Comentario al cerrar</b><p id="rp-sosp-com"></p></div>
+      <span class="rp-sm">Si el responsable sube evidencia adicional, GuardIA vuelve a revisar el cierre.</span></div>
+    <div class="rp-sosp-acc"><button type="button" class="btn soft" data-sosp-evid>{{ icon('clip', 15) }}<span>Ver evidencias</span></button>
+      <a class="btn ghost" id="rp-sosp-abrir" href="#">Abrir compromiso</a></div>
+  </div>
+</dialog>
 <dialog class="rp-visor" id="rp-visor" aria-labelledby="rp-visor-t">
   <div class="rp-visor-cab"><div class="rp-visor-tit"><div class="row" style="gap:10px;align-items:baseline;flex-wrap:wrap"><b id="rp-visor-t"></b><span class="rp-sm" id="rp-visor-meta" style="margin:0"></span><a class="lnk small" id="rp-visor-abrir" href="#">Abrir compromiso</a></div>
       <div class="rp-visor-texto" id="rp-visor-sub"></div></div>
@@ -15,5 +45,5 @@
       <span class="rp-visor-lbl" id="rp-visor-lbl-notas">Notas de seguimiento</span><ol class="rp-visor-notas" id="rp-visor-notas"></ol></div>
     <div class="rp-visor-ver" id="rp-visor-ver"></div></div>
 </dialog>
-<script src="/static/js/visor_evidencias.js?v=1"></script>
+<script src="/static/js/visor_evidencias.js?v=4"></script>
 {% endmacro %}

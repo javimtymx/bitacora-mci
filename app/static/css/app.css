@@ -572,3 +572,30 @@ td.rp-venc{background:#FAD4C8!important}
 .tt-bateria i.st-g{background:#00C875}.tt-bateria i.st-r{background:#E2445C}.tt-bateria i.st-o{background:#FDAB3D}.tt-bateria i.st-b{background:#0086C0}.tt-bateria i.st-n,.tt-bateria i.st-vacio{background:#C4C4C4}
 .tt-rango{display:inline-block;border-radius:999px;background:var(--c);color:#fff;font-size:12px;font-weight:600;padding:3px 12px}
 .tt-rojo{color:#E2445C;font-size:12.5px}
+.rp-visor-pdf{flex:1;min-height:0;width:100%;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:12px;padding:4px 0}
+.rp-visor-pdf canvas{background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.18);border-radius:2px}
+.rp-visor-pdf iframe{width:100%;flex:1;border:0;background:#fff;border-radius:6px;min-height:70vh}
+.tt-sosp{display:inline-flex;align-items:center;gap:4px;flex-shrink:0;border:1px solid #F3A8B5;background:#FDECEF;color:#B4123A;border-radius:999px;padding:1px 9px;font-size:11.5px;font-weight:800;cursor:pointer}
+.tt-sosp:hover{background:#FBD7DE}
+.rp-sosp{border:0;border-radius:12px;padding:0;width:min(980px,94vw);max-height:90vh;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+.rp-sosp::backdrop{background:rgba(11,23,32,.55)}
+.rp-sosp[open]{display:flex;flex-direction:column}
+.rp-sosp-cuerpo{padding:16px 20px;display:flex;flex-direction:column;gap:14px;overflow:auto}
+.rp-sosp-diag{display:flex;flex-direction:column;gap:10px;background:#FFF5F6;border:1px solid #F7C6CF;border-radius:10px;padding:14px 16px}
+.rp-sosp-diag h3{margin:0;color:#9F1239;font-size:17px}.rp-sosp-diag p{margin:0;line-height:1.55;white-space:pre-line}
+.rp-sosp-diag ul{margin:4px 0 0;padding-left:20px;line-height:1.5}
+.rp-sosp-acc{display:flex;gap:8px;flex-wrap:wrap}
+/* tablero: pulso del área en una sola línea (indicadores + diagnóstico de GuardIA plegable) */
+.tb-pulso{padding:0}
+.tb-pulso>summary{list-style:none}.tb-pulso>summary::-webkit-details-marker{display:none}
+.tb-pulso-fila{display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px;padding:9px 16px;font-size:13px;color:var(--ink3)}
+.tb-pulso:not([open]) .tb-pulso-fila,.tb-pulso .tb-pulso-fila{cursor:default}
+.tb-mini{display:inline-flex;align-items:center;gap:5px}
+.tb-mini b{color:var(--ink);font-size:14px}
+.tb-mini.g svg,.tb-mini.g b{color:#15803D}.tb-mini.r svg,.tb-mini.r b{color:#B91C1C}.tb-mini.o svg,.tb-mini.o b{color:#B45309}
+.tb-diag{margin-left:auto;display:inline-flex;align-items:center;gap:6px;cursor:pointer;color:var(--ink);font-weight:700;border:1px solid var(--line);border-radius:999px;padding:3px 10px}
+.tb-diag:hover{background:#F4F8FA}
+.tb-pulso[open] .tb-diag .chev{transform:rotate(90deg)}
+.tb-diag .chev{display:inline-block;transition:transform .15s;color:var(--ink3)}
+.tb-diag-txt{display:flex;flex-direction:column;gap:8px;padding:0 16px 14px;border-top:1px solid var(--line);padding-top:12px}
+a.tb-diag{text-decoration:none}

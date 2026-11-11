@@ -28,52 +28,37 @@
 </section>
 {% endif %}
 
-{% if u.es_lider and not sel %}{# en la vista de un área, el diagnóstico va en su propia tarjeta contraída #}
-{% set diags_v = diags %}
-<div class="cint diag-banner"><span class="ic">{{ icon('ia') }}</span>
-  {% if diags_v %}
-  <div style="flex:1 1 420px;display:flex;flex-direction:column;gap:6px">
-    <b>Diagnóstico de {{ guardia }} · semana {{ num_semana(sem) }}</b>
-    <div class="row" style="gap:6px 14px;flex-wrap:wrap">
-    {% for d in diags_v %}<details class="diag-chip"><summary>{{ d.area.nombre }} {{ veredicto_tag(d.veredicto) }}</summary>
-      <div class="diag-txt">{{ d.resultado.titular }}<a class="lnk" href="/diagnostico?area={{ d.area.clave }}">Abrir</a></div></details>{% endfor %}
-    </div>
-    <span class="small" style="opacity:.75">Toca un área para leer su resumen.</span>
-  </div>
-  {% else %}<span style="flex:1 1 420px">El diagnóstico de la IA se genera cada lunes por área. También puedes pedirlo ahora.</span>{% endif %}
-  <a class="btn yellow sm" href="/diagnostico{{ '?area=' ~ sel.clave if sel }}">{{ icon('ia', 16) }}Ver diagnóstico por área</a>
-</div>
-{% endif %}
 
-<div class="card" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:14px 16px">
-  <div class="stat"><span class="ico" style="background:#D7F5D6;color:#1D6B2A">{{ icon('up') }}</span><span style="font-weight:600">Indicadores ganando</span><b>{{ ganando }}</b></div>
-  <div class="stat"><span class="ico" style="background:#FDE1DF;color:#B3261E">{{ icon('dn') }}</span><span style="font-weight:600">Perdiendo</span><b>{{ perdiendo }}</b></div>
-  <div class="stat"><span class="ico" style="background:var(--mint);color:var(--teal)">{{ icon('ok') }}</span><span style="font-weight:600">Cumplidos S{{ num_semana(sem_ant) }}</span><b>{{ cumplidos_ant }} / {{ cerrados_ant }}</b></div>
-  <div class="stat"><span class="ico" style="background:#FFE9C2;color:#7A4600">{{ icon('alert') }}</span><span style="font-weight:600">Sin remediación</span><b>{{ sin_rem }}</b></div>
-</div>
+<details class="tb-pulso card"{% if not cons %} open{% endif %}>
+  <summary class="tb-pulso-fila">
+    <span class="tb-mini {{ 'g' if ganando }}" title="Indicadores ganando">{{ icon('up', 13) }}<b>{{ ganando }}</b> ganando</span>
+    <span class="tb-mini {{ 'r' if perdiendo }}" title="Indicadores perdiendo">{{ icon('dn', 13) }}<b>{{ perdiendo }}</b> perdiendo</span>
+    <span class="tb-mini" title="Compromisos cumplidos de la semana {{ num_semana(sem_ant) }}">{{ icon('ok', 13) }}<b>{{ cumplidos_ant }}/{{ cerrados_ant }}</b> cumplidos S{{ num_semana(sem_ant) }}</span>
+    <span class="tb-mini {{ 'o' if sin_rem }}" title="No cumplidos sin remediación">{{ icon('alert', 13) }}<b>{{ sin_rem }}</b> sin remediación</span>
+    {% if cons %}<span class="tb-diag">{{ icon('ia', 14) }}<span>Guard<span class="gia">IA</span></span>
+      {% if cons.diag %}{{ veredicto_tag(cons.diag.veredicto) }}<span class="muted small">S{{ num_semana(cons.diag.semana) }}</span>{% else %}<span class="muted small">sin diagnóstico</span>{% endif %}
+      <span class="chev" aria-hidden="true">▸</span></span>
+    {% elif u.es_lider %}<a class="tb-diag" href="/diagnostico">{{ icon('ia', 14) }}<span>Guard<span class="gia">IA</span></span><span class="muted small">diagnósticos S{{ num_semana(sem) }}</span><span class="chev" aria-hidden="true">›</span></a>{% endif %}
+  </summary>
+  {% if cons %}<div class="tb-diag-txt">
+    {% if cons.diag %}<b style="line-height:1.45">{{ cons.diag.resultado.titular }}</b>
+      {% if cons.diag.resultado.lectura %}<p class="small" style="margin:0;line-height:1.55">{{ cons.diag.resultado.lectura }}</p>{% endif %}
+      {% if u.es_lider %}<a class="btn sm soft" style="align-self:flex-start" href="/diagnostico?area={{ sel.clave }}">{{ icon('ia', 15) }}Abrir diagnóstico completo</a>{% endif %}
+    {% else %}<span class="muted small">Aún no hay diagnóstico de GuardIA para esta área.</span>{% endif %}
+  </div>{% endif %}
+</details>
 
 {% if resumen_areas %}
 <section class="card pad"><h2>Resumen por área</h2>
   <div class="tbl"><table><thead><tr><th>Área</th><th class="num">Indicadores ganando ({{ nombre_mes(mes, false)|lower }})</th><th class="num">Perdiendo</th><th class="num">Compromisos 4 sem</th><th>Diagnóstico S{{ num_semana(sem) }}</th><th></th></tr></thead><tbody>
   {% for r in resumen_areas %}<tr><td><b>{{ r.area.nombre }}</b></td><td class="num" style="color:var(--g-fg);font-weight:700">{{ r.ganando }} / {{ r.total }}</td><td class="num" style="color:{{ 'var(--r-fg)' if r.perdiendo else 'inherit' }};font-weight:700">{{ r.perdiendo }}</td>
-    <td class="num">{{ pct(r.pct) }}</td><td>{% if r.diag %}{{ veredicto_tag(r.diag.veredicto) }}{% else %}<span class="muted small">pendiente</span>{% endif %}</td>
+    <td class="num">{{ pct(r.pct) }}</td><td>{% if r.diag %}<a href="/diagnostico?area={{ r.area.clave }}" title="{{ r.diag.resultado.titular }}">{{ veredicto_tag(r.diag.veredicto) }}</a>{% else %}<span class="muted small">pendiente</span>{% endif %}</td>
     <td><a class="lnk" href="/?area={{ r.area.clave }}&mes={{ mes }}">{{ icon('eye', 15) }}Ver área</a></td></tr>{% endfor %}</tbody></table></div>
 </section>{% endif %}
 
 {% if not n_mci %}<div class="card pad muted">No hay indicadores en esta vista. Dirección los da de alta en Configurar → Catálogo.</div>{% endif %}
 
 {% if cons %}
-<div class="grid2" style="grid-template-columns:1fr">
-<section class="card pad"><details class="diag-area">
-  <summary><div class="row between" style="gap:10px;width:100%"><h2 class="row" style="gap:8px">{{ icon('ia', 18) }}<span>Diagnóstico de {{ guardia }}</span></h2>
-    <span class="row" style="gap:8px">{% if cons.diag %}{{ veredicto_tag(cons.diag.veredicto) }}<span class="muted small">S{{ num_semana(cons.diag.semana) }}</span>{% else %}<span class="muted small">Sin diagnóstico</span>{% endif %}<span class="chev" aria-hidden="true">▸</span></span></div></summary>
-  {% if cons.diag %}<div class="col" style="gap:8px;margin-top:10px">
-    <b style="line-height:1.45">{{ cons.diag.resultado.titular }}</b>
-    {% if cons.diag.resultado.lectura %}<p class="small" style="margin:0;line-height:1.55">{{ cons.diag.resultado.lectura }}</p>{% endif %}
-    {% if u.es_lider %}<a class="btn sm soft" style="align-self:flex-start" href="/diagnostico?area={{ sel.clave }}">{{ icon('ia', 15) }}Abrir diagnóstico completo</a>{% endif %}
-  </div>{% else %}<span class="muted small">Aún no hay diagnóstico para esta área.</span>{% endif %}
-</details></section>
-</div>
 
 {% macro comp_item(c, con_medida=false) -%}
 <div class="ci">

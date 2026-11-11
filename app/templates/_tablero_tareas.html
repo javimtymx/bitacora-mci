@@ -30,7 +30,7 @@
           <td class="tt-borde"></td>
           <td class="tt-txt"><div class="tt-txt-in">
             <button type="button" class="tt-sub-btn" data-tt-sub="{{ c.id }}" aria-expanded="false" title="Subtareas">{{ '▸' }}<span>{{ hechas }}/{{ c.subtareas|length }}</span></button>
-            <a href="/compromisos/{{ c.id }}" class="tt-link"><span class="tt-fol">CMP-{{ '%04d' % c.id }}</span> {{ c.texto }}</a></div></td>
+            <a href="/compromisos/{{ c.id }}" class="tt-link"><span class="tt-fol">CMP-{{ '%04d' % c.id }}</span> {{ c.texto }}</a>{{ visor.boton_sospecha(c) }}</div></td>
           <td><span class="tt-persona"><span class="tt-av">{{ inic(c.responsable.nombre) if c.responsable else '—' }}</span>{{ c.responsable.nombre if c.responsable else '—' }}</span></td>
           <td class="tt-st st-{{ e.color }}" title="{{ e.texto }}">{{ e.texto|replace('No cumplido · ', '')|replace('Abierto · ', '')|capitalize }}</td>
           <td class="c"><span class="tt-bar"><i style="width:{{ 100 if c.estado == 'cumplido' else c.avance }}%"></i></span><small>{{ 100 if c.estado == 'cumplido' else c.avance }}%</small></td>

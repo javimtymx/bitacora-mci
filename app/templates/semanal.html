@@ -51,7 +51,7 @@
 <tr class="rp-c st-{{ r.estados[c.id].color }}">
   <td class="rp-fol">CMP-{{ '%04d' % c.id }}</td>
   <td class="c">{{ num_semana(c.semana) }}</td>
-  <td>{{ estado_comp(c, seg) }}</td>
+  <td>{{ estado_comp(c, seg) }}{% if c.cierre_veredicto in ("dudoso", "no_corresponde") %}<div style="margin-top:4px">{{ visor.boton_sospecha(c) }}</div>{% endif %}</td>
   <td>{{ c.responsable.nombre if c.responsable else '—' }}</td>
   <td class="rp-txt"><span class="pl">{{ c.texto }}</span>
     {% if rem %}<div class="rp-rem"><b>Causa:</b> <span class="pl">{{ rem.causa }}</span><br><b>Acción:</b> <span class="pl">{{ rem.accion }}</span> · <b>Nueva fecha:</b> {{ fecha(rem.nueva_fecha) }}</div>

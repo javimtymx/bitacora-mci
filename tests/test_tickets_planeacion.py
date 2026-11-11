@@ -586,3 +586,23 @@ def test_visor_en_tablero_con_texto_completo_y_notas(admin, db):
         html = admin.get(url).text
         assert 'data-visor' in html and 'id="rp-visor"' in html and "visor_evidencias.js" in html
         assert "Dos de cinco clientes ya respondieron" in html and largo.strip()[-60:] in html
+
+
+def test_marca_de_sospecha_en_tablero_y_pdf_en_visor(admin, db):
+    from app.models import Area, Compromiso, Mci, Predictiva
+    from app.services.util import hoy, semana_iso
+    a = db.scalar(select(Area).join(Mci, Mci.area_id == Area.id))
+    p = db.scalar(select(Predictiva).join(Mci).where(Mci.area_id == a.id))
+    jm = _u(db, "jmartinez@onecore.mx")
+    c = Compromiso(semana=semana_iso(hoy()), area_id=a.id, responsable_id=jm.id, autor_id=jm.id, predictiva_id=p.id,
+                   texto="Llamar a 5 clientes del análisis de riesgo", fecha_limite=hoy(), estado="cumplido", avance=100,
+                   cierre_veredicto="dudoso",
+                   cierre_detalle={"motivo": "La evidencia no muestra las llamadas", "falta": ["Minuta de cada llamada"],
+                                   "cumple": [], "confianza": "media", "comentario": "Ver minuta"})
+    db.add(c)
+    db.commit()
+    html = admin.get(f"/?area={a.clave}").text
+    assert "data-sospecha" in html and "La evidencia no muestra las llamadas" in html and "Minuta de cada llamada" in html
+    assert 'id="rp-sosp"' in html and "/static/vendor/pdfjs/" in admin.get("/static/js/visor_evidencias.js").text
+    assert admin.get("/static/vendor/pdfjs/pdf.min.js").status_code == 200
+    assert "data-sospecha" in admin.get("/semanal?tipo=todo").text
