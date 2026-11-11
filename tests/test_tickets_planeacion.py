@@ -391,7 +391,7 @@ def test_rendicion_de_cuentas_pdf(admin, db):
     html = admin.get(f"/semanal?semana={sem}").text
     assert largo.strip() in html  # el texto va completo
     assert "El cliente pospuso la reunión" in html and "Reagendar y enviar por correo" in html
-    assert "Dos de tres cerraron demo" in html and "Sin medida predictiva" in html and p.nombre in html
+    assert "Dos de tres cerraron demo" in html and "sin medida predictiva" in html and p.nombre in html and "CMP-" in html
     assert html.index(largo.strip()) < html.index("Visitar a tres clientes clave")  # no cumplido antes que cumplido
     assert "Cumplimiento" in html
     assert admin.get("/semanal?tipo=mes").status_code == 200

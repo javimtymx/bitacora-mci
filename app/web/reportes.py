@@ -85,7 +85,7 @@ def semanal(request: Request, tipo: str = "semana", semana: str | None = None, m
     return render(request, "semanal.html", u, "semanal", tipo=tipo, sem=semana or sems[-1], sems=sems, etiqueta=etiqueta,
                   mes=mes_ref, reportes=reportes_, semanas=lista_sem, meses=indicadores.meses_disponibles()[::-1],
                   nombre_mes=indicadores.nombre_mes, areas=todas, area_sel=area or "", desde=desde, hasta=hasta,
-                  generado=utcnow())
+                  generado=utcnow(), seg=seguimiento)
 
 
 # ---------------------------------------------------------------- descargas Excel

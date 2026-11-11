@@ -1,4 +1,4 @@
-{% extends "base.html" %}{% from "_ui.html" import icon with context %}
+{% extends "base.html" %}{% from "_ui.html" import icon, estado_comp with context %}
 {% block title %}Rendición de cuentas · {{ etiqueta }}{% endblock %}
 {% macro ver_tag(v) -%}
 {%- if v == 'ganando' -%}<span class="tag g">Ganando</span>{%- elif v == 'perdiendo' -%}<span class="tag r">Perdiendo</span>
@@ -42,43 +42,56 @@
       <td class="c">{% if r.pct is none %}<span class="tag n">s/d</span>{% else %}<span class="tag {{ 'g' if r.pct >= 85 else ('o' if r.pct >= 65 else 'r') }} rp-pct">{{ '%.0f'|format(r.pct) }}%</span>{% endif %}</td></tr>
     {% else %}<tr><td colspan="6" class="rp-muted">No hay áreas con MCI.</td></tr>{% endfor %}
     </tbody></table>
-  <p class="rp-nota">Cumplimiento = cumplidos ÷ (cumplidos + no cumplidos); los abiertos no cuentan hasta cerrarse. Cada área sigue en sus propias hojas, por medida predictiva: primero lo no cumplido, luego lo abierto y al final lo cumplido.</p>
+  <p class="rp-nota">Cumplimiento = cumplidos ÷ (cumplidos + no cumplidos); los abiertos no cuentan hasta cerrarse. Después, el informe de cada área por MCI y medida predictiva: primero lo no cumplido, luego lo abierto y al final lo cumplido.</p>
 </section>
 
-{# ------------------------------------------------ detalle por área #}
+{# ------------------------------------------------ informe: área › MCI › medida predictiva › compromisos #}
+{% macro fila(c, r) %}{% set rem = c.remediacion %}{% set nota = (c.notas|selectattr('texto')|list)[-1] if c.notas else none %}
+<tr class="rp-c st-{{ r.estados[c.id].color }}">
+  <td class="rp-fol">CMP-{{ '%04d' % c.id }}</td>
+  <td class="c">{{ num_semana(c.semana) }}</td>
+  <td>{{ estado_comp(c, seg) }}</td>
+  <td>{{ c.responsable.nombre if c.responsable else '—' }}</td>
+  <td class="rp-txt"><span class="pl">{{ c.texto }}</span>
+    {% if rem %}<div class="rp-rem"><b>Causa:</b> <span class="pl">{{ rem.causa }}</span><br><b>Acción:</b> <span class="pl">{{ rem.accion }}</span> · <b>Nueva fecha:</b> {{ fecha(rem.nueva_fecha) }}</div>
+    {% elif c.estado == 'no_cumplido' %}<div class="rp-rem r"><b>Sin remediación registrada.</b></div>{% endif %}
+    {% if nota %}<div class="rp-notav"><b>Nota {{ hora_local(nota.creado)[:10] }} · {{ nota.usuario.nombre if nota.usuario else '' }}:</b> <span class="pl">{{ nota.texto }}</span></div>{% endif %}</td>
+  <td class="rp-vence">{{ fecha(c.fecha_limite) }}{% if c.cerrado and c.estado in ('cumplido','no_cumplido') %}<div class="rp-sm">{{ 'Cumplido' if c.estado == 'cumplido' else 'Cerrado' }} {{ hora_local(c.cerrado)[:10] }}</div>{% endif %}</td>
+  <td class="rp-av"><span class="rp-bar"><i style="width:{{ 100 if c.estado == 'cumplido' else c.avance }}%" class="{{ r.estados[c.id].color }}"></i></span><span>{{ 100 if c.estado == 'cumplido' else c.avance }}%</span></td>
+</tr>{% endmacro %}
+
 {% for r in reportes %}
 <section class="rp-hoja rp-areah">
   <table class="rp-t">
-    <thead><tr><th colspan="3">
-      <div class="rp-cab rp-cab-area"><div><span class="rp-k">{{ etiqueta }}</span><h2>{{ r.area.nombre }} {{ ver_tag(r.veredicto) }}</h2>
-        <div class="rp-mcis">{% for x in r.mcis %}<span>{{ mci_linea(x) }}</span>{% endfor %}</div></div>
-        <div class="rp-totales"><span class="g"><b>{{ r.cumplidos }}</b>cumplidos</span><span class="{{ 'r' if r.no_cumplidos }}"><b>{{ r.no_cumplidos }}</b>no cumplidos</span><span><b>{{ r.abiertos }}</b>abiertos</span>
-          {% if r.pct is not none %}<span><b>{{ '%.0f'|format(r.pct) }}%</b>cumplimiento</span>{% endif %}</div></div>
-    </th></tr></thead>
+    <colgroup><col style="width:7.5%"><col style="width:4.5%"><col style="width:12%"><col style="width:11%"><col><col style="width:9%"><col style="width:11%"></colgroup>
+    <thead>
+      <tr><th colspan="7" class="rp-th-area">
+        <div class="rp-cab rp-cab-area"><div><span class="rp-k">{{ etiqueta }}</span><h2>{{ r.area.nombre }} {{ ver_tag(r.veredicto) }}</h2></div>
+          <div class="rp-totales"><span class="g"><b>{{ r.cumplidos }}</b>cumplidos</span><span class="{{ 'r' if r.no_cumplidos }}"><b>{{ r.no_cumplidos }}</b>no cumplidos</span><span><b>{{ r.abiertos }}</b>abiertos</span>
+            {% if r.pct is not none %}<span><b>{{ '%.0f'|format(r.pct) }}%</b>cumplimiento</span>{% endif %}</div></div></th></tr>
+      <tr class="rp-cols"><th>Folio</th><th class="c">Sem.</th><th>Estatus</th><th>Responsable</th><th>Compromiso</th><th>Vence</th><th>Avance</th></tr>
+    </thead>
     <tbody>
-    {% for g in r.grupos %}
-      <tr class="rp-grp"><td colspan="3">
-        <div class="rp-grp-in"><div><b>{{ g.predictiva.nombre if g.predictiva else 'Sin medida predictiva' }}</b>
-          {% if g.mci %}<span class="rp-muted"> · {{ g.mci.nombre }}</span>{% endif %}</div>
-          <div class="rp-grp-dat">{% if g.version and g.version.meta_semanal is not none %}<span>Meta semanal {{ valor(g.version.meta_semanal, g.version.unidad) }}</span>{% endif %}
-            {% for c in g.celdas %}<span class="rp-cel {{ c.estado }}">S{{ num_semana(c.semana) }}: {{ valor(c.valor, g.version.unidad if g.version else '') if c.valor is not none else 'sin captura' }}</span>{% endfor %}
-            <span><b>{{ g.cumplidos }} de {{ g.comps|length }}</b> cumplidos</span></div></div></td></tr>
-      {% for c in g.comps %}{% set e = r.estados[c.id] %}{% set rem = c.remediacion %}{% set nota = (c.notas|selectattr('texto')|list)[-1] if c.notas else none %}
-      <tr class="rp-c st-{{ e.color }}">
-        <td class="rp-est"><span class="rp-ico {{ e.color }}">{{ e.icono }}</span><span class="rp-est-t {{ e.color }}">{{ e.texto }}</span>
-          {% if c.estado == 'abierto' %}<span class="rp-sm">Avance {{ c.avance }}%</span>{% endif %}</td>
-        <td class="rp-txt"><div class="rp-comp pl">{{ c.texto }}</div>
-          {% if rem %}<div class="rp-rem"><div><b>Causa:</b> <span class="pl">{{ rem.causa }}</span></div><div><b>Acción:</b> <span class="pl">{{ rem.accion }}</span></div>
-            <div><b>Nueva fecha:</b> {{ fecha(rem.nueva_fecha) }} · <b>Remediación:</b> {{ {'abierta':'abierta','cumplida':'cumplida','no_cumplida':'no cumplida','cancelada':'cancelada'}.get(rem.estado, rem.estado) }}</div></div>
-          {% elif c.estado == 'no_cumplido' %}<div class="rp-rem r"><b>Sin remediación registrada.</b></div>{% endif %}
-          {% if nota %}<div class="rp-notav"><b>Nota ({{ hora_local(nota.creado) }} · {{ nota.usuario.nombre if nota.usuario else '' }}):</b> <span class="pl">{{ nota.texto }}</span></div>{% endif %}</td>
-        <td class="rp-dat"><div><b>{{ c.responsable.nombre if c.responsable else '—' }}</b></div>
-          <div>Semana {{ num_semana(c.semana) }}</div>
-          <div>Fecha límite: <b>{{ fecha(c.fecha_limite) }}</b></div>
-          {% if c.cerrado and c.estado in ('cumplido', 'no_cumplido') %}<div>{{ 'Cumplido' if c.estado == 'cumplido' else 'Cerrado' }}: <b>{{ hora_local(c.cerrado)[:10] }}</b></div>{% endif %}</td>
-      </tr>{% else %}
-      <tr class="rp-c"><td></td><td colspan="2" class="rp-muted">Sin compromisos en el periodo.</td></tr>{% endfor %}
-    {% else %}<tr><td colspan="3" class="rp-muted">El área no tiene medidas predictivas ni compromisos en el periodo.</td></tr>{% endfor %}
+    {% for x in r.mcis %}
+      <tr class="rp-mci"><td colspan="7"><div class="rp-mci-in">
+        <div><span class="rp-k2">MCI</span> <b>{{ x.mci.nombre }}</b></div>
+        <div class="rp-mci-dat"><span>Resultado del mes: <b>{% if x.mes and x.mes.valor is not none %}{{ valor(x.mes.valor, x.version.unidad if x.version else '', x.dec) }}{% else %}sin captura{% endif %}</b>
+          <span class="rp-muted">/ meta {{ valor(x.mes.objetivo, x.version.unidad if x.version else '', x.dec) if x.mes and x.mes.objetivo is not none else '—' }}</span></span>{{ ver_tag('ganando' if x.racha[0] in ('ganando','en_meta') else ('perdiendo' if x.racha[0] == 'perdiendo' else ('en_curso' if x.racha[0] == 'en_curso' else 'sin_datos'))) }}
+          <span><b>{{ x.comps|selectattr('estado','equalto','cumplido')|list|length }} de {{ x.comps|length }}</b> cumplidos</span></div></div></td></tr>
+      {% for g in x.grupos %}
+      <tr class="rp-grp"><td colspan="7"><div class="rp-grp-in">
+        <div><span class="rp-k2">Medida predictiva</span> <b>{{ g.predictiva.nombre }}</b></div>
+        <div class="rp-grp-dat">{% if g.version and g.version.meta_semanal is not none %}<span>Meta semanal {{ valor(g.version.meta_semanal, g.version.unidad) }}</span>{% endif %}
+          {% for c in g.celdas %}<span class="rp-cel {{ c.estado }}">S{{ num_semana(c.semana) }}: {{ valor(c.valor, g.version.unidad if g.version else '') if c.valor is not none else 'sin captura' }}</span>{% endfor %}
+          <span><b>{{ g.cumplidos }} de {{ g.comps|length }}</b> cumplidos</span></div></div></td></tr>
+        {% for c in g.comps %}{{ fila(c, r) }}{% else %}<tr class="rp-c"><td colspan="7" class="rp-muted rp-vacio">Sin compromisos en el periodo.</td></tr>{% endfor %}
+      {% endfor %}
+    {% endfor %}
+    {% if r.sueltos %}
+      <tr class="rp-grp"><td colspan="7"><div class="rp-grp-in rp-sin"><div><b>Compromisos sin medida predictiva</b></div>
+        <div class="rp-grp-dat"><span><b>{{ r.sueltos.cumplidos }} de {{ r.sueltos.comps|length }}</b> cumplidos</span></div></div></td></tr>
+      {% for c in r.sueltos.comps %}{{ fila(c, r) }}{% endfor %}
+    {% endif %}
     </tbody></table>
 </section>
 {% endfor %}

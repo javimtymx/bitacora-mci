@@ -85,6 +85,11 @@ class MciMes:
     mes: object  # PuntoMes
     racha: tuple
     dec: int
+    grupos: list[GrupoPred] = field(default_factory=list)  # sus medidas predictivas
+
+    @property
+    def comps(self) -> list[Compromiso]:
+        return [c for g in self.grupos for c in g.comps]
 
 
 @dataclass
@@ -97,6 +102,10 @@ class AreaReporte:
     @property
     def comps(self) -> list[Compromiso]:
         return [c for g in self.grupos for c in g.comps]
+
+    @property
+    def sueltos(self) -> GrupoPred | None:
+        return next((g for g in self.grupos if g.predictiva is None), None)
 
     def cuenta(self, *claves: str) -> int:
         return sum(1 for c in self.comps if self.estados[c.id].clave in claves)
@@ -139,6 +148,7 @@ class AreaReporte:
 
 
 def area_reporte(db: Session, area: Area, sems: list[str]) -> AreaReporte:
+    """Jerarquía: área › MCI › medida predictiva › compromisos; los compromisos sin predictiva van al final del área."""
     excs = seguimiento.excepciones_aprobadas(db)
     preds = list(db.scalars(select(Predictiva).join(Mci).where(Mci.area_id == area.id, Mci.activo.is_(True))
                             .order_by(Mci.id, Predictiva.id)))
@@ -160,5 +170,6 @@ def area_reporte(db: Session, area: Area, sems: list[str]) -> AreaReporte:
     mcis = []
     for m in indicadores.mcis_de(db, area.id):
         sr = indicadores.serie_mci(db, m, 1, sems[-1], n_meses=1)
-        mcis.append(MciMes(mci=m, version=sr.version, mes=sr.actual, racha=sr.racha, dec=indicadores.decimales(m)))
+        mcis.append(MciMes(mci=m, version=sr.version, mes=sr.actual, racha=sr.racha, dec=indicadores.decimales(m),
+                           grupos=[g for g in grupos if g.mci and g.mci.id == m.id]))
     return AreaReporte(area=area, mcis=mcis, grupos=grupos, estados=estados)
