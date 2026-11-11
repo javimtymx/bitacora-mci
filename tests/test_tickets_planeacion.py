@@ -365,3 +365,35 @@ def test_catalogo_de_productos_abc(admin, manuel, db):
     assert r.status_code == 200
     db.expire_all()
     assert db.scalar(select(Ticket).order_by(Ticket.id.desc())).producto == "Procesos Productivos"
+
+
+def test_rendicion_de_cuentas_pdf(admin, db):
+    from app.models import Area, Compromiso, CompromisoNota, Mci, Predictiva, Remediacion
+    from app.services.util import hoy, semana_iso
+    a = db.scalar(select(Area).join(Mci, Mci.area_id == Area.id))
+    m = db.scalar(select(Mci).where(Mci.area_id == a.id))
+    p = db.scalar(select(Predictiva).where(Predictiva.mci_id == m.id))
+    jm = _u(db, "jmartinez@onecore.mx")
+    sem = semana_iso(hoy())
+    largo = "Enviar propuesta formal con el comparativo de SAFE contra su proceso actual de validación de pedimentos " * 3
+    ok = Compromiso(semana=sem, area_id=a.id, responsable_id=jm.id, autor_id=jm.id, predictiva_id=p.id,
+                    texto="Visitar a tres clientes clave", fecha_limite=hoy(), estado="cumplido", avance=100)
+    mal = Compromiso(semana=sem, area_id=a.id, responsable_id=jm.id, autor_id=jm.id, predictiva_id=p.id,
+                     texto=largo, fecha_limite=hoy(), estado="no_cumplido")
+    suelto = Compromiso(semana=sem, area_id=a.id, responsable_id=jm.id, autor_id=jm.id, predictiva_id=None,
+                        texto="Documentar objeciones", fecha_limite=hoy() + timedelta(days=3), estado="abierto")
+    db.add_all([ok, mal, suelto])
+    db.flush()
+    db.add(Remediacion(compromiso_id=mal.id, causa="El cliente pospuso la reunión", accion="Reagendar y enviar por correo",
+                       nueva_fecha=hoy() + timedelta(days=4), creado_por=jm.id))
+    db.add(CompromisoNota(compromiso_id=ok.id, usuario_id=jm.id, avance=100, texto="Dos de tres cerraron demo"))
+    db.commit()
+    html = admin.get(f"/semanal?semana={sem}").text
+    assert largo.strip() in html  # el texto va completo
+    assert "El cliente pospuso la reunión" in html and "Reagendar y enviar por correo" in html
+    assert "Dos de tres cerraron demo" in html and "Sin medida predictiva" in html and p.nombre in html
+    assert html.index(largo.strip()) < html.index("Visitar a tres clientes clave")  # no cumplido antes que cumplido
+    assert "Cumplimiento" in html
+    assert admin.get("/semanal?tipo=mes").status_code == 200
+    r = admin.get(f"/semanal?tipo=rango&desde={hoy() - timedelta(days=10)}&hasta={hoy()}&area={a.clave}")
+    assert r.status_code == 200 and "Visitar a tres clientes clave" in r.text

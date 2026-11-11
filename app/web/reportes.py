@@ -25,7 +25,8 @@ from ..models import (
 )
 from ..services import seguimiento
 from ..services.util import auditar, hoy, semana_iso, semanas_atras
-from .base import check_password, flash, hash_password, ir, render, requiere_direccion, requiere_lider, usuario_actual
+from .base import (OptDate, check_password, flash, hash_password, ir, render, requiere_direccion, requiere_lider,
+                   usuario_actual)
 
 router = APIRouter()
 
@@ -64,23 +65,27 @@ def indicadores(request: Request, db: Session = Depends(get_db), u: Usuario = De
 # ---------------------------------------------------------------- presentación semanal
 
 @router.get("/semanal")
-def semanal(request: Request, semana: str | None = None, db: Session = Depends(get_db), u: Usuario = Depends(requiere_lider)):
-    """Junta semanal 4DX: por área, compromisos cumplidos y no cumplidos con su remediación y nueva fecha."""
-    sem = semana or semana_iso(hoy() - timedelta(days=7) if hoy().weekday() < 2 else hoy())
-    excs = seguimiento.excepciones_aprobadas(db)
-    areas = []
-    q = select(Area).where(Area.activo.is_(True)).order_by(Area.nombre)
-    for a in db.scalars(q):
-        if not u.es_direccion and a.id != u.area_id:
-            continue
-        comps = list(db.scalars(select(Compromiso).where(Compromiso.area_id == a.id, Compromiso.semana == sem)
-                                .order_by(Compromiso.responsable_id)))
-        if not comps:
-            continue
-        areas.append({"area": a, "comps": comps, "cumpl": seguimiento.cumplimiento(comps, excs),
-                      "exc": {c.id: seguimiento.esta_exceptuado(c, excs) for c in comps}})
-    semanas = semanas_atras(8)
-    return render(request, "semanal.html", u, "semanal", sem=sem, areas=areas, semanas=semanas)
+def semanal(request: Request, tipo: str = "semana", semana: str | None = None, mes: str | None = None,
+            desde: OptDate = None, hasta: OptDate = None, area: str | None = None,
+            db: Session = Depends(get_db), u: Usuario = Depends(requiere_lider)):
+    """Rendición de cuentas en PDF 16:9: vista general por área y, por área, sus compromisos por medida predictiva."""
+    from ..services import indicadores, reporte_semanal as rs
+    tipo = tipo if tipo in ("semana", "mes", "rango") else "semana"
+    if tipo == "semana" and not semana:
+        semana = semana_iso(hoy() - timedelta(days=7) if hoy().weekday() < 2 else hoy())
+        if semana < indicadores.inicio_seguimiento():
+            semana = semana_iso(hoy())  # antes del arranque no hay junta que revisar
+    sems, etiqueta, mes_ref = rs.periodo(tipo, semana, mes, desde, hasta)
+    todas = [a for a in db.scalars(select(Area).where(Area.activo.is_(True)).order_by(Area.id))
+             if indicadores.mcis_de(db, a.id) and (u.es_direccion or a.id == u.area_id)]
+    reportes_ = [rs.area_reporte(db, a, sems) for a in todas if not area or a.clave == area]
+    lista_sem = semanas_atras(12)
+    if semana and semana not in lista_sem:
+        lista_sem = sorted(set(lista_sem) | {semana}, reverse=True)
+    return render(request, "semanal.html", u, "semanal", tipo=tipo, sem=semana or sems[-1], sems=sems, etiqueta=etiqueta,
+                  mes=mes_ref, reportes=reportes_, semanas=lista_sem, meses=indicadores.meses_disponibles()[::-1],
+                  nombre_mes=indicadores.nombre_mes, areas=todas, area_sel=area or "", desde=desde, hasta=hasta,
+                  generado=utcnow())
 
 
 # ---------------------------------------------------------------- descargas Excel
