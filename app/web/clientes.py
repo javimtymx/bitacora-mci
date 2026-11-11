@@ -102,7 +102,7 @@ def agenda(request: Request, mes: str = "", area: OptInt = None, db: Session = D
     return render(request, "clientes_agenda.html", u, "clientes-agenda", mes=mes, etiqueta=cl.etiqueta_mes(mes),
                   ant=cl.mes_mover(mes, -1), sig=cl.mes_mover(mes, 1), sesiones=ses, semanas=sorted(semanas.items()),
                   res=cl.resumen_mes(ses), area_sel=area, areas=_areas(db), gente=_gente(db), tipos=AGENDA_TIPOS,
-                  estado_visible=cl.estado_visible, nombre_cliente=cl.nombre_cliente,
+                  estado_visible=cl.estado_visible, nombre_cliente=cl.nombre_cliente, flag_minuta=cl.flag_minuta,
                   catalogo=_clientes(db) if u.puede_confidencial else [], area_def=ops.id if ops else u.area_id,
                   hay_anterior=bool(cl.agenda_mes(db, cl.mes_mover(mes, -1))), flags=agenda_avisos.flags(db, ses))
 
@@ -181,11 +181,13 @@ def ver_agenda(aid: int, request: Request, db: Session = Depends(get_db), u: Usu
     s = a.sesion
     return render(request, "clientes_agenda_ver.html", u, "clientes-agenda", a=a, s=s, tipos=AGENDA_TIPOS,
                   estados=AGENDA_ESTADOS, estado=cl.estado_visible(a), cliente=cl.nombre_cliente(u, a),
-                  puede=_puede_editar_agenda(u, a), gente=_gente(db), lider=cl.puede_gestionar(u),
+                  puede=_puede_editar_agenda(u, a), gente=_gente(db), lider=cl.puede_gestionar(u) or a.responsable_id == u.id,
+                  flag_minuta=cl.flag_minuta(a),
                   atorado=bool(s and vozcliente.analisis_atorado(s)), ve_sesion=bool(s and (u.es_direccion or s.autor_id == u.id or
                                                                                           (u.rol == "lider" and u.area_id == s.area_id))),
                   propuestas=[p for p in a.pendientes if p.estado == "propuesta"],
                   pendientes=[p for p in a.pendientes if p.estado != "propuesta"], pend_estados=PENDIENTE_ESTADOS,
+                  por_id={p.id: p for p in a.pendientes},
                   vence=cl.vence, fecha_def=hoy() + timedelta(days=5), prep=agenda_avisos.preparacion(db, a))
 
 
@@ -296,7 +298,7 @@ def _pend(db: Session, pid: int) -> PendienteCliente:
 @router.get("/clientes/pendientes")
 def pendientes(request: Request, persona: OptInt = None, tipo: str = "", db: Session = Depends(get_db),
                u: Usuario = Depends(usuario_actual)):
-    q = select(PendienteCliente).where(PendienteCliente.estado != "descartado").order_by(PendienteCliente.id.desc())
+    q = select(PendienteCliente).where(PendienteCliente.estado.notin_(("historico", "no_vigente"))).order_by(PendienteCliente.id.desc())
     lista = list(db.scalars(q))
     desde = utcnow() - timedelta(days=30)
     lista = [p for p in lista if p.estado != "resuelto" or (p.resuelto_en and p.resuelto_en >= desde)]
@@ -313,7 +315,8 @@ def pendientes(request: Request, persona: OptInt = None, tipo: str = "", db: Ses
     abiertos = [p for p in lista if p.estado in ("pendiente", "en_curso", "revision")]
     return render(request, "clientes_pendientes.html", u, "clientes-pendientes", columnas=cols, gente=_gente(db),
                   persona=persona, tipo=tipo, tipos=PENDIENTE_TIPOS, vence=cl.vence, nombre_cliente=cl.nombre_cliente,
-                  lider=cl.puede_gestionar(u), catalogo=_clientes(db) if u.puede_confidencial else [],
+                  lider=cl.puede_gestionar(u), catalogo=_clientes(db) if u.puede_confidencial else [], ve_hist=cl.ve_historico(u),
+                  n_hist=db.query(PendienteCliente).filter(PendienteCliente.estado == "historico").count(),
                   n_quejas=sum(1 for p in abiertos if p.tipo == "queja"), n_tareas=sum(1 for p in abiertos if p.tipo == "tarea"),
                   n_vencidos=sum(1 for p in abiertos if cl.vence(p)[1] == "r"),
                   n_sospecha=sum(1 for p in lista if p.estado == "resuelto" and p.veredicto in ("dudoso", "no_corresponde")),
@@ -335,7 +338,7 @@ def crear_pendiente(request: Request, tipo: str = Form("tarea"), titulo: str = F
         rfc, nombre = cliente.split("|", 1)
     if a:
         rfc, nombre = a.cliente_rfc, a.cliente_nombre
-    lider = cl.puede_gestionar(u)
+    lider = cl.puede_gestionar(u) or bool(a and a.responsable_id == u.id)
     p = PendienteCliente(tipo=tipo if tipo in PENDIENTE_TIPOS else "tarea", titulo=titulo.strip()[:200], detalle=detalle.strip()[:2000],
                          severidad=severidad if severidad in ("alta", "media", "baja") else "media", cliente_rfc=rfc[:13],
                          cliente_nombre=nombre[:255], origen="manual", agenda_id=a.id if a else None,
@@ -343,13 +346,27 @@ def crear_pendiente(request: Request, tipo: str = Form("tarea"), titulo: str = F
                          estado="pendiente" if lider and asignado_id else "propuesta",
                          asignado_id=asignado_id if lider else None, fecha_compromiso=fecha_compromiso if lider else None,
                          creado_por=u.id, historial=[])
-    cl.evento(p, u, "Capturado a mano." + ("" if p.estado == "pendiente" else " Espera que un líder lo confirme y asigne."))
+    cl.evento(p, u, "Capturado a mano." + ("" if p.estado == "pendiente" else " Queda por decidir si pasa al kanban."))
     db.add(p)
     db.flush()
     auditar(db, "crear", "pendiente", p.id, u.id, tipo=p.tipo, estado=p.estado)
     db.commit()
-    flash(request, f"{p.folio} creado." + ("" if p.estado == "pendiente" else " Queda en «Propuestas» hasta que un líder lo confirme."))
+    flash(request, f"{p.folio} creado." + ("" if p.estado == "pendiente" else " Queda «por decidir» hasta que el responsable decida si pasa al kanban."))
     return ir(f"/clientes/pendientes/{p.id}")
+
+
+@router.get("/clientes/pendientes/historico")
+def historico(request: Request, ver: str = "auditar", db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+    if not cl.ve_historico(u):
+        raise HTTPException(403, "El histórico lo revisan Customer Success, líderes y Dirección.")
+    estado = "no_vigente" if ver == "no_vigentes" else "historico"
+    lista = list(db.scalars(select(PendienteCliente).where(PendienteCliente.estado == estado).order_by(PendienteCliente.decidido_en.desc(),
+                                                                                                     PendienteCliente.id.desc())))
+    return render(request, "clientes_historico.html", u, "clientes-pendientes", lista=lista, ver=ver, gente=_gente(db),
+                  tipos=PENDIENTE_TIPOS, nombre_cliente=cl.nombre_cliente, cs=cl.es_customer_success(u),
+                  n_auditar=db.query(PendienteCliente).filter(PendienteCliente.estado == "historico").count(),
+                  n_no_vigentes=db.query(PendienteCliente).filter(PendienteCliente.estado == "no_vigente").count(),
+                  fecha_def=hoy() + timedelta(days=5))
 
 
 @router.get("/clientes/pendientes/{pid}")
@@ -357,6 +374,7 @@ def ver_pendiente(pid: int, request: Request, db: Session = Depends(get_db), u: 
     p = _pend(db, pid)
     return render(request, "clientes_pendiente.html", u, "clientes-pendientes", p=p, cliente=cl.nombre_cliente(u, p),
                   estados=PENDIENTE_ESTADOS, tipos=PENDIENTE_TIPOS, gente=_gente(db), lider=cl.puede_gestionar(u),
+                  decide=cl.puede_decidir(u, p), cs=cl.es_customer_success(u), fecha_def=hoy() + timedelta(days=5),
                   atiende=cl.puede_atender(u, p), vence=cl.vence(p),
                   ve_sesion=bool(p.sesion and (u.es_direccion or p.sesion.autor_id == u.id or
                                                (u.rol == "lider" and u.area_id == p.sesion.area_id))))
@@ -365,10 +383,17 @@ def ver_pendiente(pid: int, request: Request, db: Session = Depends(get_db), u: 
 @router.post("/clientes/pendientes/{pid}/confirmar")
 def confirmar(pid: int, request: Request, asignado_id: int = Form(...), fecha_compromiso: date = Form(...),
               titulo: str = Form(""), tipo: str = Form(""), severidad: str = Form(""), volver: str = Form(""),
-              db: Session = Depends(get_db), u: Usuario = Depends(requiere_lider)):
+              motivo: str = Form(""), db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+    """Pasar al kanban: el operativo decide desde la minuta; Customer Success puede rescatar lo que quedó en histórico."""
     p = _pend(db, pid)
-    if p.estado != "propuesta":
-        raise HTTPException(400, "Ya estaba confirmado.")
+    if p.estado == "propuesta":
+        if not cl.puede_decidir(u, p):
+            raise HTTPException(403, "Decide el responsable de la sesión (o un líder).")
+    elif p.estado == "historico":
+        if not cl.es_customer_success(u):
+            raise HTTPException(403, "Lo que quedó en histórico lo audita Customer Success.")
+    else:
+        raise HTTPException(400, "Ya está en el kanban.")
     if titulo.strip():
         p.titulo = titulo.strip()[:200]
     if tipo in PENDIENTE_TIPOS:
@@ -376,29 +401,63 @@ def confirmar(pid: int, request: Request, asignado_id: int = Form(...), fecha_co
     if severidad in ("alta", "media", "baja"):
         p.severidad = severidad
     asig = db.get(Usuario, asignado_id)
+    desde_hist = p.estado == "historico"
+    if desde_hist:
+        p.auditoria_motivo, p.auditado_por, p.auditado_en = (motivo.strip() or "Customer Success lo pasó al kanban")[:1000], u.id, utcnow()
+    else:
+        p.decidido_por, p.decidido_en = u.id, utcnow()
     p.estado, p.asignado_id, p.fecha_compromiso = "pendiente", asignado_id, fecha_compromiso
-    cl.evento(p, u, f"Confirmado y asignado a {asig.nombre if asig else '—'} para el {fecha_compromiso:%d/%m/%Y}.")
-    auditar(db, "confirmar", "pendiente", p.id, u.id, asignado=asignado_id)
+    cl.evento(p, u, ("Customer Success lo rescató del histórico y lo pasó al kanban" if desde_hist else "Pasó al kanban")
+              + f": asignado a {asig.nombre if asig else '—'} para el {fecha_compromiso:%d/%m/%Y}."
+              + (f" Motivo: {motivo.strip()}" if motivo.strip() else ""))
+    auditar(db, "pasar_kanban", "pendiente", p.id, u.id, asignado=asignado_id, desde=("historico" if desde_hist else "minuta"))
     db.commit()
-    flash(request, f"{p.folio} confirmado y asignado.")
+    flash(request, f"{p.folio} pasó al kanban de seguimiento.")
     return ir(volver if volver.startswith("/clientes/") else f"/clientes/pendientes/{p.id}")
 
 
-@router.post("/clientes/pendientes/{pid}/descartar")
-def descartar(pid: int, request: Request, motivo: str = Form(""), volver: str = Form(""), db: Session = Depends(get_db),
-              u: Usuario = Depends(requiere_lider)):
+def _volver(volver: str, defecto: str) -> str:
+    return volver if volver.startswith("/clientes/") else defecto
+
+
+@router.post("/clientes/pendientes/{pid}/no-pasar")
+def no_pasar(pid: int, request: Request, motivo: str = Form(""), volver: str = Form(""), db: Session = Depends(get_db),
+             u: Usuario = Depends(usuario_actual)):
+    """El operativo decide que no pasa al kanban: queda en histórico para que Customer Success lo audite."""
     p = _pend(db, pid)
     if p.estado != "propuesta":
-        raise HTTPException(400, "Solo se descartan propuestas sin confirmar.")
+        raise HTTPException(400, "Solo se decide sobre lo que está por decidir.")
+    if not cl.puede_decidir(u, p):
+        raise HTTPException(403, "Decide el responsable de la sesión (o un líder).")
     if len(motivo.strip()) < 5:
-        flash(request, "Escribe por qué se descarta.", "error")
-        return ir(volver if volver.startswith("/clientes/") else f"/clientes/pendientes/{p.id}")
-    p.estado = "descartado"
-    cl.evento(p, u, f"Descartado. Motivo: {motivo.strip()}")
-    auditar(db, "descartar", "pendiente", p.id, u.id, motivo=motivo.strip()[:300])
+        flash(request, "Escribe por qué no pasa al kanban: Customer Success lo va a auditar.", "error")
+        return ir(_volver(volver, f"/clientes/pendientes/{p.id}"))
+    p.estado, p.decision_motivo, p.decidido_por, p.decidido_en = "historico", motivo.strip()[:1000], u.id, utcnow()
+    cl.evento(p, u, f"No pasó al kanban; queda en histórico para auditoría de Customer Success. Motivo: {motivo.strip()}")
+    auditar(db, "no_pasar", "pendiente", p.id, u.id, motivo=motivo.strip()[:300])
     db.commit()
-    flash(request, f"{p.folio} descartado; queda en el historial de la sesión.")
-    return ir(volver if volver.startswith("/clientes/") else "/clientes/pendientes")
+    flash(request, f"{p.folio} quedó en el histórico; Customer Success lo audita.")
+    return ir(_volver(volver, "/clientes/pendientes"))
+
+
+@router.post("/clientes/pendientes/{pid}/no-vigente")
+def no_vigente(pid: int, request: Request, motivo: str = Form(""), volver: str = Form(""), db: Session = Depends(get_db),
+               u: Usuario = Depends(usuario_actual)):
+    """Solo Customer Success da de baja algo del histórico (confirma que ya no es vigente). Sigue visible para Dirección."""
+    p = _pend(db, pid)
+    if p.estado != "historico":
+        raise HTTPException(400, "Solo se confirma como no vigente lo que está en el histórico.")
+    if not cl.es_customer_success(u):
+        raise HTTPException(403, "Solo Customer Success confirma que una tarea ya no es vigente.")
+    if len(motivo.strip()) < 5:
+        flash(request, "Escribe por qué ya no es vigente.", "error")
+        return ir(_volver(volver, "/clientes/pendientes/historico"))
+    p.estado, p.auditoria_motivo, p.auditado_por, p.auditado_en = "no_vigente", motivo.strip()[:1000], u.id, utcnow()
+    cl.evento(p, u, f"Customer Success confirmó que no es vigente. Motivo: {motivo.strip()}")
+    auditar(db, "no_vigente", "pendiente", p.id, u.id, motivo=motivo.strip()[:300])
+    db.commit()
+    flash(request, f"{p.folio} confirmado como no vigente; queda en el histórico para Dirección.")
+    return ir(_volver(volver, "/clientes/pendientes/historico"))
 
 
 @router.post("/clientes/pendientes/{pid}/mover")
@@ -413,8 +472,8 @@ def mover(pid: int, request: Request, estado: str = Form(...), db: Session = Dep
 
     if not cl.puede_atender(u, p):
         return no("Solo la persona asignada o un líder pueden moverlo.")
-    if p.estado in ("propuesta", "descartado", "resuelto"):
-        return no("Primero hay que confirmarlo." if p.estado == "propuesta" else "Ya está cerrado.", abrir=p.estado == "propuesta")
+    if p.estado in ("propuesta", "historico", "no_vigente", "resuelto"):
+        return no("Primero hay que decidir si pasa al kanban." if p.estado == "propuesta" else "No está en el kanban.", abrir=p.estado == "propuesta")
     if estado == "resuelto":
         return no("Para resolverlo describe la solución y sube la evidencia.", resolver=True)
     if estado not in ("pendiente", "en_curso", "revision"):
@@ -434,7 +493,7 @@ def mover(pid: int, request: Request, estado: str = Form(...), db: Session = Dep
 def asignar(pid: int, request: Request, asignado_id: int = Form(...), fecha_compromiso: date = Form(...), motivo: str = Form(""),
             db: Session = Depends(get_db), u: Usuario = Depends(requiere_lider)):
     p = _pend(db, pid)
-    if p.estado in ("propuesta", "descartado", "resuelto"):
+    if p.estado not in ("pendiente", "en_curso", "revision"):
         raise HTTPException(400)
     asig = db.get(Usuario, asignado_id)
     if p.fecha_compromiso and fecha_compromiso != p.fecha_compromiso and len(motivo.strip()) < 5:
@@ -486,7 +545,7 @@ async def _subir(db: Session, p: PendienteCliente, archivos: list[UploadFile], s
 async def subir_evidencias(pid: int, request: Request, fondo: BackgroundTasks, archivos: list[UploadFile] = File([]),
                            subidas: list[str] = Form([]), db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
     p = _pend(db, pid)
-    if not cl.puede_atender(u, p) or p.estado in ("propuesta", "descartado"):
+    if not cl.puede_atender(u, p) or p.estado == "propuesta":
         raise HTTPException(403)
     n, errores = await _subir(db, p, archivos, subidas, u)
     if errores:

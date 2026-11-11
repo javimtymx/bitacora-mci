@@ -800,8 +800,10 @@ AGENDA_ESTADOS = {"programada": "Programada", "reprogramada": "Reprogramada", "a
                   "realizada": "Ejecutada", "con_huecos": "Ejecutada con huecos", "no_corresponde": "Transcripción no corresponde",
                   "cancelada": "Cancelada"}
 PENDIENTE_TIPOS = {"queja": "Queja", "tarea": "Tarea"}
-PENDIENTE_ESTADOS = {"propuesta": "Propuesta de GuardIA", "pendiente": "Por atender", "en_curso": "En curso",
-                     "revision": "En revisión", "resuelto": "Resuelto", "descartado": "Descartado"}
+PENDIENTE_ESTADOS = {"propuesta": "Por decidir (minuta)", "pendiente": "Por atender", "en_curso": "En curso",
+                     "revision": "En revisión", "resuelto": "Resuelto",
+                     "historico": "Histórico · no pasó al kanban", "no_vigente": "No vigente (confirmado por Customer Success)"}
+PENDIENTE_KANBAN = ("pendiente", "en_curso", "revision", "resuelto")
 
 
 class AgendaCliente(Base):
@@ -852,6 +854,13 @@ class PendienteCliente(Base):
     fecha_compromiso: Mapped[date | None] = mapped_column(Date)
     resolucion: Mapped[str] = mapped_column(Text, default="")
     resuelto_en: Mapped[datetime | None] = mapped_column(DateTime)
+    # decisión del operativo (pasa o no al kanban) y auditoría de Customer Success sobre lo que no pasó
+    decision_motivo: Mapped[str | None] = mapped_column(Text)
+    decidido_por: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+    decidido_en: Mapped[datetime | None] = mapped_column(DateTime)
+    auditoria_motivo: Mapped[str | None] = mapped_column(Text)
+    auditado_por: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+    auditado_en: Mapped[datetime | None] = mapped_column(DateTime)
     veredicto: Mapped[str | None] = mapped_column(String(20))  # verificando | concluido | dudoso | no_corresponde | sin_verificar
     verificacion: Mapped[dict | None] = mapped_column(JSON)
     historial: Mapped[list] = mapped_column(JSON, default=list)
@@ -862,6 +871,8 @@ class PendienteCliente(Base):
     sesion: Mapped["SesionCliente | None"] = relationship()
     asignado: Mapped[Usuario | None] = relationship(foreign_keys=[asignado_id])
     autor: Mapped[Usuario | None] = relationship(foreign_keys=[creado_por])
+    decisor: Mapped[Usuario | None] = relationship(foreign_keys=[decidido_por])
+    auditor: Mapped[Usuario | None] = relationship(foreign_keys=[auditado_por])
     evidencias: Mapped[list["ArchivoCliente"]] = relationship(
         primaryjoin="and_(foreign(ArchivoCliente.entidad_id) == PendienteCliente.id, ArchivoCliente.entidad == 'pendiente', "
                     "ArchivoCliente.retirada.is_(False))", order_by="ArchivoCliente.creado", viewonly=True)

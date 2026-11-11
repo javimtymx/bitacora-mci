@@ -25,19 +25,34 @@
       <span class="muted">Origen: {{ 'transcripción de la sesión (' ~ guardia ~ ')' if p.origen == 'sesion' else 'captura manual' }}{% if p.autor %} · {{ p.autor.nombre }}{% endif %}</span></div>
   </section>
 
-  {% if p.estado == 'propuesta' and lider %}
-  <section class="card pad" id="confirmar"><h3>Confirmar y asignar</h3>
+  {% if p.estado == 'propuesta' and decide %}
+  <section class="card pad" id="confirmar"><h3>¿Pasa al kanban de seguimiento?</h3>
     <form method="post" action="/clientes/pendientes/{{ p.id }}/confirmar" class="col" style="gap:10px">
       <div class="field"><label for="cf-t">Título</label><input class="input" id="cf-t" name="titulo" value="{{ p.titulo }}" maxlength="200"></div>
       <div class="grid2"><div class="field"><label for="cf-tp">Tipo</label><select class="input" id="cf-tp" name="tipo">{% for k, t in tipos.items() %}<option value="{{ k }}" {{ 'selected' if k == p.tipo }}>{{ t }}</option>{% endfor %}</select></div>
         <div class="field"><label for="cf-s">Severidad</label><select class="input" id="cf-s" name="severidad">{% for k in ('alta','media','baja') %}<option value="{{ k }}" {{ 'selected' if k == p.severidad }}>{{ k|capitalize }}</option>{% endfor %}</select></div>
         <div class="field"><label for="cf-a">Asignar a</label><select class="input" id="cf-a" name="asignado_id" required><option value="">Elige…</option>{% for g in gente %}<option value="{{ g.id }}">{{ g.nombre }}{% if g.area %} · {{ g.area.nombre }}{% endif %}</option>{% endfor %}</select></div>
-        <div class="field"><label for="cf-f">Fecha compromiso</label><input class="input" type="date" id="cf-f" name="fecha_compromiso" required></div></div>
-      <div class="row" style="gap:8px"><button class="btn yellow">{{ icon('ok') }}Confirmar</button></div></form>
-    <details class="ev-ret"><summary class="btn sm ghost">Descartar esta propuesta</summary>
-      <form method="post" action="/clientes/pendientes/{{ p.id }}/descartar" class="ev-ret-f"><input class="input" name="motivo" required minlength="5" placeholder="¿Por qué no aplica?" aria-label="Motivo"><button class="btn sm red">Descartar</button></form></details>
+        <div class="field"><label for="cf-f">Fecha compromiso</label><input class="input" type="date" id="cf-f" name="fecha_compromiso" required value="{{ fecha_def.isoformat() }}"></div></div>
+      <div class="row" style="gap:8px"><button class="btn yellow">{{ icon('ok') }}Pasar al kanban</button></div></form>
+    <details class="ev-ret"><summary class="btn sm ghost">No pasa al kanban</summary>
+      <form method="post" action="/clientes/pendientes/{{ p.id }}/no-pasar" class="ev-ret-f"><input class="input" name="motivo" required minlength="5" placeholder="¿Por qué no pasa? Lo audita Customer Success" aria-label="Motivo"><button class="btn sm soft">Mandar a histórico</button></form>
+      <span class="small muted">Queda en el histórico. Solo Customer Success puede confirmar que ya no es vigente; Dirección lo puede revisar siempre.</span></details>
   </section>
-  {% elif p.estado == 'propuesta' %}<div class="cint"><span class="ic">{{ icon('ia') }}</span><span>Esta propuesta espera que un líder la confirme y asigne.</span></div>{% endif %}
+  {% elif p.estado == 'propuesta' %}<div class="cint"><span class="ic">{{ icon('ia') }}</span><span>Por decidir: el responsable de la sesión decide si pasa al kanban.</span></div>
+  {% elif p.estado in ('historico', 'no_vigente') %}
+  <section class="card pad" id="confirmar"><h3>{{ 'Histórico: no pasó al kanban' if p.estado == 'historico' else 'No vigente' }}</h3>
+    <div class="small"><b>Decisión del operativo:</b> {{ p.decision_motivo or '—' }}{% if p.decisor %} · {{ p.decisor.nombre }}{% endif %}{% if p.decidido_en %} · {{ hora_local(p.decidido_en) }}{% endif %}</div>
+    {% if p.estado == 'no_vigente' %}<div class="small"><b>Customer Success confirmó que no es vigente:</b> {{ p.auditoria_motivo }}{% if p.auditor %} · {{ p.auditor.nombre }}{% endif %}{% if p.auditado_en %} · {{ hora_local(p.auditado_en) }}{% endif %}</div>{% endif %}
+    {% if p.estado == 'historico' and cs %}
+    <form method="post" action="/clientes/pendientes/{{ p.id }}/confirmar" class="ag-conf">
+      <select class="input" name="asignado_id" required aria-label="Asignar a"><option value="">Asignar a…</option>{% for g in gente %}<option value="{{ g.id }}">{{ g.nombre }}</option>{% endfor %}</select>
+      <input class="input" type="date" name="fecha_compromiso" required value="{{ fecha_def.isoformat() }}" aria-label="Fecha compromiso">
+      <input class="input" name="motivo" placeholder="Por qué sí debe atenderse" aria-label="Motivo"><button class="btn sm yellow">Pasar al kanban</button></form>
+    <details class="ev-ret"><summary class="btn sm ghost">Confirmar que no es vigente</summary>
+      <form method="post" action="/clientes/pendientes/{{ p.id }}/no-vigente" class="ev-ret-f"><input class="input" name="motivo" required minlength="5" placeholder="¿Por qué ya no es vigente?" aria-label="Motivo"><button class="btn sm red">No vigente</button></form></details>
+    {% elif p.estado == 'historico' %}<span class="small muted">Lo audita Customer Success: puede pasarlo al kanban o confirmar que ya no es vigente.</span>{% endif %}
+  </section>
+  {% endif %}
 
   {% if p.estado == 'resuelto' %}
   <section class="card pad"><div class="row between"><h3>Resolución</h3>{{ ai_badge() }}</div>
@@ -72,7 +87,7 @@
     {% if p.evidencias_retiradas %}<details class="ev-hist"><summary class="small">Evidencias retiradas ({{ p.evidencias_retiradas|length }})</summary>
       {% for ev in p.evidencias_retiradas %}<div class="evi retirada"><div class="col" style="gap:2px"><a href="/clientes/pendientes/archivos/{{ ev.id }}">{{ icon('clip', 14) }} <s>{{ ev.nombre }}</s></a>
         <span class="small muted">Retirada {{ hora_local(ev.retirada_en) }} por {{ ev.retiro.nombre if ev.retiro else '—' }} · {{ ev.retirada_motivo }}</span></div></div>{% endfor %}</details>{% endif %}
-    {% if atiende and p.estado not in ('propuesta','descartado') %}
+    {% if atiende and p.estado not in ('propuesta','historico','no_vigente') %}
     <form method="post" action="/clientes/pendientes/{{ p.id }}/evidencias" enctype="multipart/form-data" data-subidas="evidencia" class="col" style="gap:8px">
       <div class="drop"><input type="file" name="archivos" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.txt,.csv,.md,.eml,.docx,.xlsx,.pptx" aria-label="Archivos de evidencia" required></div>
       <button class="btn soft sm" style="align-self:flex-start">{{ icon('upload', 15) }}Subir evidencia</button></form>{% endif %}
@@ -88,7 +103,7 @@
       <input class="input" name="motivo" placeholder="Motivo (obligatorio si cambias la fecha)" aria-label="Motivo">
       <button class="btn soft sm" style="align-self:flex-start">Guardar</button></form></section>{% endif %}
   <section class="card pad"><h3>Bitácora</h3>
-    {% if atiende and p.estado not in ('descartado',) %}<form method="post" action="/clientes/pendientes/{{ p.id }}/nota" class="row" style="gap:8px;flex-wrap:nowrap"><input class="input" name="texto" placeholder="Agregar nota de avance" maxlength="600" aria-label="Nota"><button class="btn soft sm">Agregar</button></form>{% endif %}
+    {% if atiende %}<form method="post" action="/clientes/pendientes/{{ p.id }}/nota" class="row" style="gap:8px;flex-wrap:nowrap"><input class="input" name="texto" placeholder="Agregar nota de avance" maxlength="600" aria-label="Nota"><button class="btn soft sm">Agregar</button></form>{% endif %}
     {% for h in (p.historial or [])|reverse %}<div class="small" style="padding:6px 0;border-bottom:1px solid var(--line)"><b>{{ h.por }}</b> · {{ h.en[:16]|replace('T', ' ') }} UTC{% if h.nota %} · <span class="tag n">nota</span>{% endif %}<div>{{ h.texto }}</div></div>
     {% else %}<span class="small muted">Sin movimientos.</span>{% endfor %}</section>
 </div>

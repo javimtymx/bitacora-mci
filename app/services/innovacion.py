@@ -41,8 +41,9 @@ def fuentes(db: Session) -> dict:
                                                                        Hallazgo.sentimiento != "positivo")))
     objs = list(db.scalars(select(Objecion).join(SesionCliente).where(SesionCliente.fecha >= desde)))
     # quejas y tareas de clientes (agenda mensual) que un líder confirmó; y conclusiones del benchmark de competidores
-    quejas = list(db.scalars(select(PendienteCliente).where(PendienteCliente.estado.notin_(("propuesta", "descartado")),
-                                                            PendienteCliente.creado >= desde)))
+    # las quejas y tareas de clientes son SEGUIMIENTO (kanban de Operaciones), no innovación: no entran al Círculo.
+    # De las sesiones de la agenda solo llega la propuesta de valor, como hallazgos de Voz del Cliente.
+    quejas: list[PendienteCliente] = []
     bench = list(db.scalars(select(InsightBenchmark).join(SesionCompetidor).where(
         SesionCompetidor.fecha >= desde, InsightBenchmark.tipo.in_(("oportunidad", "suyo", "crear", "incrementar")))))
     return {"ideas": ideas, "hallazgos": hall, "objeciones": objs, "quejas": quejas, "benchmark": bench,

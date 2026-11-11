@@ -22,7 +22,8 @@
   {% for p in prep.altas_sin_asignar %}<a class="ag-pend" href="/clientes/pendientes/{{ p.id }}"><span class="flag-prep rojo">Sin asignar</span><span style="flex:1"><b>{{ p.folio }}</b> {{ p.titulo }}</span></a>{% endfor %}
   {% for p in prep.antes %}<a class="ag-pend" href="/clientes/pendientes/{{ p.id }}"><span class="flag-prep amarillo">Antes de la sesión</span><span style="flex:1"><b>{{ p.folio }}</b> {{ p.titulo }}</span><span class="small muted">{{ p.asignado.nombre if p.asignado else 'sin asignar' }}{% if p.fecha_compromiso %} · {{ p.fecha_compromiso.strftime('%d/%m') }}{% endif %}</span></a>{% endfor %}
   {% if prep.previa %}<div class="small"><b>Sesión anterior ({{ fmt_fecha(prep.previa.fecha) }}):</b>
-    {% for x in prep.acuerdos %}<div>· Acuerdo de OneCore: {{ x.texto }}{% if x.fecha %} · {{ x.fecha }}{% endif %}</div>{% endfor %}
+    {% if prep.flag_minuta %}<span class="tag {{ prep.flag_minuta[2] }}">Minuta: {{ prep.flag_minuta[1] }}</span>{% endif %}
+    {% for x in prep.acuerdos %}<div>· Acuerdo de OneCore: {{ x.texto }}{% if x.fecha %} · {{ x.fecha }}{% endif %}{% if x.folio %} → <a href="/clientes/pendientes/{{ x.pendiente_id }}">{{ x.folio }}</a> {{ {'resuelto':'resuelto','historico':'no pasó al kanban','no_vigente':'no vigente','propuesta':'por decidir'}.get(x.estado, 'abierto') }}{% endif %}</div>{% endfor %}
     {% for t in prep.sin_cubrir %}<div>· No se cubrió: {{ t }}</div>{% endfor %}
     {% if not prep.acuerdos and not prep.sin_cubrir %}<span class="muted">sin acuerdos ni puntos pendientes.</span>{% endif %}</div>{% endif %}
 </section>
@@ -32,6 +33,7 @@
   {# --------------------------------------------- 3) transcripción y verificación de la agenda #}
   <section class="card pad">
     <div class="row between"><div class="sech" style="margin:0"><span class="secic">{{ icon('doc') }}</span>Agenda y ejecución</div>{{ ai_badge() }}</div>
+    {% if not s and a.estado in ('programada','reprogramada') and a.fecha < hoy %}<div class="verif mal"><b>{{ icon('alert', 15) }} Sesión ejecutada sin transcripción</b><span>La transcripción es obligatoria: sin ella no hay minuta ni seguimiento. Se recuerda diario al responsable con copia a Customer Success.</span></div>{% endif %}
     {% if a.estado == 'analizando' %}<div class="verif neutro" role="status" {% if not atorado %}data-auto-refresh="6"{% endif %}><div class="row" style="gap:10px">{% if not atorado %}<span class="spin"></span>{% endif %}<b>{{ guardia }} {{ 'tardó demasiado; vuelve a cargar la transcripción' if atorado else 'está revisando la transcripción punto por punto…' }}</b></div></div>
     {% elif ej.analizado %}
       <div class="verif {{ 'ok' if a.estado == 'realizada' else 'mal' }}"><b>{{ icon('ok' if a.estado == 'realizada' else 'alert', 15) }}
@@ -45,9 +47,7 @@
     </ol>
     {% if s and s.estado == 'analizada' %}
       {% if s.resultado.resumen %}<div class="small" style="line-height:1.55"><b>Resumen:</b> {{ s.resultado.resumen }}</div>{% endif %}
-      {% if s.resultado.acuerdos %}<div class="small"><b>Acuerdos:</b><ul style="margin:4px 0 0 18px">{% for x in s.resultado.acuerdos %}<li>{{ 'OneCore' if x.quien == 'nosotros' else 'Cliente' }}: {{ x.texto }}{% if x.fecha %} · {{ x.fecha }}{% endif %}</li>{% endfor %}</ul></div>{% endif %}
       <div class="row" style="gap:8px;flex-wrap:wrap">
-        {% if s.hallazgos %}<span class="pill">{{ icon('users', 14) }}{{ s.hallazgos|length }} hallazgos para Voz del Cliente y el Círculo</span>{% endif %}
         {% if ve_sesion %}<a class="lnk" href="/sesiones/{{ s.id }}">{{ icon('eye', 15) }}Ver análisis completo</a>{% endif %}{% if u.es_direccion or s.autor_id == u.id %}<a class="lnk" href="/sesiones/{{ s.id }}/transcripcion">{{ icon('doc', 15) }}Transcripción</a>{% endif %}
       </div>
     {% elif s and s.estado == 'error' %}<div class="flash error small">{{ s.resultado.error or 'El análisis falló.' }}</div>{% endif %}
@@ -55,17 +55,35 @@
     {% if puede and a.estado != 'cancelada' and a.estado != 'analizando' %}
     {% if a.fecha <= hoy %}
     <form method="post" action="/clientes/agenda/{{ a.id }}/transcripcion" enctype="multipart/form-data" data-subidas="transcripcion" class="col" style="gap:8px;border-top:1px solid var(--line);padding-top:12px">
-      <label for="ag-tr"><b>{{ 'Cargar otra transcripción (reemplaza la anterior y se vuelve a revisar)' if s else 'Cargar la transcripción para confirmar que se ejecutó' }}</b></label>
+      <label for="ag-tr"><b>{{ 'Cargar otra transcripción (reemplaza la anterior y se vuelve a revisar)' if s else 'Cargar la transcripción (obligatoria): de ella sale la minuta' }}</b></label>
       <div class="drop"><input type="file" id="ag-tr" name="archivo" accept=".txt,.vtt,.srt,.md,text/plain" required></div>
       <label class="check"><input type="checkbox" name="consentimiento" value="true" required><span>El cliente sabe que la sesión se grabó y que se usará para mejorar el servicio</span></label>
-      <button class="btn aibtn" style="align-self:flex-start">{{ icon('ia') }}<span>Cargar y revisar con Guard<span class="gia">IA</span></span></button></form>
+      <button class="btn aibtn" style="align-self:flex-start">{{ icon('ia') }}<span>Cargar y generar la minuta con Guard<span class="gia">IA</span></span></button></form>
     {% else %}<span class="small muted">La transcripción se carga después de la sesión ({{ fmt_fecha(a.fecha) }}).</span>{% endif %}
     {% endif %}
   </section>
 
-  {# --------------------------------------------- pendientes que salieron de la sesión #}
-  <section class="card pad">
-    <div class="row between"><h3>Quejas y tareas de esta sesión</h3><a class="lnk" href="/clientes/pendientes">{{ icon('eye', 15) }}Tablero de pendientes</a></div>
+  {# --------------------------------------------- SEGUIMIENTO: minuta y decisión de qué pasa al kanban #}
+  {% set mi = ej.minuta or {} %}
+  <section class="card pad seg-seguimiento">
+    <div class="row between"><div class="row" style="gap:8px"><span class="seg-k seg">Seguimiento</span><h3>Minuta de la sesión</h3></div>
+      {% if flag_minuta %}<span class="tag {{ flag_minuta[2] }}" title="Avance de lo que pasó al kanban">Minuta: {{ flag_minuta[1] }}</span>{% endif %}</div>
+    {% if mi %}
+    <div class="mn-grid">
+      <div class="mn-b"><h4>Decisiones</h4>{% for x in mi.decisiones %}<div class="mn-i">{{ x.texto }}{% if x.cita %}<span class="quote small">«{{ x.cita }}»</span>{% endif %}</div>{% else %}<span class="small muted">—</span>{% endfor %}</div>
+      <div class="mn-b"><h4>Riesgos o bloqueos</h4>{% for x in mi.riesgos %}<div class="mn-i">{{ x.texto }}{% if x.cita %}<span class="quote small">«{{ x.cita }}»</span>{% endif %}</div>{% else %}<span class="small muted">—</span>{% endfor %}</div>
+    </div>
+    <div class="mn-b"><h4>Acuerdos <span class="muted small" style="font-weight:600">· quién · qué · cuándo</span></h4>
+      {% for x in mi.acuerdos %}{% set pp = por_id.get(x.pendiente_id) if x.pendiente_id else none %}
+      <div class="mn-ac"><span class="tag {{ 'b' if x.quien == 'onecore' else 'n' }}">{{ 'OneCore' if x.quien == 'onecore' else 'Cliente' }}</span>
+        <span style="flex:1"><b>{{ x.que }}</b>{% if x.responsable %} · {{ x.responsable }}{% endif %}{% if x.cuando %} · {{ x.cuando }}{% endif %}</span>
+        {% if pp %}<a class="tag {{ {'resuelto':'g','historico':'n','no_vigente':'n','propuesta':'o'}.get(pp.estado, 'b') }}" href="/clientes/pendientes/{{ pp.id }}">{{ pp.folio }} · {{ pend_estados[pp.estado] }}</a>{% endif %}</div>
+      {% else %}<span class="small muted">Sin acuerdos registrados.</span>{% endfor %}</div>
+    {% if mi.temas_abiertos %}<div class="mn-b"><h4>Temas abiertos</h4>{% for x in mi.temas_abiertos %}<div class="mn-i">{{ x.texto }}</div>{% endfor %}</div>{% endif %}
+    {% elif s %}<span class="small muted">La minuta aparece cuando {{ guardia }} termina de revisar la transcripción.</span>
+    {% else %}<span class="small muted">Sin transcripción no hay minuta. Al cargarla, {{ guardia }} arma decisiones, acuerdos, riesgos y temas abiertos, y propone las quejas y tareas.</span>{% endif %}
+
+    {% if propuestas %}<h4 style="margin-top:6px">Por decidir: ¿pasa al kanban de seguimiento?</h4>{% endif %}
     {% for p in propuestas %}
     <div class="ag-prop">
       <div class="row between" style="gap:8px"><span class="row" style="gap:6px"><span class="tag {{ 'r' if p.tipo == 'queja' else 'b' }}">{{ 'Queja' if p.tipo == 'queja' else 'Tarea' }}</span><span class="prio {{ p.severidad }}">{{ p.severidad }}</span><span class="small muted">Propuesta de {{ guardia }}</span></span>
@@ -76,10 +94,11 @@
       <form method="post" action="/clientes/pendientes/{{ p.id }}/confirmar" class="ag-conf"><input type="hidden" name="volver" value="/clientes/agenda/{{ a.id }}">
         <select class="input" name="asignado_id" required aria-label="Asignar a"><option value="">Asignar a…</option>{% for g in gente %}<option value="{{ g.id }}">{{ g.nombre }}{% if g.area %} · {{ g.area.nombre }}{% endif %}</option>{% endfor %}</select>
         <input class="input" type="date" name="fecha_compromiso" required aria-label="Fecha compromiso" value="{{ fecha_def.isoformat() }}">
-        <button class="btn sm yellow">{{ icon('ok', 14) }}Confirmar</button></form>
-      <details class="ev-ret"><summary class="btn sm ghost">Descartar</summary>
-        <form method="post" action="/clientes/pendientes/{{ p.id }}/descartar" class="ev-ret-f"><input type="hidden" name="volver" value="/clientes/agenda/{{ a.id }}">
-          <input class="input" name="motivo" required minlength="5" placeholder="¿Por qué no aplica?" aria-label="Motivo para descartar"><button class="btn sm red">Descartar</button></form></details>
+        <button class="btn sm yellow">{{ icon('ok', 14) }}Pasar al kanban</button></form>
+      <details class="ev-ret"><summary class="btn sm ghost">No pasa</summary>
+        <form method="post" action="/clientes/pendientes/{{ p.id }}/no-pasar" class="ev-ret-f"><input type="hidden" name="volver" value="/clientes/agenda/{{ a.id }}">
+          <input class="input" name="motivo" required minlength="5" placeholder="¿Por qué no pasa? Lo audita Customer Success" aria-label="Motivo"><button class="btn sm soft">Mandar a histórico</button></form>
+        <span class="small muted">Queda en el histórico; solo Customer Success puede confirmar que ya no es vigente.</span></details>
       {% endif %}
     </div>
     {% endfor %}
@@ -88,8 +107,18 @@
       <span style="flex:1"><b>{{ p.folio }}</b> {{ p.titulo }}</span><span class="small muted">{{ pend_estados[p.estado] }}{% if p.asignado %} · {{ p.asignado.nombre }}{% endif %}</span>
       {% if v[0] %}<span class="sla {{ v[1] }} small">{{ v[0] }}</span>{% endif %}</a>
     {% endfor %}
-    {% if not propuestas and not pendientes %}<span class="small muted">{% if s %}No salieron quejas ni tareas de esta sesión.{% else %}Al cargar la transcripción, {{ guardia }} propone aquí las quejas y tareas con la cita del cliente; un líder las confirma y asigna.{% endif %}</span>{% endif %}
   </section>
+
+  {# --------------------------------------------- INNOVACIÓN: propuesta de valor (va a Voz del Cliente y al Círculo) #}
+  {% if s and s.estado == 'analizada' %}
+  <section class="card pad seg-innovacion">
+    <div class="row between"><div class="row" style="gap:8px"><span class="seg-k inn">Innovación</span><h3>Propuesta de valor</h3></div>
+      <a class="lnk" href="/voz-cliente?tipo=agenda">{{ icon('users', 15) }}Voz del Cliente</a></div>
+    <span class="small muted">Lo que el cliente nos enseña (necesidades, ideas, lo que valora o le falta). No entra al kanban: alimenta Voz del Cliente y el Círculo de innovación.</span>
+    {% for h in s.hallazgos %}<div class="mn-i"><span class="row" style="gap:6px"><span class="tag n">{{ h.cuadrante }}</span><b>{{ h.tema }}</b><span class="small muted">· {{ h.tipo }}</span></span><span class="quote small">«{{ h.cita }}»</span></div>
+    {% else %}<span class="small muted">No salieron temas de propuesta de valor en esta sesión.</span>{% endfor %}
+  </section>
+  {% endif %}
 </div>
 
 <div class="col" style="gap:16px">
@@ -108,8 +137,11 @@
       </div>
       {% if ej.no_invitados %}<div class="small"><b>Participaron sin estar invitados:</b> {{ ej.no_invitados|map(attribute='nombre')|join(', ') }}</div>{% endif %}
       {% if puede %}
-      <div class="tag-in" data-inv-alta><input class="input" placeholder="Nombre" data-in-n aria-label="Nombre del invitado"><input class="input" type="email" placeholder="correo (opcional)" data-in-e aria-label="Correo">
-        <select class="input" data-in-l aria-label="Lado"><option value="cliente">Cliente</option><option value="onecore">OneCore</option></select><button type="button" class="btn soft sm" data-in-agregar>{{ icon('plus', 14) }}Agregar</button></div>
+      <div class="tag-in" data-inv-eq><select class="input" data-eq-sel aria-label="Usuario de OneCore"><option value="">+ Equipo de OneCore…</option>
+        {% for g in gente %}<option value="{{ g.email }}" data-nombre="{{ g.nombre }}">{{ g.nombre }}{% if g.area %} · {{ g.area.nombre }}{% endif %}</option>{% endfor %}</select>
+        <button type="button" class="btn soft sm" data-eq-agregar>{{ icon('plus', 14) }}Agregar</button></div>
+      <div class="tag-in" data-inv-alta><input class="input" placeholder="Invitado del cliente" data-in-n aria-label="Nombre del invitado del cliente"><input class="input" type="email" placeholder="correo (opcional)" data-in-e aria-label="Correo">
+        <select class="input" data-in-l aria-label="Lado" hidden><option value="cliente">Cliente</option></select><button type="button" class="btn soft sm" data-in-agregar>{{ icon('plus', 14) }}Agregar</button></div>
       <details {{ 'open' if not a.sesion_id and a.estado in ('programada','reprogramada') }} class="ag-edit"><summary class="small"><b>Agenda y responsable</b></summary>
         <div class="field"><label for="ed-p">Puntos de la agenda (uno por renglón)</label><textarea class="input" id="ed-p" name="puntos" rows="5" {{ 'readonly' if a.sesion_id }}>{{ (a.puntos or [])|join('\n') }}</textarea>
           {% if a.sesion_id %}<span class="small muted">Ya se contrastó con la transcripción: los puntos quedan fijos.</span>{% endif %}</div>
@@ -122,7 +154,7 @@
   </section>
 
   <section class="card pad"><h3>Avisos internos por correo</h3>
-    {% for x in (a.avisos or [])|reverse %}<div class="small" style="padding:6px 0;border-bottom:1px solid var(--line)"><b>{{ {'invitacion':'Invitación de calendario','reprogramacion':'Actualización de calendario','cancelacion':'Cancelación','recordatorio':'Recordatorio 5 días antes'}.get(x.tipo, x.tipo) }}</b> · {{ x.en[:16]|replace('T', ' ') }} UTC
+    {% for x in (a.avisos or [])|reverse %}<div class="small" style="padding:6px 0;border-bottom:1px solid var(--line)"><b>{{ {'invitacion':'Invitación de calendario','reprogramacion':'Actualización de calendario','cancelacion':'Cancelación','recordatorio':'Recordatorio 5 días antes','falta_transcripcion':'Falta la transcripción'}.get(x.tipo, x.tipo) }}</b> · {{ x.en[:16]|replace('T', ' ') }} UTC
       {% if x.flag %}<span class="flag-prep {{ x.flag }}">{{ x.flag|capitalize }}</span>{% endif %}{% if x.estado == 'error' %} <span class="tag r">falló</span>{% endif %}
       <div class="muted">Para: {{ x.para|join(', ') }}{% if x.cc %} · CC Dirección: {{ x.cc|join(', ') }}{% endif %}</div></div>
     {% else %}<span class="small muted">Aún no se envían avisos. Al programar se manda la invitación al responsable, a los invitados de OneCore y a quien lo tenga activado en su perfil.</span>{% endfor %}</section>
@@ -155,16 +187,26 @@
   function renumerar() { box.querySelectorAll("input[name=asistio]").forEach(function (c, i) { c.value = i; }); }
   box.addEventListener("click", function (e) { var b = e.target.closest("[data-quitar-inv]"); if (b) { b.closest(".ag-inv-f").remove(); renumerar(); } });
   if (!alta) return;
+  function fila(nombre, correo, lado) {
+    var vacio = box.querySelector("[data-sin-inv]"); if (vacio) vacio.remove();
+    var d = document.createElement("div"); d.className = "ag-inv-f";
+    d.innerHTML = '<label class="check"><input type="checkbox" name="asistio"><span class="sr">Asistió</span></label><span class="tt-av' + (lado === "onecore" ? " oc" : "") + '">+</span>' +
+      '<span class="col" style="gap:0;flex:1"><b class="small">' + esc(nombre) + '</b><span class="small muted">' + (lado === "onecore" ? "OneCore" : "Cliente") + (correo ? " · " + esc(correo) : "") + '</span></span>' +
+      '<input type="hidden" name="p_nombre" value="' + esc(nombre) + '"><input type="hidden" name="p_email" value="' + esc(correo) + '"><input type="hidden" name="p_lado" value="' + lado + '">' +
+      '<button type="button" class="tt-x" data-quitar-inv aria-label="Quitar">✕</button>';
+    box.appendChild(d); renumerar();
+  }
+  var eq = document.querySelector("[data-inv-eq]");
+  if (eq) eq.querySelector("[data-eq-agregar]").addEventListener("click", function () {
+    var sel = eq.querySelector("[data-eq-sel]"), o = sel.options[sel.selectedIndex];
+    if (!o || !o.value) return;
+    if (box.querySelector('input[name=p_email][value="' + o.value + '"]')) { sel.value = ""; return; }
+    fila(o.dataset.nombre, o.value, "onecore"); sel.value = "";
+  });
   alta.querySelector("[data-in-agregar]").addEventListener("click", function () {
     var n = alta.querySelector("[data-in-n]"), em = alta.querySelector("[data-in-e]"), l = alta.querySelector("[data-in-l]");
     if (!n.value.trim()) { n.focus(); return; }
-    var vacio = box.querySelector("[data-sin-inv]"); if (vacio) vacio.remove();
-    var d = document.createElement("div"); d.className = "ag-inv-f";
-    d.innerHTML = '<label class="check"><input type="checkbox" name="asistio"><span class="sr">Asistió</span></label><span class="tt-av">+</span>' +
-      '<span class="col" style="gap:0;flex:1"><b class="small">' + esc(n.value.trim()) + '</b><span class="small muted">' + (l.value === "onecore" ? "OneCore" : "Cliente") + '</span></span>' +
-      '<input type="hidden" name="p_nombre" value="' + esc(n.value.trim()) + '"><input type="hidden" name="p_email" value="' + esc(em.value.trim()) + '"><input type="hidden" name="p_lado" value="' + esc(l.value) + '">' +
-      '<button type="button" class="tt-x" data-quitar-inv aria-label="Quitar">✕</button>';
-    box.appendChild(d); renumerar(); n.value = ""; em.value = ""; n.focus();
+    fila(n.value.trim(), em.value.trim(), "cliente"); n.value = ""; em.value = ""; n.focus();
   });
 })();
 </script>{% endblock %}

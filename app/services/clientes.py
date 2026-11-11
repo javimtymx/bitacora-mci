@@ -96,7 +96,7 @@ def limpiar_invitados(nombres: list[str], emails: list[str], lados: list[str], a
 def estado_visible(a: AgendaCliente) -> tuple[str, str]:
     """(texto, color) de la celda de estatus. Una sesión con fecha pasada sin transcripción queda en naranja."""
     if a.estado in ("programada", "reprogramada") and a.fecha < hoy():
-        return "Falta transcripción", "o"
+        return "Ejecutada · sin transcripción", "r"
     if a.estado in ("programada", "reprogramada") and a.fecha == hoy():
         return "Hoy", "b"
     colores = {"programada": "b", "reprogramada": "b", "analizando": "n", "realizada": "g", "con_huecos": "o",
@@ -121,7 +121,7 @@ def resumen_mes(sesiones: list[AgendaCliente]) -> dict:
         "total": len(vivas), "operativas": sum(1 for a in vivas if a.tipo == "operativa"),
         "resultado": sum(1 for a in vivas if a.tipo == "resultado"),
         "ejecutadas": len(ejecutadas), "con_huecos": sum(1 for a in vivas if a.estado == "con_huecos"),
-        "falta_transcripcion": sum(1 for a in vivas if estado_visible(a)[0] == "Falta transcripción"),
+        "falta_transcripcion": sum(1 for a in vivas if estado_visible(a)[0] == "Ejecutada · sin transcripción"),
         "canceladas": len(sesiones) - len(vivas),
         "asistencia": round(asistieron / invitados * 100) if invitados else None,
         "pct": round(len(ejecutadas) / len(vivas) * 100) if vivas else None,
@@ -142,17 +142,24 @@ def prompt_agenda(db: Session, s: SesionCliente, texto: str, temas: str) -> str:
     inv = "\n".join(f"- {i['nombre']} ({i.get('lado', 'cliente')})" for i in ((a.invitados if a else []) or [])) or "- (sin invitados)"
     tipo = {"operativa": "operativa (seguimiento del servicio)", "resultado": "de resultado mensual (revisión de resultados del cliente)"}
     return f"""Analiza la transcripción de una sesión {tipo.get(a.tipo if a else '', 'con cliente')} de OneCore (software de
-cumplimiento aduanero) con su cliente. Tu trabajo:
-1. Confirmar si la transcripción corresponde a esta sesión y si la agenda se ejecutó: por cada punto de la agenda di si se
-   cubrió (si|parcial|no), con una nota breve y una cita textual cuando se cubrió.
-2. Detectar participantes (nombre, correo si se menciona, lado cliente|onecore).
-3. Hallazgos de voz del cliente como en una sesión de retención: cuadrante producto|plataforma|servicio|valor, tema
-   (reutiliza un tema existente si es el mismo asunto), sentimiento, severidad, tipo queja|necesidad|elogio|riesgo,
-   normativo (SAT, ANAM, VUCEM, MVE, RGCE, Anexo 24/31) y cita textual.
-4. Pendientes para OneCore: cada QUEJA del cliente que haya que atender y cada TAREA que OneCore se comprometió a hacer
-   (o que el cliente pidió). Título accionable (empieza con verbo), detalle de qué hay que resolver, severidad y una cita
-   textual que la sostenga. No incluyas tareas del cliente ni temas ya resueltos en la misma sesión.
-5. Acuerdos con responsable y fecha si se dijo.
+cumplimiento aduanero) con su cliente. Separa SIEMPRE dos categorías que no se mezclan:
+
+A) SEGUIMIENTO (bucle interno: atender a este cliente)
+1. Ejecución: si la transcripción corresponde a esta sesión y, por cada punto de la agenda, si se cubrió (si|parcial|no),
+   con nota breve y cita textual cuando se cubrió.
+2. Participantes detectados (nombre, correo si se menciona, lado cliente|onecore).
+3. MINUTA ejecutiva en 4 bloques: decisiones tomadas; acuerdos con quién (onecore|cliente), responsable por nombre si se
+   dijo, qué y cuándo (AAAA-MM-DD o vacío); riesgos o bloqueos; temas abiertos que quedaron sin resolver.
+4. Pendientes candidatos para el kanban de Operaciones: cada QUEJA del cliente por atender y cada TAREA que OneCore se
+   comprometió a hacer (incluye cada acuerdo de OneCore; indica su número de acuerdo). Título accionable (empieza con
+   verbo), detalle, severidad y cita. No incluyas tareas del cliente ni lo resuelto en la misma sesión.
+
+B) INNOVACIÓN (bucle externo: lo que el cliente nos enseña sobre nuestra propuesta de valor)
+5. Hallazgos SOLO de propuesta de valor: necesidades no cubiertas, ideas o peticiones de producto, lo que más valora,
+   lo que le falta frente a otras opciones o la competencia, riesgos de valor (justificar costo, baja de uso).
+   Cuadrante producto|plataforma|servicio|valor (reutiliza un tema existente si es el mismo asunto), sentimiento,
+   severidad, tipo necesidad|elogio|riesgo, normativo (SAT, ANAM, VUCEM, MVE, RGCE, Anexo 24/31) y cita.
+   Las quejas de atención y las tareas van en A, nunca aquí.
 Toda cita se copia EXACTA de la transcripción; sin cita no hay hallazgo ni pendiente.
 
 <datos>
@@ -170,14 +177,43 @@ Transcripción:
 JSON: {{"evidencia":{{"corresponde":true,"motivo":"una frase"}},"resumen":"3-4 frases","riesgo_baja":"alto|medio|bajo",
 "sentimiento":"positivo|neutral|negativo","puntos":[{{"n":1,"cubierto":"si|parcial|no","nota":"...","cita":"texto exacto o vacío"}}],
 "participantes":[{{"nombre":"...","email":"","lado":"cliente|onecore","rol":""}}],
-"hallazgos":[{{"cuadrante":"servicio","tema":"...","cita":"texto exacto","sentimiento":"negativo","severidad":"media","tipo":"queja","normativo":false}}],
-"pendientes":[{{"tipo":"queja|tarea","titulo":"...","detalle":"...","severidad":"alta|media|baja","cita":"texto exacto"}}],
-"acuerdos":[{{"quien":"nosotros|cliente","texto":"...","fecha":""}}]}}
-Máximo 12 hallazgos y 10 pendientes."""
+"minuta":{{"decisiones":[{{"texto":"...","cita":""}}],"acuerdos":[{{"n":1,"quien":"onecore|cliente","responsable":"","que":"...","cuando":"","cita":""}}],
+"riesgos":[{{"texto":"...","cita":""}}],"temas_abiertos":[{{"texto":"..."}}]}},
+"pendientes":[{{"tipo":"queja|tarea","acuerdo":1,"titulo":"...","detalle":"...","severidad":"alta|media|baja","cita":"texto exacto"}}],
+"hallazgos":[{{"cuadrante":"producto","tema":"...","cita":"texto exacto","sentimiento":"neutral","severidad":"media","tipo":"necesidad","normativo":false}}]}}
+Máximo 8 elementos por bloque de la minuta, 10 pendientes y 12 hallazgos."""
+
+
+def _minuta(res: dict, texto_norm: str) -> tuple[dict, int]:
+    from .vozcliente import cita_valida
+    m = res.get("minuta") if isinstance(res.get("minuta"), dict) else {}
+    desc = 0
+
+    def cita(x):
+        nonlocal desc
+        c = str((x or {}).get("cita") or "").strip().strip("«»\"")
+        if c and not cita_valida(c, texto_norm):
+            desc += 1
+            return ""
+        return c[:600]
+
+    out = {"decisiones": [], "acuerdos": [], "riesgos": [], "temas_abiertos": []}
+    for k in ("decisiones", "riesgos"):
+        out[k] = [{"texto": str(x["texto"])[:400], "cita": cita(x)} for x in (m.get(k) or [])[:8]
+                  if isinstance(x, dict) and x.get("texto")]
+    out["temas_abiertos"] = [{"texto": str(x.get("texto") if isinstance(x, dict) else x)[:400]} for x in (m.get("temas_abiertos") or [])[:8]
+                             if (x.get("texto") if isinstance(x, dict) else x)]
+    for i, x in enumerate((m.get("acuerdos") or [])[:8], 1):
+        if isinstance(x, dict) and x.get("que"):
+            out["acuerdos"].append({"n": int(x.get("n") or i) if str(x.get("n") or i).isdigit() else i,
+                                    "quien": "onecore" if str(x.get("quien")).lower().startswith(("one", "nos")) else "cliente",
+                                    "responsable": str(x.get("responsable") or "")[:120], "que": str(x["que"])[:400],
+                                    "cuando": str(x.get("cuando") or "")[:10], "cita": cita(x), "pendiente_id": None})
+    return out, desc
 
 
 def aplicar_analisis(db: Session, s: SesionCliente, res: dict, texto_norm: str) -> int:
-    """Pasa el análisis a la agenda (ejecución y asistencia) y crea las propuestas de pendientes. Regresa descartadas."""
+    """Pasa el análisis a la agenda (ejecución, asistencia y minuta) y crea los pendientes candidatos por decidir."""
     from .vozcliente import cita_valida
     a = db.scalar(select(AgendaCliente).where(AgendaCliente.sesion_id == s.id))
     if not a:
@@ -213,18 +249,21 @@ def aplicar_analisis(db: Session, s: SesionCliente, res: dict, texto_norm: str) 
     ev = res.get("evidencia") if isinstance(res.get("evidencia"), dict) else {}
     corresponde = bool(ev.get("corresponde"))
     no_cub = sum(1 for p in puntos if p["cubierto"] == "no")
+    minuta, d = _minuta(res, texto_norm)
+    descartadas += d
     a.ejecucion = {"corresponde": corresponde, "motivo": str(ev.get("motivo") or "")[:400], "puntos": puntos,
                    "cubiertos": sum(1 for p in puntos if p["cubierto"] == "si"),
                    "parciales": sum(1 for p in puntos if p["cubierto"] == "parcial"), "no_cubiertos": no_cub,
-                   "no_invitados": extra[:20], "analizado": utcnow().isoformat(timespec="seconds")}
+                   "no_invitados": extra[:20], "analizado": utcnow().isoformat(timespec="seconds"), "minuta": minuta}
     a.estado = "no_corresponde" if not corresponde else ("con_huecos" if no_cub else "realizada")
-    evento(a, None, f"GuardIA revisó la transcripción: {AGENDA_ESTADO_TXT[a.estado]}.")
-    # propuestas de pendientes: se rehacen las que nadie ha confirmado; lo confirmado no se toca
+    evento(a, None, f"GuardIA revisó la transcripción: {AGENDA_ESTADO_TXT[a.estado]}. Minuta generada.")
+    # candidatos: se rehacen solo los que nadie ha decidido; lo decidido (kanban o histórico) no se toca
     for p in list(db.scalars(select(PendienteCliente).where(PendienteCliente.sesion_id == s.id,
                                                             PendienteCliente.estado == "propuesta"))):
         db.delete(p)
     db.flush()
-    confirmadas = {_norm(p.titulo) for p in db.scalars(select(PendienteCliente).where(PendienteCliente.sesion_id == s.id))}
+    decididas = {_norm(p.titulo): p for p in db.scalars(select(PendienteCliente).where(PendienteCliente.sesion_id == s.id))}
+    acuerdos = {x["n"]: x for x in minuta["acuerdos"]}
     n = 0
     for p in (res.get("pendientes") or [])[:10]:
         if not isinstance(p, dict) or not p.get("titulo"):
@@ -233,7 +272,14 @@ def aplicar_analisis(db: Session, s: SesionCliente, res: dict, texto_norm: str) 
         if not cita_valida(cita, texto_norm):
             descartadas += 1
             continue
-        if _norm(str(p["titulo"])) in confirmadas:
+        try:
+            num = int(p.get("acuerdo") or 0)
+        except (TypeError, ValueError):
+            num = 0
+        previo = decididas.get(_norm(str(p["titulo"])))
+        if previo:
+            if num in acuerdos:
+                acuerdos[num]["pendiente_id"] = previo.id
             continue
         tp = str(p.get("tipo") or "tarea").lower()
         sev = str(p.get("severidad") or "media").lower()
@@ -242,11 +288,48 @@ def aplicar_analisis(db: Session, s: SesionCliente, res: dict, texto_norm: str) 
                               severidad=sev if sev in ("alta", "media", "baja") else "media",
                               cliente_rfc=a.cliente_rfc, cliente_nombre=a.cliente_nombre, origen="sesion",
                               agenda_id=a.id, sesion_id=s.id, estado="propuesta", historial=[])
-        evento(pc, None, "GuardIA lo propuso desde la transcripción de la sesión.")
+        evento(pc, None, "GuardIA lo propuso desde la minuta de la sesión; el operativo decide si pasa al kanban.")
         db.add(pc)
+        db.flush()
+        if num in acuerdos:
+            acuerdos[num]["pendiente_id"] = pc.id
         n += 1
-    a.ejecucion["propuestas"] = n
+    from sqlalchemy.orm.attributes import flag_modified
+    a.ejecucion = {**a.ejecucion, "minuta": minuta, "propuestas": n}
+    flag_modified(a, "ejecucion")  # la minuta se liga a los pendientes después del primer flush
     return descartadas
+
+
+def flag_minuta(a: AgendaCliente) -> tuple[str, str, str] | None:
+    """(clave, texto, color) del avance de la minuta: lo que pasó al kanban, ¿ya se resolvió?"""
+    if not (a.ejecucion or {}).get("minuta") and not a.pendientes:
+        return None
+    ps = list(a.pendientes)
+    por_decidir = [p for p in ps if p.estado == "propuesta"]
+    kanban = [p for p in ps if p.estado in ("pendiente", "en_curso", "revision", "resuelto")]
+    abiertos = [p for p in kanban if p.estado != "resuelto"]
+    vencidos = [p for p in abiertos if p.fecha_compromiso and p.fecha_compromiso < hoy()]
+    if vencidos:
+        return "rojo", f"{len(vencidos)} vencido{'s' if len(vencidos) != 1 else ''}", "r"
+    if por_decidir:
+        return "decidir", f"{len(por_decidir)} por decidir", "o"
+    if abiertos:
+        return "curso", f"En curso {len(kanban) - len(abiertos)}/{len(kanban)}", "b"
+    return "resuelta", f"Resuelta{f' {len(kanban)}/{len(kanban)}' if kanban else ''}", "g"
+
+
+def puede_decidir(u: Usuario, p: PendienteCliente) -> bool:
+    """El operativo (responsable de la sesión) decide qué pasa al kanban; también líderes y Dirección."""
+    return u.es_lider or u.es_direccion or bool(p.agenda and p.agenda.responsable_id == u.id) or (not p.agenda and p.creado_por == u.id)
+
+
+def es_customer_success(u: Usuario) -> bool:
+    return u.puesto == "customer_success" or u.es_direccion
+
+
+def ve_historico(u: Usuario) -> bool:
+    return u.es_lider or u.es_direccion or u.puesto in ("customer_success", "director_general", "director_comercial",
+                                                        "director_operaciones")
 
 
 AGENDA_ESTADO_TXT = {"realizada": "agenda ejecutada", "con_huecos": "agenda ejecutada con puntos sin cubrir",
@@ -262,7 +345,7 @@ def error_analisis(db: Session, s: SesionCliente) -> None:
 
 # ---------------------------------------------------------------- pendientes
 
-COLUMNAS = (("propuesta", "Propuestas de GuardIA"), ("pendiente", "Por atender"), ("en_curso", "En curso"),
+COLUMNAS = (("propuesta", "Por decidir (minutas)"), ("pendiente", "Por atender"), ("en_curso", "En curso"),
             ("revision", "En revisión"), ("resuelto", "Resuelto"))
 
 
@@ -272,11 +355,11 @@ def puede_gestionar(u: Usuario) -> bool:
 
 
 def puede_atender(u: Usuario, p: PendienteCliente) -> bool:
-    return puede_gestionar(u) or p.asignado_id == u.id
+    return (puede_gestionar(u) or p.asignado_id == u.id) and p.estado not in ("historico", "no_vigente")
 
 
 def vence(p: PendienteCliente) -> tuple[str, str]:
-    if not p.fecha_compromiso or p.estado in ("resuelto", "descartado", "propuesta"):
+    if not p.fecha_compromiso or p.estado in ("resuelto", "historico", "no_vigente", "propuesta"):
         return "", ""
     d = (p.fecha_compromiso - hoy()).days
     if d < 0:

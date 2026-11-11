@@ -1,0 +1,31 @@
+{% extends "base.html" %}{% from "_ui.html" import icon with context %}
+{% block title %}Histórico de minutas{% endblock %}
+{% block content %}
+<div class="top">
+  <div class="col" style="gap:4px"><span class="muted small"><a href="/clientes/pendientes">Pendientes de clientes</a> · Auditoría</span><h1>Histórico de minutas</h1>
+    <span class="muted">Quejas y tareas que el operativo decidió no pasar al kanban. Customer Success las audita; solo ella confirma que ya no son vigentes. Dirección las puede revisar siempre.</span></div>
+  <nav class="seg" aria-label="Vista"><a href="?ver=auditar" class="{{ 'on' if ver != 'no_vigentes' }}">Por auditar ({{ n_auditar }})</a><a href="?ver=no_vigentes" class="{{ 'on' if ver == 'no_vigentes' }}">No vigentes ({{ n_no_vigentes }})</a></nav>
+</div>
+<div class="tt-grupo" style="--c:{{ '#FDAB3D' if ver != 'no_vigentes' else '#8A949E' }}"><div class="tt-scroll"><table class="tt-t tt-full">
+  <colgroup><col style="width:8px"><col><col style="width:150px"><col style="width:210px"><col style="width:210px"><col style="width:{{ 300 if cs and ver != 'no_vigentes' else 0 }}px"></colgroup>
+  <thead><tr><th></th><th>Queja o tarea</th><th>Cliente · sesión</th><th>No pasó porque…</th><th>{{ 'Customer Success' if ver == 'no_vigentes' else 'Decidió' }}</th><th>{% if cs and ver != 'no_vigentes' %}Auditoría{% endif %}</th></tr></thead>
+  <tbody>
+  {% for p in lista %}<tr class="tt-fila">
+    <td class="tt-borde"></td>
+    <td><a class="jt-link" href="/clientes/pendientes/{{ p.id }}"><span class="tt-fol">{{ p.folio }}</span> <b>{{ p.titulo }}</b></a>
+      <div class="row" style="gap:6px;margin-top:4px"><span class="tag {{ 'r' if p.tipo == 'queja' else 'b' }}">{{ tipos[p.tipo] }}</span><span class="prio {{ p.severidad }}">{{ p.severidad }}</span></div>
+      {% if p.cita %}<span class="quote small" style="display:block;margin-top:4px">«{{ p.cita }}»</span>{% endif %}</td>
+    <td class="small">{{ nombre_cliente(u, p) }}{% if p.agenda %}<div><a href="/clientes/agenda/{{ p.agenda_id }}">{{ icon('cal', 13) }} {{ fmt_fecha(p.agenda.fecha) }}</a></div>{% endif %}</td>
+    <td class="small">{{ p.decision_motivo or '—' }}</td>
+    <td class="small">{% if ver == 'no_vigentes' %}{{ p.auditoria_motivo }}<div class="muted">{{ p.auditor.nombre if p.auditor }} · {{ hora_local(p.auditado_en) if p.auditado_en }}</div>{% else %}{{ p.decisor.nombre if p.decisor else '—' }}<div class="muted">{{ hora_local(p.decidido_en) if p.decidido_en }}</div>{% endif %}</td>
+    <td>{% if cs and ver != 'no_vigentes' %}
+      <form method="post" action="/clientes/pendientes/{{ p.id }}/confirmar" class="ag-conf"><input type="hidden" name="volver" value="/clientes/pendientes/historico">
+        <select class="input" name="asignado_id" required aria-label="Asignar a"><option value="">Asignar a…</option>{% for g in gente %}<option value="{{ g.id }}">{{ g.nombre }}</option>{% endfor %}</select>
+        <input class="input" type="date" name="fecha_compromiso" required value="{{ fecha_def.isoformat() }}" aria-label="Fecha compromiso">
+        <button class="btn sm yellow">Pasar al kanban</button></form>
+      <details class="ev-ret"><summary class="btn sm ghost">No vigente</summary>
+        <form method="post" action="/clientes/pendientes/{{ p.id }}/no-vigente" class="ev-ret-f"><input type="hidden" name="volver" value="/clientes/pendientes/historico">
+          <input class="input" name="motivo" required minlength="5" placeholder="¿Por qué ya no es vigente?" aria-label="Motivo"><button class="btn sm red">Confirmar</button></form></details>{% endif %}</td>
+  </tr>{% else %}<tr><td class="tt-borde"></td><td colspan="5" class="muted">{{ 'Nada por auditar.' if ver != 'no_vigentes' else 'Aún no hay tareas confirmadas como no vigentes.' }}</td></tr>{% endfor %}
+  </tbody></table></div></div>
+{% endblock %}

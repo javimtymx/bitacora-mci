@@ -17,19 +17,19 @@
 <div class="tb-pulso card"><div class="tb-pulso-fila">
   <span class="tb-mini"><b>{{ res.total }}</b> sesiones · {{ res.operativas }} operativas · {{ res.resultado }} de resultado</span>
   <span class="tb-mini {{ 'g' if res.ejecutadas }}">{{ icon('ok', 13) }}<b>{{ res.ejecutadas }}</b> ejecutadas{% if res.pct is not none %} ({{ res.pct }}%){% endif %}</span>
-  <span class="tb-mini {{ 'o' if res.falta_transcripcion }}">{{ icon('doc', 13) }}<b>{{ res.falta_transcripcion }}</b> sin transcripción</span>
+  <span class="tb-mini {{ 'r' if res.falta_transcripcion }}">{{ icon('doc', 13) }}<b>{{ res.falta_transcripcion }}</b> ejecutadas sin transcripción</span>
   <span class="tb-mini {{ 'o' if res.con_huecos }}">{{ icon('alert', 13) }}<b>{{ res.con_huecos }}</b> con puntos sin cubrir</span>
   <span class="tb-mini">{{ icon('users', 13) }}<b>{{ res.asistencia if res.asistencia is not none else '—' }}{{ '%' if res.asistencia is not none }}</b> asistencia de invitados</span>
   {% if res.canceladas %}<span class="tb-mini muted">{{ res.canceladas }} cancelada{{ 's' if res.canceladas != 1 }}</span>{% endif %}
 </div></div>
-<span class="muted small">El orden del control: 1) la agenda del mes, 2) quién asistió, 3) la transcripción que confirma que se ejecutó. Cada transcripción alimenta la Voz del Cliente, el Círculo de Innovación y los pendientes de Operaciones.</span>
+<span class="muted small">El orden del control: 1) la agenda del mes, 2) quién asistió, 3) la transcripción (obligatoria) que confirma la ejecución y genera la minuta. De cada transcripción sale el <b>seguimiento</b> (minuta y kanban de Operaciones) separado de la <b>innovación</b> (propuesta de valor para Voz del Cliente y el Círculo).</span>
 
 {% for sem, lista in semanas %}
 <section class="tt-grupo" style="--c:{{ ['#579BFC','#A25DDC','#00C875','#FDAB3D','#E2445C','#0086C0'][loop.index0 % 6] }}">
   <header class="tt-gcab"><b>Semana {{ sem }}</b><span class="tt-gn">{{ lista[0].fecha.strftime('%d/%m') }}{% if lista|length > 1 %} – {{ lista[-1].fecha.strftime('%d/%m') }}{% endif %} · {{ lista|length }} sesi{{ 'ones' if lista|length != 1 else 'ón' }}</span></header>
   <div class="tt-scroll"><table class="tt-t tt-full">
     <colgroup><col style="width:8px"><col style="width:100px"><col><col style="width:120px"><col style="width:150px"><col style="width:76px"><col style="width:104px"><col style="width:140px"><col style="width:112px"><col style="width:124px"></colgroup>
-    <thead><tr><th></th><th>Fecha</th><th>Cliente y agenda</th><th class="c">Tipo</th><th>Responsable</th><th class="c">Puntos</th><th class="c">Asistencia</th><th class="c">Estatus</th><th class="c" title="¿Vamos preparados? Según los pendientes abiertos del cliente">Preparación</th><th class="c">Pendientes</th></tr></thead>
+    <thead><tr><th></th><th>Fecha</th><th>Cliente y agenda</th><th class="c">Tipo</th><th>Responsable</th><th class="c">Puntos</th><th class="c">Asistencia</th><th class="c">Estatus</th><th class="c" title="¿Vamos preparados? Según los pendientes abiertos del cliente">Preparación</th><th class="c">Minuta</th></tr></thead>
     <tbody>
     {% for a in lista %}{% set ev = estado_visible(a) %}{% set inv = a.invitados or [] %}{% set ej = a.ejecucion or {} %}
       <tr class="tt-fila{{ ' ag-cancel' if a.estado == 'cancelada' }}">
@@ -43,8 +43,7 @@
         <td class="c">{% if inv %}{% set asis = inv|selectattr('asistio')|list|length %}<b>{{ asis }}</b>/{{ inv|length }}<span class="tt-bar" style="width:70%;margin:4px auto 0;display:block"><i class="st-{{ 'g' if asis == inv|length else 'o' }}" style="width:{{ (asis / inv|length * 100)|round }}%"></i></span>{% else %}<span class="muted">—</span>{% endif %}</td>
         <td class="tt-st st-{{ ev[1] }}">{{ ev[0] }}</td>
         <td class="c">{% set fl = flags.get(a.id) %}{% if fl %}<span class="flag-prep {{ fl }}" title="{{ {'verde':'Vamos preparados','amarillo':'Hay pendientes por cerrar antes de la sesión','rojo':'Hay pendientes vencidos con el cliente'}[fl] }}">{{ fl|capitalize }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
-        <td class="c">{% set pr = a.pendientes|selectattr('estado','equalto','propuesta')|list|length %}{% set ab = a.pendientes|selectattr('estado','in',['pendiente','en_curso','revision'])|list|length %}
-          {% if pr %}<span class="tag o" title="Propuestas de GuardIA por confirmar">{{ pr }} por confirmar</span>{% endif %}{% if ab %}<div class="small">{{ ab }} abierto{{ 's' if ab != 1 }}</div>{% endif %}{% if not pr and not ab %}<span class="muted">—</span>{% endif %}</td>
+        <td class="c">{% set fm = flag_minuta(a) %}{% if fm %}<a href="/clientes/agenda/{{ a.id }}" class="tag {{ fm[2] }}" title="Avance de la minuta">{{ fm[1] }}</a>{% elif estado_visible(a)[0] == 'Ejecutada · sin transcripción' %}<span class="tag r">Sin minuta</span>{% else %}<span class="muted">—</span>{% endif %}</td>
       </tr>
     {% endfor %}
     </tbody></table></div>
@@ -55,6 +54,24 @@
   <div class="row" style="justify-content:center;margin-top:12px"><button class="btn yellow" type="button" data-open="nueva">{{ icon('plus') }}Programar sesión</button></div></section>
 {% endfor %}
 {% endblock %}
+
+{% block scripts %}<script>
+/* equipo OneCore: se elige de los usuarios activos (su correo es su login) */
+document.querySelectorAll("[data-equipo]").forEach(function (box) {
+  var sel = box.querySelector("[data-eq-sel]"), lista = box.querySelector("[data-eq-lista]");
+  var esc = function (t) { return String(t).replace(/[&<>"']/g, function (c) { return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); };
+  box.querySelector("[data-eq-agregar]").addEventListener("click", function () {
+    var o = sel.options[sel.selectedIndex];
+    if (!o || !o.value || lista.querySelector('[data-email="' + o.value + '"]')) return;
+    var t = document.createElement("span"); t.className = "ptag"; t.dataset.email = o.value;
+    t.innerHTML = "<b>" + esc(o.dataset.nombre) + "</b> <small>" + esc(o.value) + "</small>" +
+      '<input type="hidden" name="p_nombre" value="' + esc(o.dataset.nombre) + '"><input type="hidden" name="p_email" value="' + esc(o.value) + '"><input type="hidden" name="p_lado" value="onecore">' +
+      ' <button type="button" class="tt-x" aria-label="Quitar">✕</button>';
+    t.querySelector("button").addEventListener("click", function () { t.remove(); });
+    lista.appendChild(t); sel.value = "";
+  });
+});
+</script>{% endblock %}
 
 {% block modals %}
 <div class="overlay" id="nueva"><form class="modal" method="post" action="/clientes/agenda" role="dialog" aria-modal="true" aria-labelledby="t-nueva" style="max-width:760px">
@@ -71,11 +88,17 @@
     </div>
     <div class="field"><label for="ag-p">Agenda <span class="muted" style="font-weight:500">· un punto por renglón; con esto {{ guardia }} confirma qué se cubrió</span></label>
       <textarea class="input" id="ag-p" name="puntos" rows="5" required placeholder="Revisión de pedimentos rectificados del mes&#10;Avance de la carga de expedientes en Smart Files&#10;Dudas sobre el Anexo 30"></textarea></div>
+    <div class="field" data-equipo>
+      <label for="ag-eq">Equipo de OneCore <span class="muted" style="font-weight:500">· usuarios activos; la invitación sale a su correo de acceso</span></label>
+      <div class="tag-in"><select class="input" id="ag-eq" data-eq-sel aria-label="Usuario de OneCore"><option value="">Elige a quién invitar…</option>
+        {% for g in gente %}<option value="{{ g.email }}" data-nombre="{{ g.nombre }}">{{ g.nombre }}{% if g.area %} · {{ g.area.nombre }}{% endif %}</option>{% endfor %}</select>
+        <button class="btn soft" type="button" data-eq-agregar>{{ icon('plus', 16) }}Agregar</button></div>
+      <div class="ptags" data-eq-lista></div></div>
     <div class="field" data-tags>
-      <label for="ag-tn">Invitados <span class="muted" style="font-weight:500">· del cliente y de OneCore</span></label>
+      <label for="ag-tn">Invitados del cliente <span class="muted" style="font-weight:500">· solo para la asistencia; a ellos no se les escribe</span></label>
       <div class="tag-in"><input class="input" id="ag-tn" data-tg-nombre placeholder="Nombre" aria-label="Nombre del invitado">
-        <input class="input" type="email" data-tg-email placeholder="correo@empresa.com (opcional)" aria-label="Correo del invitado">
-        <select class="input" data-tg-lado aria-label="Lado"><option value="cliente">Cliente</option><option value="onecore">OneCore</option></select>
+        <input class="input" type="email" data-tg-email placeholder="correo@cliente.com (opcional)" aria-label="Correo del invitado">
+        <select class="input" data-tg-lado aria-label="Lado" hidden><option value="cliente">Cliente</option></select>
         <button class="btn soft" type="button" data-tg-agregar>{{ icon('plus', 16) }}Agregar</button></div>
       <div class="ptags" data-tg-lista></div></div>
   </div>

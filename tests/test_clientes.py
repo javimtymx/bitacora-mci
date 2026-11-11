@@ -95,10 +95,16 @@ def _agenda(admin, db, **kw):
 
 
 def test_agenda_transcripcion_confirma_ejecucion_y_propone_pendientes(admin, db, fake):
-    a = _agenda(admin, db)
+    ops = db.scalar(select(Area).where(Area.clave == "operaciones"))
+    db.add(Usuario(nombre="Ana Ops", email="ana@onecore.mx", rol="colaborador", area_id=ops.id, activo=True,
+                   password_hash=hash_password("clave-segura-123")))
+    db.commit()
+    ana_u = _u(db, "ana@onecore.mx")
+    a = _agenda(admin, db, responsable_id=ana_u.id, fecha=(hoy() - timedelta(days=1)).isoformat())
+    assert "Ejecutada · sin transcripción" in admin.get(f"/clientes/agenda/{a.id}").text
     assert a.mes == hoy().strftime("%Y-%m") and len(a.puntos) == 3 and a.estado == "programada"
     html = admin.get(f"/clientes/agenda?mes={a.mes}").text
-    assert "Manufacturas del Norte" in html and ("Programada" in html or "Hoy" in html)
+    assert "Manufacturas del Norte" in html and "Ejecutada · sin transcripción" in html and "Sin minuta" in html
     fake.respuestas = [{
         "evidencia": {"corresponde": True, "motivo": "Es la sesión operativa del cliente"}, "resumen": "Sesión operativa.",
         "riesgo_baja": "medio", "sentimiento": "neutral",
@@ -106,10 +112,17 @@ def test_agenda_transcripcion_confirma_ejecucion_y_propone_pendientes(admin, db,
                    {"n": 2, "cubierto": "parcial", "nota": "Solo comentario"}, {"n": 3, "cubierto": "no"}],
         "participantes": [{"nombre": "Laura Díaz", "lado": "cliente"}, {"nombre": "Javier", "lado": "onecore"}],
         "hallazgos": [{"cuadrante": "servicio", "tema": "Avisos de rectificación", "cita": "nadie nos avisó a tiempo",
-                       "sentimiento": "negativo", "severidad": "alta", "tipo": "queja"}],
+                       "sentimiento": "negativo", "severidad": "alta", "tipo": "queja"},
+                      {"cuadrante": "producto", "tema": "Expediente que ahorra tiempo en auditoría", "tipo": "elogio",
+                       "cita": "el expediente en Smart Files nos ha ahorrado mucho tiempo en la auditoría", "sentimiento": "positivo"}],
+        "minuta": {"decisiones": [{"texto": "Corregir descargos esta semana", "cita": "Nos comprometemos a corregir el reporte de descargos esta semana"}],
+                   "acuerdos": [{"n": 1, "quien": "onecore", "responsable": "Javier", "que": "Corregir el reporte de descargos", "cuando": "",
+                                 "cita": "Nos comprometemos a corregir el reporte de descargos esta semana"},
+                                {"n": 2, "quien": "cliente", "que": "Revisar el detalle de rectificaciones", "cita": "cita inventada que no existe en el texto"}],
+                   "riesgos": [{"texto": "Rectificaciones sin aviso", "cita": "nadie nos avisó a tiempo"}], "temas_abiertos": [{"texto": "Capacitación de Anexo 30"}]},
         "pendientes": [{"tipo": "queja", "titulo": "Avisar a tiempo las rectificaciones", "detalle": "Tres casos sin aviso",
                         "severidad": "alta", "cita": "Tuvimos tres rectificaciones por error en la fracción arancelaria y nadie nos avisó a tiempo"},
-                       {"tipo": "tarea", "titulo": "Corregir el reporte de descargos", "severidad": "media",
+                       {"tipo": "tarea", "acuerdo": 1, "titulo": "Corregir el reporte de descargos", "severidad": "media",
                         "cita": "Nos comprometemos a corregir el reporte de descargos esta semana"},
                        {"tipo": "tarea", "titulo": "Inventada", "cita": "esto nunca se dijo en la junta con el cliente"}],
         "acuerdos": [{"quien": "nosotros", "texto": "Mandar detalle de casos", "fecha": ""}]}]
@@ -125,20 +138,46 @@ def test_agenda_transcripcion_confirma_ejecucion_y_propone_pendientes(admin, db,
     assert {x["nombre"] for x in a.ejecucion["no_invitados"]} == {"Javier"}
     props = [p for p in a.pendientes if p.estado == "propuesta"]
     assert {p.titulo for p in props} == {"Avisar a tiempo las rectificaciones", "Corregir el reporte de descargos"}  # sin cita, fuera
-    assert a.sesion.hallazgos and a.sesion.hallazgos[0].tema == "Avisos de rectificación"  # alimenta Voz del Cliente
+    # segmentación: la queja es seguimiento (no va a Voz del Cliente); la propuesta de valor sí
+    assert [h.tema for h in a.sesion.hallazgos] == ["Expediente que ahorra tiempo en auditoría"]
+    mi = a.ejecucion["minuta"]
+    assert mi["decisiones"][0]["cita"] and mi["acuerdos"][1]["cita"] == ""  # cita inventada, fuera
+    t0 = next(p for p in props if p.tipo == "tarea")
+    assert mi["acuerdos"][0]["pendiente_id"] == t0.id and mi["temas_abiertos"][0]["texto"] == "Capacitación de Anexo 30"
     html = admin.get(f"/clientes/agenda/{a.id}").text
     assert "Ejecutada con huecos" in html or "no se cubri" in html
-    assert "Propuesta de" in html and "Confirmar" in html
+    assert "Minuta de la sesión" in html and "Pasar al kanban" in html and "Propuesta de valor" in html and "2 por decidir" in html
 
-    # confirmar → pasa al tablero de Operaciones
+    # el operativo (responsable de la sesión, colaborador) decide qué pasa al kanban
+    ana = login(TestClient(app), "ana@onecore.mx")
     q = next(p for p in props if p.tipo == "queja")
     erick = _u(db, "egarza@onecore.mx")
-    admin.post(f"/clientes/pendientes/{q.id}/confirmar", data={"asignado_id": erick.id, "fecha_compromiso": (hoy() + timedelta(days=3)).isoformat()})
+    ana.post(f"/clientes/pendientes/{q.id}/confirmar", data={"asignado_id": erick.id, "fecha_compromiso": (hoy() + timedelta(days=3)).isoformat()})
     db.expire_all()
     q = db.get(PendienteCliente, q.id)
-    assert q.estado == "pendiente" and q.asignado_id == erick.id
+    assert q.estado == "pendiente" and q.asignado_id == erick.id and q.decidido_por == ana_u.id
+    # la tarea no pasa: queda en histórico; el operativo no la puede dar de baja, solo Customer Success
+    t = db.get(PendienteCliente, t0.id)
+    ana.post(f"/clientes/pendientes/{t.id}/no-pasar", data={"motivo": "Se resolvió en la misma junta"})
+    db.expire_all()
+    t = db.get(PendienteCliente, t.id)
+    assert t.estado == "historico" and t.decision_motivo.startswith("Se resolvió")
+    assert ana.post(f"/clientes/pendientes/{t.id}/no-vigente", data={"motivo": "ya no aplica"}).status_code == 403
     kan = admin.get("/clientes/pendientes").text
-    assert q.folio in kan and "Por atender" in kan and "Propuestas de" in kan
+    assert q.folio in kan and "Por atender" in kan and t.folio not in kan and "Histórico" in kan
+    mario = _u(db, "mpineda@onecore.mx")
+    mario.puesto = "customer_success"
+    db.commit()
+    manuel = login(TestClient(app), "mcoronado@onecore.mx")
+    assert manuel.post(f"/clientes/pendientes/{t.id}/no-vigente", data={"motivo": "ya no aplica"}).status_code == 403  # líder, no CS
+    cs = login(TestClient(app), "mpineda@onecore.mx")
+    hist = cs.get("/clientes/pendientes/historico").text
+    assert t.folio in hist and "Se resolvió en la misma junta" in hist and "No vigente" in hist
+    cs.post(f"/clientes/pendientes/{t.id}/no-vigente", data={"motivo": "El cliente confirmó que ya quedó"})
+    db.expire_all()
+    t = db.get(PendienteCliente, t.id)
+    assert t.estado == "no_vigente" and t.auditado_por == mario.id
+    assert t.folio in admin.get("/clientes/pendientes/historico?ver=no_vigentes").text  # sigue visible para Dirección
     # mover por JSON (drag & drop)
     d = admin.post(f"/clientes/pendientes/{q.id}/mover", data={"estado": "en_curso"}, headers={"Accept": "application/json"}).json()
     assert d["ok"]
@@ -166,11 +205,9 @@ def test_agenda_transcripcion_confirma_ejecucion_y_propone_pendientes(admin, db,
     db.expire_all()
     q = db.get(PendienteCliente, q.id)
     assert q.veredicto == "concluido" and q.verificacion["historial"]
-    # descartar una propuesta pide motivo y no la borra
-    t = next(p for p in props if p.tipo == "tarea")
-    admin.post(f"/clientes/pendientes/{t.id}/descartar", data={"motivo": "Ya se atendió en la junta"})
-    db.expire_all()
-    assert db.get(PendienteCliente, t.id).estado == "descartado"
+    a = db.get(AgendaCliente, a.id)
+    from app.services import clientes as cl
+    assert cl.flag_minuta(a)[0] == "resuelta"  # lo que pasó al kanban ya se resolvió
 
 
 def test_agenda_reprogramar_cancelar_y_copiar_mes(admin, db):
@@ -235,20 +272,20 @@ def test_benchmark_metodologia_y_fuentes_del_circulo(admin, db, fake):
     db.commit()
     f = innovacion.fuentes(db)
     op = db.scalar(select(InsightBenchmark).where(InsightBenchmark.tipo == "oportunidad"))
-    assert q in f["quejas"] and op in f["benchmark"]
+    assert f["quejas"] == [] and op in f["benchmark"]  # seguimiento no se mezcla con innovación
     c = CirculoInnovacion(mes=hoy().strftime("%Y-%m"), nombre="Círculo prueba")
     db.add(c)
     db.commit()
     fake.respuestas = [{"lectura": "Hay dos frentes.", "iniciativas": [
         {"titulo": "Servicio de asesoría en auditorías", "descripcion": "Paquete", "impacto": 4, "esfuerzo": 2,
-         "fuentes": {"quejas": [f"Q{q.id}"], "benchmark": [f"B{op.id}"]}, "cita": f"B{op.id}"}], "sueltas": []}]
+         "fuentes": {"benchmark": [f"B{op.id}"]}, "cita": f"B{op.id}"}], "sueltas": []}]
     innovacion.consolidar(db, c, _u(db, "jmartinez@onecore.mx"))
     db.refresh(c)
     ini = c.iniciativas[0]
-    assert ini.fuentes["quejas"] == [q.id] and ini.fuentes["benchmark"] == [op.id]
-    assert "Q" + str(q.id) in str(fake.prompts[-1]) and "Competidor Uno" in str(fake.prompts[-1])
+    assert ini.fuentes["quejas"] == [] and ini.fuentes["benchmark"] == [op.id]
+    assert "Competidor Uno" in str(fake.prompts[-1]) and f"Q{q.id}" not in str(fake.prompts[-1])
     html = admin.get(f"/circulo/{c.id}/fuentes/{ini.id}").text
-    assert f"/clientes/pendientes/{q.id}" in html and f"/clientes/benchmark/sesiones/{s.id}" in html
+    assert f"/clientes/benchmark/sesiones/{s.id}" in html
     assert f"/clientes/benchmark/sesiones/{s.id}/transcripcion" in html
 
 
@@ -265,7 +302,12 @@ def test_menus_de_clientes_por_rol(db):
     ana.post("/clientes/pendientes", data={"titulo": "Revisar acceso de usuario del cliente", "tipo": "tarea", "cliente_nombre": "ACME"})
     p = db.scalar(select(PendienteCliente))
     assert p.estado == "propuesta" and p.asignado_id is None
-    assert ana.post(f"/clientes/pendientes/{p.id}/confirmar", data={"asignado_id": 1, "fecha_compromiso": hoy().isoformat()}).status_code == 403
+    # quien lo capturó (el operativo) decide; otro colaborador no
+    db.add(Usuario(nombre="Beto Ops", email="beto@onecore.mx", rol="colaborador", area_id=a.id, activo=True,
+                   password_hash=hash_password("clave-segura-123")))
+    db.commit()
+    beto = login(TestClient(app), "beto@onecore.mx")
+    assert beto.post(f"/clientes/pendientes/{p.id}/no-pasar", data={"motivo": "no aplica nada"}).status_code == 403
     # el nombre del cliente es confidencial: quien no lo atiende ve una etiqueta
     p.creado_por = None
     db.commit()
@@ -289,6 +331,11 @@ def test_avisos_internos_de_agenda_invitacion_recordatorio_y_escalacion(admin, d
     assert "laura@cliente.mx" not in str(inv["para"]) + str(inv.get("cc"))
     metodo, ics = inv["calendario"]
     assert metodo == "REQUEST" and f"UID:agenda-{a.id}@mci.onecore.mx" in ics and "TZID=America/Mexico_City" in ics
+    # recordatorio pequeño de 1 minuto con el semáforo, sin liga de reunión
+    ini = next(l for l in ics.split("\r\n") if l.startswith("DTSTART"))[-6:]
+    fin = next(l for l in ics.split("\r\n") if l.startswith("DTEND"))[-6:]
+    assert (ini, fin) == ("100000", "100100") and "SUMMARY:🟢" in ics and "meet.google" not in ics
+    assert "Semáforo de preparación: VERDE" in ics
     assert "OBLIGATORIA" in inv["cuerpo"] and inv["asunto"].startswith("[VERDE]") and not inv["cc"]
     # Customer Success apaga sus avisos desde su perfil
     cs = login(TestClient(app), "mpineda@onecore.mx")
@@ -316,3 +363,17 @@ def test_avisos_internos_de_agenda_invitacion_recordatorio_y_escalacion(admin, d
     # cancelar quita la cita del calendario
     admin.post(f"/clientes/agenda/{a.id}/cancelar", data={"motivo": "El cliente pidió posponer"})
     assert enviados[-1]["calendario"][0] == "CANCEL" and "STATUS:CANCELLED" in enviados[-1]["calendario"][1]
+
+
+def test_recordatorio_diario_de_transcripcion(admin, db, monkeypatch):
+    from app.services import agenda_avisos, correo
+    enviados = []
+    monkeypatch.setattr(correo, "enviar", lambda para, asunto, cuerpo, enlace=None, **kw: enviados.append(
+        {"para": para, "asunto": asunto, "cuerpo": cuerpo, **kw}) or "simulado")
+    _u(db, "mpineda@onecore.mx").puesto = "customer_success"
+    db.commit()
+    a = _agenda(admin, db, fecha=(hoy() - timedelta(days=2)).isoformat())
+    assert agenda_avisos.falta_transcripcion(db) == 1
+    r = enviados[-1]
+    assert r["para"] == ["egarza@onecore.mx"] and r["cc"] == ["mpineda@onecore.mx"] and "OBLIGATORIA" in r["cuerpo"]
+    assert agenda_avisos.falta_transcripcion(db) == 0  # uno por día

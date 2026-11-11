@@ -38,7 +38,7 @@ def preparacion(db: Session, a: AgendaCliente) -> dict:
     """¿Vamos preparados? Pendientes abiertos del cliente, acuerdos y puntos sin cubrir de la sesión anterior."""
     desde = utcnow() - timedelta(days=180)
     pend = list(db.scalars(select(PendienteCliente).where(_mismo_cliente(a), PendienteCliente.creado >= desde,
-                                                          PendienteCliente.estado != "descartado")))
+                                                          PendienteCliente.estado.notin_(("historico", "no_vigente")))))
     abiertos = [p for p in pend if p.estado in ABIERTOS]
     resueltos = [p for p in pend if p.estado == "resuelto"]
     vencidos = [p for p in abiertos if p.fecha_compromiso and p.fecha_compromiso < hoy()]
@@ -49,10 +49,18 @@ def preparacion(db: Session, a: AgendaCliente) -> dict:
     previa = db.scalar(select(AgendaCliente).where(*cond, AgendaCliente.id != a.id, AgendaCliente.fecha <= a.fecha,
                                                    AgendaCliente.sesion_id.is_not(None))
                        .order_by(AgendaCliente.fecha.desc()).limit(1))
-    acuerdos, sin_cubrir = [], []
+    acuerdos, sin_cubrir, minuta, flag_min = [], [], {}, None
     if previa and previa.sesion and previa.sesion.estado == "analizada":
-        acuerdos = [x for x in (previa.sesion.resultado or {}).get("acuerdos", []) if x.get("quien") == "nosotros"]
+        from .clientes import flag_minuta
+        minuta = (previa.ejecucion or {}).get("minuta") or {}
+        por_id = {p.id: p for p in previa.pendientes}
+        for x in minuta.get("acuerdos", []):
+            if x.get("quien") == "onecore":
+                p = por_id.get(x.get("pendiente_id"))
+                acuerdos.append({**x, "texto": x.get("que", ""), "fecha": x.get("cuando", ""),
+                                 "estado": p.estado if p else None, "folio": p.folio if p else None})
         sin_cubrir = [p["punto"] for p in (previa.ejecucion or {}).get("puntos", []) if p.get("cubierto") == "no"]
+        flag_min = flag_minuta(previa)
     if vencidos or sin_asignar_altas:
         flag = "rojo"
     elif antes_de_sesion or sin_cubrir:
@@ -62,7 +70,7 @@ def preparacion(db: Session, a: AgendaCliente) -> dict:
     total = len(abiertos) + len(resueltos)
     return {"flag": flag, "texto": BANDERA[flag], "abiertos": abiertos, "vencidos": vencidos, "antes": antes_de_sesion,
             "altas_sin_asignar": sin_asignar_altas, "resueltos": len(resueltos), "previa": previa, "acuerdos": acuerdos,
-            "sin_cubrir": sin_cubrir, "cumplimiento": round(len(resueltos) / total * 100) if total else None}
+            "sin_cubrir": sin_cubrir, "minuta": minuta, "flag_minuta": flag_min, "cumplimiento": round(len(resueltos) / total * 100) if total else None}
 
 
 # ---------------------------------------------------------------- destinatarios (solo OneCore)
@@ -86,17 +94,33 @@ def _ics_txt(t: str) -> str:
     return t.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
 
 
-def ics(a: AgendaCliente, metodo: str, secuencia: int, asistentes: list[str], descripcion: str, cliente: str) -> str:
+SEMAFORO = {"verde": "🟢", "amarillo": "🟡", "rojo": "🔴"}
+
+
+def descripcion_corta(a: AgendaCliente, prep: dict) -> str:
+    """Recordatorio pequeño para el calendario: semáforo y pendientes del cliente. Sin liga de Meet: cada quien la crea."""
+    s = get_settings()
+    l = [f"Semáforo de preparación: {prep['flag'].upper()}",
+         f"Pendientes abiertos con el cliente: {len(prep['abiertos'])} · vencidos: {len(prep['vencidos'])}",
+         "Transcripción obligatoria al terminar.",
+         "Recordatorio interno de la Bitácora MCI (sin liga de reunión: créala en tu calendario).",
+         f"{s.base_url}/clientes/agenda/{a.id}"]
+    return "\n".join(l)
+
+
+def ics(a: AgendaCliente, metodo: str, secuencia: int, asistentes: list[str], descripcion: str, cliente: str,
+        flag: str = "") -> str:
+    """Evento de 1 minuto a la hora de la sesión: solo agenda al grupo y muestra el semáforo; no lleva liga de reunión."""
     s = get_settings()
     hh, mm = (a.hora or "09:00").split(":") if a.hora else ("09", "00")
     inicio = datetime(a.fecha.year, a.fecha.month, a.fecha.day, int(hh), int(mm))
-    fin = inicio + timedelta(hours=1)
+    fin = inicio + timedelta(minutes=1)
     org = (s.smtp_from or "bitacora@onecore.mx").split("<")[-1].strip(">").strip()
     lineas = ["BEGIN:VCALENDAR", "PRODID:-//OneCore//Bitacora MCI//ES", "VERSION:2.0", "CALSCALE:GREGORIAN", f"METHOD:{metodo}",
               "BEGIN:VEVENT", f"UID:agenda-{a.id}@mci.onecore.mx", f"SEQUENCE:{secuencia}",
               f"DTSTAMP:{utcnow():%Y%m%dT%H%M%SZ}",
               f"DTSTART;TZID=America/Mexico_City:{inicio:%Y%m%dT%H%M%S}", f"DTEND;TZID=America/Mexico_City:{fin:%Y%m%dT%H%M%S}",
-              f"SUMMARY:{_ics_txt(('Sesión ' + ('operativa' if a.tipo == 'operativa' else 'de resultado mensual') + ' · ' + cliente))}",
+              f"SUMMARY:{_ics_txt((SEMAFORO.get(flag, '') + ' ' if flag else '') + 'Sesión ' + ('operativa' if a.tipo == 'operativa' else 'de resultado mensual') + ' · ' + cliente)}",
               f"DESCRIPTION:{_ics_txt(descripcion[:1800])}", f"ORGANIZER;CN=Bitácora MCI:mailto:{org}",
               f"STATUS:{'CANCELLED' if metodo == 'CANCEL' else 'CONFIRMED'}"]
     lineas += [f"ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:{e}" for e in asistentes]
@@ -128,8 +152,15 @@ def _cuerpo(a: AgendaCliente, prep: dict, cliente: str, encabezado: str) -> str:
         l += [f"- {p.folio} · {p.titulo} · {('vence ' + p.fecha_compromiso.strftime('%d/%m')) if p.fecha_compromiso else 'sin fecha'}"
               f" · {p.asignado.nombre if p.asignado else 'sin asignar'}" for p in prep["antes"]]
     if prep["previa"]:
-        l += ["", f"Minuta de la sesión anterior ({prep['previa'].fecha:%d/%m/%Y}):"]
-        l += [f"- Acuerdo de OneCore: {x['texto']}{' · ' + x['fecha'] if x.get('fecha') else ''}" for x in prep["acuerdos"]] or ["- Sin acuerdos de OneCore registrados."]
+        fm = prep.get("flag_minuta")
+        l += ["", f"MINUTA DE LA SESIÓN ANTERIOR ({prep['previa'].fecha:%d/%m/%Y})" + (f" · estado: {fm[1]}" if fm else "") + ":"]
+        est = {"resuelto": "RESUELTO", "historico": "no pasó al kanban", "no_vigente": "no vigente", "propuesta": "POR DECIDIR"}
+        l += [f"- Acuerdo de OneCore: {x['texto']}{' · ' + x['fecha'] if x.get('fecha') else ''}"
+              + (f" → {x['folio']} {est.get(x['estado'], 'ABIERTO')}" if x.get("folio") else " → sin tarea")
+              for x in prep["acuerdos"]] or ["- Sin acuerdos de OneCore registrados."]
+        l += [f"- Decisión: {x['texto']}" for x in (prep.get("minuta") or {}).get("decisiones", [])]
+        l += [f"- Riesgo: {x['texto']}" for x in (prep.get("minuta") or {}).get("riesgos", [])]
+        l += [f"- Tema abierto: {x['texto']}" for x in (prep.get("minuta") or {}).get("temas_abiertos", [])]
         l += [f"- Punto que no se cubrió: {p}" for p in prep["sin_cubrir"]]
     inv = [i["nombre"] + (" (cliente)" if i.get("lado") != "onecore" else "") for i in a.invitados or []]
     if inv:
@@ -172,7 +203,8 @@ def enviar(db: Session, a: AgendaCliente, tipo: str) -> dict:
     if tipo != "cancelacion":
         asunto = f"[{prep['flag'].upper()}] " + asunto
     metodo = "CANCEL" if tipo == "cancelacion" else "REQUEST"
-    cal = None if tipo == "recordatorio" else (metodo, ics(a, metodo, _secuencia(a), para, cuerpo, cliente))
+    cal = None if tipo == "recordatorio" else (metodo, ics(a, metodo, _secuencia(a), para, descripcion_corta(a, prep), cliente,
+                                                          prep["flag"]))
     try:
         estado = correo.enviar(para, asunto, cuerpo, f"{s.base_url}/clientes/agenda/{a.id}", boton="Abrir la sesión",
                                titulo="Agenda de clientes", cc=cc, calendario=cal,
@@ -209,6 +241,41 @@ def recordatorios(db: Session) -> int:
         if (a.fecha - ultima).days <= DIAS_RECORDATORIO:
             continue
         enviar(db, a, "recordatorio")
+        n += 1
+    db.commit()
+    return n
+
+
+def falta_transcripcion(db: Session) -> int:
+    """Diario: cada sesión ya ejecutada sin transcripción le recuerda al responsable (con copia a Customer Success)."""
+    from .clientes import evento
+    s = get_settings()
+    cs = sorted({x.email.lower() for x in db.scalars(select(Usuario).where(Usuario.activo.is_(True),
+                                                                           Usuario.puesto == "customer_success")) if x.email})
+    n = 0
+    hoy_iso = hoy().isoformat()
+    for a in db.scalars(select(AgendaCliente).where(AgendaCliente.estado.in_(("programada", "reprogramada")),
+                                                    AgendaCliente.fecha < hoy(), AgendaCliente.sesion_id.is_(None))):
+        if any(x["tipo"] == "falta_transcripcion" and x["en"][:10] == hoy_iso for x in a.avisos or []):
+            continue
+        para = [a.responsable.email] if a.responsable and a.responsable.activo and a.responsable.email else cs
+        if not para:
+            continue
+        dias = (hoy() - a.fecha).days
+        cliente = a.cliente_nombre or a.cliente_rfc or "Cliente"
+        cuerpo = (f"La sesión con {cliente} del {a.fecha:%d/%m/%Y} se marcó como ejecutada sin transcripción "
+                  f"(hace {dias} día{'s' if dias != 1 else ''}).\n\nLa transcripción es OBLIGATORIA: de ella sale la minuta "
+                  f"(decisiones, acuerdos, riesgos y temas abiertos) y las quejas y tareas de seguimiento. Cárgala hoy en la "
+                  f"bitácora.\n\nComunicación interna de OneCore.")
+        try:
+            estado = correo.enviar(para, f"Falta la transcripción · {cliente} · {a.fecha:%d/%m}", cuerpo,
+                                   f"{s.base_url}/clientes/agenda/{a.id}", boton="Cargar la transcripción", titulo="Agenda de clientes",
+                                   cc=[c for c in cs if c not in para], pie="Comunicación interna de OneCore generada por la Bitácora MCI.")
+        except Exception as e:  # noqa: BLE001
+            log.warning("No se pudo enviar el recordatorio de transcripción de la sesión %s: %s", a.id, e)
+            estado = "error"
+        _registrar(a, "falta_transcripcion", para, [c for c in cs if c not in para], "", estado)
+        evento(a, None, "Recordatorio diario: falta cargar la transcripción.")
         n += 1
     db.commit()
     return n

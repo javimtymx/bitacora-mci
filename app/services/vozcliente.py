@@ -378,6 +378,8 @@ def analizar(db: Session, s: SesionCliente) -> SesionCliente:
         if cu not in CUADRANTES or not cita_valida(cita, tn):
             descartadas += 1
             continue
+        if s.tipo == "agenda" and str(h.get("tipo") or "").lower() == "queja":
+            continue  # en la agenda las quejas son seguimiento (minuta y kanban), no innovación
         sent = str(h.get("sentimiento") or "neutral").lower()
         sev = str(h.get("severidad") or "media").lower()
         tp = str(h.get("tipo") or "queja").lower()

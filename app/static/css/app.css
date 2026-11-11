@@ -706,3 +706,15 @@ a.tb-diag{text-decoration:none}
 .flag-prep::before{content:"";width:7px;height:7px;border-radius:50%;background:#fff;opacity:.85}
 .flag-prep.verde{background:#00A563}.flag-prep.amarillo{background:#E9A10A}.flag-prep.rojo{background:#D83A52}
 .prep-rojo{border-left:6px solid #D83A52}.prep-amarillo{border-left:6px solid #E9A10A}.prep-verde{border-left:6px solid #00A563}
+/* minuta: seguimiento vs innovación */
+.seg-k{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;border-radius:6px;padding:3px 8px;color:#fff}
+.seg-k.seg{background:#0086C0}.seg-k.inn{background:#A25DDC}
+.seg-seguimiento{border-top:4px solid #0086C0}.seg-innovacion{border-top:4px solid #A25DDC}
+.mn-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.mn-b{display:flex;flex-direction:column;gap:6px}.mn-b h4{font-size:13px;margin:0;color:var(--ink2,#334155)}
+.mn-i{display:flex;flex-direction:column;gap:3px;font-size:13px;padding:6px 0;border-bottom:1px dashed var(--line)}
+.mn-ac{display:flex;gap:8px;align-items:center;font-size:13px;padding:7px 0;border-bottom:1px dashed var(--line);flex-wrap:wrap}
+a.tag{text-decoration:none}
+@media (max-width:900px){.mn-grid{grid-template-columns:1fr}}
+.ptag small{color:var(--ink3)}
+[data-inv-eq],[data-equipo] .tag-in{display:flex;gap:8px}[data-inv-eq] select,[data-equipo] select{flex:1 1 auto;min-width:0}[data-inv-eq] button,[data-equipo] .tag-in button{flex:0 0 auto}
