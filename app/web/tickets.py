@@ -167,7 +167,8 @@ def detalle(tid: int, request: Request, db: Session = Depends(get_db), u: Usuari
     sim = tk.similares(db, f"{t.titulo} {t.descripcion} {t.pantalla}", excluir_id=t.id) if staff else []
     return render(request, "ticket.html", u, "tickets", t=t, staff=staff, sim=sim,
                   triage=accesos.puede(u, "tickets-triage"), dev=accesos.puede(u, "tickets-tablero"),
-                  estados=TICKET_ESTADOS, tipos=tk.tipos(db, True), impactos=tk.impactos(db, True), cierres=TICKET_CIERRES,
+                  estados=TICKET_ESTADOS, tipos=tk.tipos(db, True), impactos=tk.impactos(db, True), cierres=tk.cierres(db, True),
+                  cierres_activos=tk.cierres(db),
                   campos_req=tk.CAMPOS_REQ, asignables=tk.asignables(db) if staff else [], vence_en=tk.vence_en,
                   aceptar=",".join("." + e for e in tk.PERMITIDOS), ve_costos=tk.ve_costos(u),
                   edita_cc=tk.puede_editar_cc(u, t), hoy=date.today(), areas_u=tk.areas_usuario(db, True),
@@ -411,7 +412,7 @@ def triage_regenerar(tid: int, request: Request, bg: BackgroundTasks, db: Sessio
 def config(request: Request, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
     p = tk.prompt_vigente(db)
     tk.catalogo(db)
-    tk.tipos(db), tk.impactos(db), tk.productos(db)  # en una instalación nueva crea las opciones iniciales
+    tk.tipos(db), tk.impactos(db), tk.productos(db), tk.cierres(db)  # en una instalación nueva crea las opciones iniciales
     db.commit()
     versiones = db.scalars(select(TicketPrompt).order_by(TicketPrompt.version.desc()).limit(20)).all()
     reglas = db.scalars(select(TicketRegla).where(TicketRegla.estado == "pendiente").order_by(TicketRegla.creado)).all()
@@ -420,6 +421,7 @@ def config(request: Request, db: Session = Depends(get_db), u: Usuario = Depends
                   op_tipo=tk.opciones(db, "tipo", True), op_impacto=tk.opciones(db, "impacto", True),
                   uso_tipo=tk.en_uso(db, "tipo"), uso_impacto=tk.en_uso(db, "impacto"),
                   op_producto=tk.opciones(db, "producto", True), uso_producto=tk.en_uso(db, "producto"),
+                  op_cierre=tk.opciones(db, "cierre", True), uso_cierre=tk.en_uso(db, "cierre"),
                   metricas=tk.regresados_por_version(db))
 
 
@@ -456,7 +458,8 @@ async def config_opciones(catalogo: str, request: Request, db: Session = Depends
     try:
         n = tk.guardar_opciones(db, u, catalogo, filas)
         db.commit()
-        nombre = {"tipo": "tipos", "impacto": "impactos", "producto": "productos"}.get(catalogo, catalogo)
+        nombre = {"tipo": "tipos", "impacto": "impactos", "producto": "productos",
+                  "cierre": "«¿Cómo se resolvió?»"}.get(catalogo, catalogo)
         flash(request, f"Catálogo de {nombre} guardado ({n} opción(es)).")
     except tk.TicketInvalido as e:
         db.rollback()

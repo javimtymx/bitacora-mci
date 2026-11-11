@@ -31,6 +31,11 @@ def _impactos(db):
     return impactos(db, True) or TICKET_IMPACTOS
 
 
+def _cierres(db):
+    from .tickets import cierres
+    return cierres(db, True)
+
+
 def _hora(dt) -> str:
     return (dt - timedelta(hours=6)).strftime("%d/%m/%Y %H:%M") if dt else "—"
 
@@ -134,7 +139,7 @@ def avisos(db: Session, evento: str, t: Ticket, actor: Usuario | None, **x) -> l
     elif evento == "cerrado":
         r = t.resolucion or {}
         a([t.autor], f"{t.folio}: etapa Cerrado · resuelto",
-          f"El ticket quedó resuelto.\n{ficha}{plan}\nCómo: {TICKET_CIERRES.get(r.get('tipo'), r.get('tipo', ''))}\n"
+          f"El ticket quedó resuelto.\n{ficha}{plan}\nCómo: {_cierres(db).get(r.get('tipo'), r.get('tipo', ''))}\n"
           f"Solución: {r.get('solucion', '')}\nSi vuelve a pasar, entra al ticket y usa «Reabrir».", "Ver la solución",
           interesados=True)
     elif evento == "reabierto":

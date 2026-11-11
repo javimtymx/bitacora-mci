@@ -269,7 +269,7 @@ def opciones(db: Session, catalogo: str, todas: bool = False) -> list[TicketOpci
         db.flush()
         return opciones(db, catalogo, todas)
     if not filas:  # instalación nueva: se cargan las opciones iniciales
-        base = TICKET_TIPOS if catalogo == "tipo" else TICKET_IMPACTOS
+        base = {"tipo": TICKET_TIPOS, "impacto": TICKET_IMPACTOS, "cierre": TICKET_CIERRES}[catalogo]
         for i, (k, e) in enumerate(base.items(), 1):
             db.add(TicketOpcion(catalogo=catalogo, clave=k, etiqueta=e, orden=i,
                                 prioridad=_PRIO_IMPACTO.get(k) if catalogo == "impacto" else None,
@@ -285,6 +285,11 @@ def tipos(db: Session, todas: bool = False) -> dict[str, str]:
 
 def impactos(db: Session, todas: bool = False) -> dict[str, str]:
     return {o.clave: o.etiqueta for o in opciones(db, "impacto", todas)}
+
+
+def cierres(db: Session, todas: bool = False) -> dict[str, str]:
+    """Catálogo «¿Cómo se resolvió?» del cierre (ABC en Configurar GuardIA Ticket)."""
+    return {o.clave: o.etiqueta for o in opciones(db, "cierre", todas)} or dict(TICKET_CIERRES)
 
 
 def productos(db: Session, todas: bool = False) -> list[str]:
@@ -323,7 +328,7 @@ def _clave(etiqueta: str, usadas: set[str]) -> str:
 
 def guardar_opciones(db: Session, u: Usuario, catalogo: str, filas: list[dict]) -> int:
     """filas: [{id|None, etiqueta, orden, activo, prioridad, menor}]. Nunca borra: desactiva."""
-    if catalogo not in ("tipo", "impacto", "area", "producto"):
+    if catalogo not in ("tipo", "impacto", "area", "producto", "cierre"):
         raise TicketInvalido("Catálogo inválido.")
     existentes = {o.id: o for o in opciones(db, catalogo, todas=True)}
     usadas = {o.clave for o in existentes.values()}
@@ -374,6 +379,9 @@ def _renombrar_producto(db: Session, u: Usuario, antes: str, despues: str) -> No
 
 
 def en_uso(db: Session, catalogo: str) -> dict[str, int]:
+    if catalogo == "cierre":
+        from collections import Counter
+        return dict(Counter((r or {}).get("tipo") for r in db.scalars(select(Ticket.resolucion).where(Ticket.estado == "cerrado"))))
     if catalogo == "producto":
         por_nombre = dict(db.execute(select(Ticket.producto, func.count(Ticket.id)).group_by(Ticket.producto)).all())
         return {o.clave: por_nombre.get(o.etiqueta, 0) for o in opciones(db, "producto", True)}
@@ -883,7 +891,7 @@ def comentar(db: Session, u: Usuario, t: Ticket, texto: str) -> None:
 
 def cerrar(db: Session, u: Usuario, t: Ticket, *, tipo_cierre: str, causa: str, solucion: str, modulos: str = "",
            horas_reales=None) -> None:
-    if tipo_cierre not in TICKET_CIERRES:
+    if tipo_cierre not in cierres(db):
         raise TicketInvalido("Elige cómo se resolvió.")
     if horas_reales in (None, ""):
         horas_reales = t.horas_estimadas
@@ -905,7 +913,7 @@ def cerrar(db: Session, u: Usuario, t: Ticket, *, tipo_cierre: str, causa: str, 
     t.costo_hora = ingeniero.costo_hora if ingeniero else None  # tarifa vigente al cerrar: el costo ya no cambia
     t.estado, t.cerrado_en, t.actualizado = "cerrado", utcnow(), utcnow()
     db.add(TicketComentario(ticket_id=t.id, autor_id=u.id, tipo="sistema",
-                            texto=f"Cerrado: {TICKET_CIERRES[tipo_cierre]} · {horas_reales:g} h invertidas."))
+                            texto=f"Cerrado: {cierres(db, True).get(tipo_cierre, tipo_cierre)} · {horas_reales:g} h invertidas."))
     auditar(db, "ticket_cerrar", "ticket", t.id, u.id, tipo=tipo_cierre)
 
 

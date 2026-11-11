@@ -15,11 +15,12 @@
   <button class="btn dark" type="button" onclick="window.print()">{{ icon('print') }}Descargar PDF</button></div>
 <form method="get" class="card pad noprint"><div class="rp-filtros">
   <div class="seg" role="radiogroup" aria-label="Periodo">
-    {% for k, t in (('semana','Semana'),('mes','Mes'),('rango','Rango de fechas')) %}<label><input type="radio" name="tipo" value="{{ k }}" {{ 'checked' if tipo == k }} onchange="this.form.submit()"><span>{{ t }}</span></label>{% endfor %}</div>
+    {% for k, t in (('todo','Todo el historial'),('semana','Semana'),('mes','Mes'),('rango','Rango de fechas')) %}<label><input type="radio" name="tipo" value="{{ k }}" {{ 'checked' if tipo == k }} onchange="this.form.submit()"><span>{{ t }}</span></label>{% endfor %}</div>
   {% if tipo == 'semana' %}<select class="input" name="semana" onchange="this.form.submit()" aria-label="Semana">{% for s in semanas %}<option value="{{ s }}" {{ 'selected' if s == sem }}>Semana {{ num_semana(s) }} · {{ s[:4] }}</option>{% endfor %}</select>
   {% elif tipo == 'mes' %}<select class="input" name="mes" onchange="this.form.submit()" aria-label="Mes">{% for m in meses %}<option value="{{ m }}" {{ 'selected' if m == mes }}>{{ nombre_mes(m)|capitalize }}</option>{% endfor %}</select>
-  {% else %}<input class="input" type="date" name="desde" value="{{ desde.isoformat() if desde else '' }}" aria-label="Desde" required>
+  {% elif tipo == 'rango' %}<input class="input" type="date" name="desde" value="{{ desde.isoformat() if desde else '' }}" aria-label="Desde" required>
     <input class="input" type="date" name="hasta" value="{{ hasta.isoformat() if hasta else '' }}" aria-label="Hasta" required><button class="btn soft" type="submit">Ver</button>{% endif %}
+  <label class="rp-mostrar">Mostrar <select class="input" name="mostrar" onchange="this.form.submit()">{% for k, t in opciones_mostrar.items() %}<option value="{{ k }}" {{ 'selected' if k == mostrar }}>{{ t }}</option>{% endfor %}</select></label>
   {% if areas|length > 1 %}<select class="input" name="area" onchange="this.form.submit()" aria-label="Área"><option value="">Todas las áreas</option>{% for a in areas %}<option value="{{ a.clave }}" {{ 'selected' if a.clave == area_sel }}>{{ a.nombre }}</option>{% endfor %}</select>{% endif %}
 </div>
   <span class="muted small">El PDF sale en hojas horizontales 16:9: al imprimir elige «Guardar como PDF». Los textos van completos.</span>
@@ -38,11 +39,11 @@
       <td>{% for x in r.mcis %}<div>{{ mci_linea(x) }}</div>{% endfor %}</td>
       <td class="c rp-num g">{{ r.cumplidos }}</td>
       <td class="c rp-num {{ 'r' if r.no_cumplidos }}">{{ r.no_cumplidos }}{% if r.sin_remediacion %}<div class="rp-sm r">{{ r.sin_remediacion }} sin remediación</div>{% endif %}</td>
-      <td class="c rp-num">{{ r.abiertos }}{% if r.vencidos %}<div class="rp-sm r">{{ r.vencidos }} vencido{{ 's' if r.vencidos > 1 }}</div>{% endif %}</td>
+      <td class="c rp-num">{{ r.abiertos }}{% if r.vencidos %}<div class="rp-sm r">{{ r.vencidos }} vencido{{ 's' if r.vencidos > 1 }} · el más atrasado {{ r.max_dias_vencido }} día{{ 's' if r.max_dias_vencido != 1 }}</div>{% endif %}</td>
       <td class="c">{% if r.pct is none %}<span class="tag n">s/d</span>{% else %}<span class="tag {{ 'g' if r.pct >= 85 else ('o' if r.pct >= 65 else 'r') }} rp-pct">{{ '%.0f'|format(r.pct) }}%</span>{% endif %}</td></tr>
     {% else %}<tr><td colspan="6" class="rp-muted">No hay áreas con MCI.</td></tr>{% endfor %}
     </tbody></table>
-  <p class="rp-nota">Cumplimiento = cumplidos ÷ (cumplidos + no cumplidos); los abiertos no cuentan hasta cerrarse. Después, el informe de cada área por MCI y medida predictiva: primero lo no cumplido, luego lo abierto y al final lo cumplido.</p>
+  <p class="rp-nota">Cumplimiento = cumplidos ÷ (cumplidos + no cumplidos); los abiertos no cuentan hasta cerrarse. Los días vencidos se cuentan desde la fecha límite hasta hoy. Después, el informe de cada área por MCI y medida predictiva: primero lo no cumplido, luego lo abierto y al final lo cumplido.</p>
 </section>
 
 {# ------------------------------------------------ informe: área › MCI › medida predictiva › compromisos #}
@@ -56,7 +57,11 @@
     {% if rem %}<div class="rp-rem"><b>Causa:</b> <span class="pl">{{ rem.causa }}</span><br><b>Acción:</b> <span class="pl">{{ rem.accion }}</span> · <b>Nueva fecha:</b> {{ fecha(rem.nueva_fecha) }}</div>
     {% elif c.estado == 'no_cumplido' %}<div class="rp-rem r"><b>Sin remediación registrada.</b></div>{% endif %}
     {% if nota %}<div class="rp-notav"><b>Nota {{ hora_local(nota.creado)[:10] }} · {{ nota.usuario.nombre if nota.usuario else '' }}:</b> <span class="pl">{{ nota.texto }}</span></div>{% endif %}</td>
-  <td class="rp-vence">{{ fecha(c.fecha_limite) }}{% if c.cerrado and c.estado in ('cumplido','no_cumplido') %}<div class="rp-sm">{{ 'Cumplido' if c.estado == 'cumplido' else 'Cerrado' }} {{ hora_local(c.cerrado)[:10] }}</div>{% endif %}</td>
+  {% set dv = rs.dias_vencido(c) %}{% set dp = rs.dias_por_vencer(c) %}{% set dt = rs.dias_tarde_cierre(c) %}
+  <td class="rp-vence {{ 'rp-venc' if dv }}">{{ fecha(c.fecha_limite) }}
+    {% if dv %}<div class="rp-dias">Vencido hace {{ dv }} día{{ 's' if dv != 1 }}</div>
+    {% elif dp is not none %}<div class="rp-sm">{{ 'Vence hoy' if dp == 0 else 'Faltan %d día%s'|format(dp, '' if dp == 1 else 's') }}</div>
+    {% elif c.cerrado and c.estado in ('cumplido','no_cumplido') %}<div class="rp-sm">{{ 'Cumplido' if c.estado == 'cumplido' else 'Cerrado' }} {{ hora_local(c.cerrado)[:10] }}{% if dt %} · <b class="rp-tarde">{{ dt }} día{{ 's' if dt != 1 }} tarde</b>{% endif %}</div>{% endif %}</td>
   <td class="rp-av"><span class="rp-bar"><i style="width:{{ 100 if c.estado == 'cumplido' else c.avance }}%" class="{{ r.estados[c.id].color }}"></i></span><span>{{ 100 if c.estado == 'cumplido' else c.avance }}%</span></td>
 </tr>{% endmacro %}
 

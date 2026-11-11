@@ -215,7 +215,7 @@
   <div class="sec" style="border-top:0">
     <div class="cint"><span class="ic">{{ icon('ia') }}</span><span style="flex:1">La causa y la solución alimentan a {{ guardia }}: con ellas sugiere la respuesta cuando alguien reporte algo parecido.</span></div>
     <div class="field"><label for="cer-t">¿Cómo se resolvió?</label><select class="input" id="cer-t" name="tipo_cierre" required><option value="">Elige…</option>
-      {% for k, v in cierres.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></div>
+      {% for k, v in cierres_activos.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></div>
     <div class="field"><label for="cer-c">Causa raíz</label><textarea class="input" id="cer-c" name="causa" required minlength="10" rows="2" style="padding:10px 12px"></textarea></div>
     <div class="field"><label for="cer-s">Solución (qué se hizo y qué debe hacer el usuario si vuelve a pasar)</label><textarea class="input" id="cer-s" name="solucion" required minlength="15" rows="3" style="padding:10px 12px"></textarea></div>
     <div class="grid2">

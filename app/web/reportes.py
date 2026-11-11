@@ -66,11 +66,12 @@ def indicadores(request: Request, db: Session = Depends(get_db), u: Usuario = De
 
 @router.get("/semanal")
 def semanal(request: Request, tipo: str = "semana", semana: str | None = None, mes: str | None = None,
-            desde: OptDate = None, hasta: OptDate = None, area: str | None = None,
+            desde: OptDate = None, hasta: OptDate = None, area: str | None = None, mostrar: str = "todo",
             db: Session = Depends(get_db), u: Usuario = Depends(requiere_lider)):
     """Rendición de cuentas en PDF 16:9: vista general por área y, por área, sus compromisos por medida predictiva."""
     from ..services import indicadores, reporte_semanal as rs
-    tipo = tipo if tipo in ("semana", "mes", "rango") else "semana"
+    tipo = tipo if tipo in ("todo", "semana", "mes", "rango") else "semana"
+    mostrar = mostrar if mostrar in rs.MOSTRAR else "todo"
     if tipo == "semana" and not semana:
         semana = semana_iso(hoy() - timedelta(days=7) if hoy().weekday() < 2 else hoy())
         if semana < indicadores.inicio_seguimiento():
@@ -78,11 +79,13 @@ def semanal(request: Request, tipo: str = "semana", semana: str | None = None, m
     sems, etiqueta, mes_ref = rs.periodo(tipo, semana, mes, desde, hasta)
     todas = [a for a in db.scalars(select(Area).where(Area.activo.is_(True)).order_by(Area.id))
              if indicadores.mcis_de(db, a.id) and (u.es_direccion or a.id == u.area_id)]
-    reportes_ = [rs.area_reporte(db, a, sems) for a in todas if not area or a.clave == area]
+    reportes_ = [rs.area_reporte(db, a, sems, mostrar) for a in todas if not area or a.clave == area]
     lista_sem = semanas_atras(12)
     if semana and semana not in lista_sem:
         lista_sem = sorted(set(lista_sem) | {semana}, reverse=True)
-    return render(request, "semanal.html", u, "semanal", tipo=tipo, sem=semana or sems[-1], sems=sems, etiqueta=etiqueta,
+    return render(request, "semanal.html", u, "semanal", tipo=tipo, sem=semana or (sems[-1] if sems else ""), sems=sems,
+                  etiqueta=etiqueta + ("" if mostrar == "todo" else f" · {rs.MOSTRAR[mostrar].lower()}"),
+                  mostrar=mostrar, opciones_mostrar=rs.MOSTRAR, rs=rs,
                   mes=mes_ref, reportes=reportes_, semanas=lista_sem, meses=indicadores.meses_disponibles()[::-1],
                   nombre_mes=indicadores.nombre_mes, areas=todas, area_sel=area or "", desde=desde, hasta=hasta,
                   generado=utcnow(), seg=seguimiento)

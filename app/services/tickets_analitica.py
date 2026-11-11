@@ -37,6 +37,7 @@ def _regresado(t: Ticket) -> bool:
 
 
 _AREAS: dict[str, str] = {}
+_CIERRES: dict[str, str] = {}
 
 
 def grupo_de(t: Ticket, dimension: str) -> str:
@@ -75,6 +76,9 @@ def metricas(db: Session, dias: int = 30, dimension: str = "area") -> dict:
     global _TIPOS
     _TIPOS = tipos(db, True) or dict(TICKET_TIPOS)
     _cargar_areas(db)
+    from .tickets import cierres
+    _CIERRES.clear()
+    _CIERRES.update(cierres(db, True))
     ahora = utcnow()
     desde = ahora - timedelta(days=dias)
     ts = db.scalars(select(Ticket).where(Ticket.creado >= desde).order_by(Ticket.creado)).all()
@@ -141,7 +145,7 @@ def metricas(db: Session, dias: int = 30, dimension: str = "area") -> dict:
         "resolucion": {p: round(median(v), 1) for p, v in sorted(por_prio.items())},
         "semanas": serie,
         "modulos": Counter(" › ".join(x for x in (t.producto, t.menu) if x) for t in ts).most_common(8),
-        "cierres": [(TICKET_CIERRES.get(k, k), n) for k, n in Counter((t.resolucion or {}).get("tipo") for t in cerrados).most_common() if k],
+        "cierres": [(_CIERRES.get(k, TICKET_CIERRES.get(k, k)), n) for k, n in Counter((t.resolucion or {}).get("tipo") for t in cerrados).most_common() if k],
         "carga": sorted(carga.items(), key=lambda x: (-x[1]["vencidos"], -x[1]["abiertos"])),
         "grupos": tabla,
     }

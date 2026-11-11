@@ -44,8 +44,29 @@ def estado(c: Compromiso, excs) -> Estado:
     return Estado("abierto", "Abierto", "b", "○")
 
 
+MOSTRAR = {"todo": "Todo", "abiertos": "Solo abiertos", "cerrados": "Solo cerrados"}
+
+
+def dias_vencido(c: Compromiso) -> int:
+    """Días que lleva abierto después de su fecha límite (0 si no está vencido)."""
+    return max(0, (hoy() - c.fecha_limite).days) if c.estado == "abierto" else 0
+
+
+def dias_por_vencer(c: Compromiso) -> int | None:
+    return (c.fecha_limite - hoy()).days if c.estado == "abierto" and c.fecha_limite >= hoy() else None
+
+
+def dias_tarde_cierre(c: Compromiso) -> int:
+    """Días de atraso con que se cerró (0 si se cerró a tiempo o no tiene fecha de cierre)."""
+    if c.estado not in ("cumplido", "no_cumplido") or not c.cerrado:
+        return 0
+    return max(0, ((c.cerrado - timedelta(hours=6)).date() - c.fecha_limite).days)
+
+
 def periodo(tipo: str, semana: str | None, mes: str | None, desde: date | None, hasta: date | None):
-    """(semanas, etiqueta, mes de referencia). tipo: semana | mes | rango."""
+    """(semanas o None = todo, etiqueta, mes de referencia). tipo: todo | semana | mes | rango."""
+    if tipo == "todo":
+        return None, "Todo el historial", indicadores.mes_de(semana_iso(hoy()))
     if tipo == "rango" and desde and hasta:
         if hasta < desde:
             desde, hasta = hasta, desde
@@ -131,6 +152,10 @@ class AreaReporte:
         return self.cuenta("vencido")
 
     @property
+    def max_dias_vencido(self) -> int:
+        return max((dias_vencido(c) for c in self.comps), default=0)
+
+    @property
     def pct(self) -> float | None:
         cerrados = self.cumplidos + self.no_cumplidos
         return self.cumplidos / cerrados * 100 if cerrados else None
@@ -147,20 +172,29 @@ class AreaReporte:
         return "sin_datos"
 
 
-def area_reporte(db: Session, area: Area, sems: list[str]) -> AreaReporte:
-    """Jerarquía: área › MCI › medida predictiva › compromisos; los compromisos sin predictiva van al final del área."""
+def area_reporte(db: Session, area: Area, sems: list[str] | None, mostrar: str = "todo") -> AreaReporte:
+    """Jerarquía: área › MCI › medida predictiva › compromisos; los compromisos sin predictiva van al final del área.
+    sems None = todo el historial. mostrar: todo | abiertos | cerrados."""
     excs = seguimiento.excepciones_aprobadas(db)
     preds = list(db.scalars(select(Predictiva).join(Mci).where(Mci.area_id == area.id, Mci.activo.is_(True))
                             .order_by(Mci.id, Predictiva.id)))
-    comps = [c for c in db.scalars(select(Compromiso).where(Compromiso.area_id == area.id, Compromiso.semana.in_(sems),
-                                                            Compromiso.estado != "cancelado"))]
+    q = select(Compromiso).where(Compromiso.area_id == area.id, Compromiso.estado != "cancelado",
+                                 Compromiso.archivado.is_not(True))
+    if sems is not None:
+        q = q.where(Compromiso.semana.in_(sems))
+    if mostrar == "abiertos":
+        q = q.where(Compromiso.estado == "abierto")
+    elif mostrar == "cerrados":
+        q = q.where(Compromiso.estado.in_(("cumplido", "no_cumplido")))
+    comps = list(db.scalars(q))
     estados = {c.id: estado(c, excs) for c in comps}
-    matriz = {p.id: (v, fila) for p, v, fila in indicadores.matriz_predictivas(db, preds, sems, comps)}
+    sems_med = sems if sems is not None else indicadores.semanas(4)  # capturas de las predictivas a mostrar
+    matriz = {p.id: (v, fila) for p, v, fila in indicadores.matriz_predictivas(db, preds, sems_med, comps)}
     orden = lambda c: (BLOQUE.get(estados[c.id].clave, 1), c.fecha_limite, c.id)
     grupos = []
     for p in preds:
         cs = sorted((c for c in comps if c.predictiva_id == p.id), key=orden)
-        if not cs and not p.activo:
+        if not cs and (not p.activo or mostrar != "todo"):
             continue
         v, fila = matriz.get(p.id, (None, []))
         grupos.append(GrupoPred(predictiva=p, mci=p.mci, version=v, celdas=fila, comps=cs))
@@ -169,7 +203,7 @@ def area_reporte(db: Session, area: Area, sems: list[str]) -> AreaReporte:
         grupos.append(GrupoPred(predictiva=None, mci=None, version=None, celdas=[], comps=sueltos))
     mcis = []
     for m in indicadores.mcis_de(db, area.id):
-        sr = indicadores.serie_mci(db, m, 1, sems[-1], n_meses=1)
+        sr = indicadores.serie_mci(db, m, 1, sems[-1] if sems else None, n_meses=1)
         mcis.append(MciMes(mci=m, version=sr.version, mes=sr.actual, racha=sr.racha, dec=indicadores.decimales(m),
                            grupos=[g for g in grupos if g.mci and g.mci.id == m.id]))
     return AreaReporte(area=area, mcis=mcis, grupos=grupos, estados=estados)

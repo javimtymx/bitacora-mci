@@ -421,3 +421,55 @@ def test_botones_en_curso_y_revision_planean_primero(admin, db):
     admin.post(f"/tickets/{t.id}/mover", data={"estado": "revision"})
     db.refresh(t)
     assert t.estado == "revision"
+
+
+def test_rendicion_todo_el_historial_y_dias_vencidos(admin, db):
+    from app.models import Area, Compromiso, Mci, Predictiva
+    from app.services.util import hoy, semana_iso
+    a = db.scalar(select(Area).join(Mci, Mci.area_id == Area.id))
+    p = db.scalar(select(Predictiva).join(Mci).where(Mci.area_id == a.id))
+    jm = _u(db, "jmartinez@onecore.mx")
+    viejo = Compromiso(semana="2025-W10", area_id=a.id, responsable_id=jm.id, autor_id=jm.id, predictiva_id=p.id,
+                       texto="Compromiso muy demorado de hace meses", fecha_limite=hoy() - timedelta(days=12), estado="abierto")
+    cerrado = Compromiso(semana=semana_iso(hoy()), area_id=a.id, responsable_id=jm.id, autor_id=jm.id, predictiva_id=p.id,
+                         texto="Compromiso ya cerrado", fecha_limite=hoy(), estado="cumplido", avance=100)
+    db.add_all([viejo, cerrado])
+    db.commit()
+    html = admin.get("/semanal?tipo=todo&mostrar=abiertos").text
+    assert "Compromiso muy demorado de hace meses" in html and "Vencido hace 12 días" in html and "rp-venc" in html
+    assert "Compromiso ya cerrado" not in html and "el más atrasado 12 días" in html
+    html = admin.get("/semanal?tipo=todo&mostrar=cerrados").text
+    assert "Compromiso ya cerrado" in html and "Compromiso muy demorado" not in html
+    html = admin.get(f"/semanal?semana={semana_iso(hoy())}").text
+    assert "Compromiso muy demorado" not in html  # fuera de la semana elegida
+
+
+def test_catalogo_como_se_resolvio(admin, db):
+    jm, m = _u(db, "jmartinez@onecore.mx"), _u(db, "mcoronado@onecore.mx")
+    assert "¿Cómo se resolvió?" in admin.get("/tickets-config").text
+    ops = tk.opciones(db, "cierre", True)
+    assert "corregido" in [o.clave for o in ops]
+    data = {}
+    for i, o in enumerate(ops):
+        data.update({f"id_{i}": o.id, f"etiqueta_{i}": o.etiqueta, f"orden_{i}": o.orden})
+        if o.clave != "duplicado":
+            data[f"activo_{i}"] = "1"
+    data.update({f"etiqueta_{len(ops)}": "Escalado al proveedor", f"orden_{len(ops)}": "90"})
+    admin.post("/tickets-config/opciones/cierre", data=data)
+    db.expire_all()
+    act = tk.cierres(db)
+    assert "duplicado" not in act and "Escalado al proveedor" in act.values()
+    clave = [k for k, v in act.items() if v == "Escalado al proveedor"][0]
+    t = _ticket(db, m)
+    html = admin.get(f"/tickets/{t.id}").text
+    assert "Escalado al proveedor" in html and 'value="duplicado"' not in html
+    try:
+        tk.cerrar(db, jm, t, tipo_cierre="duplicado", causa="Causa larga del problema", solucion="Solución aplicada en la validación",
+                  horas_reales="1")
+        assert False
+    except tk.TicketInvalido:
+        db.rollback()
+    tk.cerrar(db, jm, t, tipo_cierre=clave, causa="Causa larga del problema", solucion="Solución aplicada en la validación",
+              horas_reales="1")
+    db.commit()
+    assert "Escalado al proveedor" in admin.get(f"/tickets/{t.id}").text
