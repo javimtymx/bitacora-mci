@@ -63,10 +63,25 @@ class Grupo:
         return round(self.costo - self.pagado, 2)
 
 
-def _sumar(g: Grupo, t: Ticket) -> None:
+def tarifa_pago(t: Ticket) -> float | None:
+    """Tarifa con la que se paga: la que quedó fija al cerrar; si no la había, la vigente del ingeniero
+    (se fija al registrar el pago)."""
+    if t.costo_hora is not None:
+        return float(t.costo_hora)
+    if t.asignado and t.asignado.costo_hora is not None:
+        return float(t.asignado.costo_hora)
+    return None
+
+
+def costo_pago(t: Ticket) -> float | None:
+    tarifa = tarifa_pago(t)
+    return None if tarifa is None else round(float(t.horas_reales or 0) * tarifa, 2)
+
+
+def _sumar(g: Grupo, t: Ticket, para_pago: bool = False) -> None:
     g.n += 1
     g.horas += float(t.horas_reales or 0)
-    c = t.costo
+    c = costo_pago(t) if para_pago else t.costo
     if c is None:
         g.sin_tarifa += 1
     else:
@@ -76,11 +91,11 @@ def _sumar(g: Grupo, t: Ticket) -> None:
     g.tickets.append(t)
 
 
-def _agrupar(ts: list[Ticket], llave) -> list[Grupo]:
+def _agrupar(ts: list[Ticket], llave, para_pago: bool = False) -> list[Grupo]:
     gs: dict[str, Grupo] = {}
     for t in ts:
         k, nombre = llave(t)
-        _sumar(gs.setdefault(k, Grupo(k, nombre)), t)
+        _sumar(gs.setdefault(k, Grupo(k, nombre)), t, para_pago)
     return sorted(gs.values(), key=lambda g: (-g.costo, -g.horas, g.nombre))
 
 
@@ -180,7 +195,8 @@ def por_pagar(db: Session, ingeniero_id: int | None = None) -> list[Grupo]:
     if ingeniero_id:
         q = q.where(Ticket.asignado_id == ingeniero_id)
     ts = db.scalars(q.order_by(Ticket.cerrado_en)).all()
-    return _agrupar(ts, lambda t: (str(t.asignado_id), t.asignado.nombre))
+    return sorted(_agrupar(ts, lambda t: (str(t.asignado_id), t.asignado.nombre), para_pago=True),
+                  key=lambda g: g.nombre)
 
 
 def pagos(db: Session, ingeniero_id: int | None = None, limite: int = 200) -> list[TicketPago]:
@@ -217,6 +233,10 @@ def registrar(db: Session, u: Usuario, *, ingeniero: Usuario, ticket_ids: list[i
             raise PagoInvalido(f"{t.folio} ya está pagado.")
         if t.asignado_id != ingeniero.id:
             raise PagoInvalido(f"{t.folio} lo atendió otra persona.")
+    sin = [t.folio for t in ts if tarifa_pago(t) is None]
+    if sin:
+        raise PagoInvalido(f"{ingeniero.nombre} no tiene costo por hora: captúralo en Configurar › Usuarios para "
+                           f"calcular el pago ({', '.join(sin)}).")
     p = TicketPago(ingeniero_id=ingeniero.id, fecha=fecha or (utcnow() - timedelta(hours=6)).date(),
                    monto=_monto(monto), nota=(nota or "").strip()[:2000], comprobante_ruta=comprobante["ruta"],
                    comprobante_nombre=comprobante["nombre"][:255], comprobante_tipo=comprobante.get("tipo", "")[:120],
@@ -224,6 +244,8 @@ def registrar(db: Session, u: Usuario, *, ingeniero: Usuario, ticket_ids: list[i
     db.add(p)
     db.flush()
     for t in ts:
+        if t.costo_hora is None:  # se cerró sin tarifa: queda fija la vigente al pagar
+            t.costo_hora = tarifa_pago(t)
         t.pago_id = p.id
     auditar(db, "ticket_pago", "ticket_pago", p.id, u.id, ingeniero=ingeniero.id, tickets=[t.id for t in ts],
             monto=float(p.monto))

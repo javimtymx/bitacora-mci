@@ -91,6 +91,13 @@ def _tamano(n: int) -> str:
     return f"{n} B" if n < 1024 else (f"{n / 1024:.0f} KB" if n < 1024 * 1024 else f"{n / 1024 / 1024:.1f} MB")
 
 
+def _evid_json(e) -> dict:
+    """Datos de una evidencia para el visor (sin la ruta del archivo)."""
+    return {"id": e.id, "nombre": e.nombre, "tipo": e.tipo or "", "fecha": _hora_local(e.creado),
+            "autor": e.autor.nombre if e.autor else "", "tam": _tamano(e.bytes)}
+
+
+TEMPLATES.env.filters["evid_json"] = _evid_json
 TEMPLATES.env.globals.update(fmt_fecha=util.fmt_fecha, fmt_dia=util.fmt_dia, dias_desde=util.dias_desde,
                              num_semana=util.num_semana, md=md, valor=valor, menu_lateral=accesos.menu_lateral,
                              puede_menu=accesos.puede,

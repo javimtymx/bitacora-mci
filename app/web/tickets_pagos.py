@@ -68,8 +68,12 @@ def informe(request: Request, mes: str = "", desde: OptDate = None, hasta: OptDa
 def pagos(request: Request, ingeniero: OptInt = None, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
     _exigir(u, "tickets-pagos")
     grupos = tc.por_pagar(db)
-    return render(request, "tickets_pagos.html", u, "tickets-pagos", grupos=grupos, pagos=tc.pagos(db, ingeniero),
-                  ingeniero=ingeniero, gente=tk.asignables(db), s3=subidas_srv.disponible(),
+    if ingeniero is None and grupos:
+        ingeniero = int(grupos[0].clave)  # el primero con tickets por pagar
+    sel = next((g for g in grupos if g.clave == str(ingeniero)), None)
+    return render(request, "tickets_pagos.html", u, "tickets-pagos", grupos=grupos, sel=sel, pagos=tc.pagos(db, ingeniero),
+                  ingeniero=ingeniero, ing=db.get(Usuario, ingeniero) if ingeniero else None,
+                  gente=tk.asignables(db), s3=subidas_srv.disponible(), tc=tc,
                   aceptar=",".join("." + e for e in TIPOS_COMPROBANTE), hoy=date.today())
 
 
@@ -110,9 +114,9 @@ async def registrar(request: Request, ingeniero_id: OptInt = Form(None), tickets
         if comp and not subidas:
             almacen.borrar(comp["ruta"])
         flash(request, str(e), "error")
-        return ir("/tickets-pagos")
+        return ir(f"/tickets-pagos?ingeniero={ing.id}")
     flash(request, f"Pago a {ing.nombre} registrado: ${float(p.monto):,.2f} por {len(p.tickets)} ticket(s).")
-    return ir(f"/tickets-pagos#pago-{p.id}")
+    return ir(f"/tickets-pagos?ingeniero={ing.id}#pago-{p.id}")
 
 
 def _descargar_comprobante(p: TicketPago):

@@ -329,7 +329,8 @@ async def subir_evidencias(cid: int, request: Request, fondo: BackgroundTasks, a
 
 
 @router.get("/evidencias/{eid}")
-def descargar_evidencia(eid: int, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+def descargar_evidencia(eid: int, ver: int = 0, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+    """ver=1: imágenes y PDF se muestran en el navegador (para el visor de evidencias); lo demás se descarga."""
     from fastapi.responses import Response
     from urllib.parse import quote
     from ..models import EvidenciaArchivo
@@ -339,7 +340,8 @@ def descargar_evidencia(eid: int, db: Session = Depends(get_db), u: Usuario = De
     if not ev or not c or not _visible_comp(u, c):
         raise HTTPException(404)
     from ..services import almacen
-    if (ev.bytes or 0) > 20 * 1024 * 1024 and (url := almacen.url_descarga(ev.ruta, ev.nombre, ev.tipo)):
+    en_linea = bool(ver) and (ev.tipo or "") in VISIBLES_EN_LINEA
+    if (ev.bytes or 0) > 20 * 1024 * 1024 and (url := almacen.url_descarga(ev.ruta, ev.nombre, ev.tipo, en_linea=en_linea)):
         from fastapi.responses import RedirectResponse
         return RedirectResponse(url, status_code=302)  # los grandes bajan directo de S3
     try:
@@ -347,8 +349,11 @@ def descargar_evidencia(eid: int, db: Session = Depends(get_db), u: Usuario = De
     except (OSError, evidencias.EvidenciaInvalida):
         raise HTTPException(404, "El archivo ya no está en el servidor.")
     return Response(contenido, media_type=ev.tipo or "application/octet-stream",
-                    headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(ev.nombre)}",
+                    headers={"Content-Disposition": f"{'inline' if en_linea else 'attachment'}; filename*=UTF-8''{quote(ev.nombre)}",
                              "X-Content-Type-Options": "nosniff"})
+
+
+VISIBLES_EN_LINEA = {"image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"}
 
 
 @router.post("/evidencias/{eid}/quitar")

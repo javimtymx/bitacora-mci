@@ -158,7 +158,7 @@ def tamano(ruta: str) -> int:
         raise AlmacenError("El archivo no terminó de subir. Intenta de nuevo.") from e
 
 
-def url_descarga(ruta: str, nombre: str, tipo: str = "", segundos: int = 600) -> str | None:
+def url_descarga(ruta: str, nombre: str, tipo: str = "", segundos: int = 600, en_linea: bool = False) -> str | None:
     """URL firmada de descarga directa desde S3 (los archivos grandes no pasan por el servidor). None si no es S3."""
     if not es_s3(ruta):
         return None
@@ -166,7 +166,7 @@ def url_descarga(ruta: str, nombre: str, tipo: str = "", segundos: int = 600) ->
     try:
         return _cliente_s3().generate_presigned_url(
             "get_object", Params={"Bucket": _bucket(), "Key": ruta[len(PREFIJO_S3):],
-                                  "ResponseContentDisposition": f"attachment; filename*=UTF-8''{quote(nombre)}",
+                                  "ResponseContentDisposition": f"{'inline' if en_linea else 'attachment'}; filename*=UTF-8''{quote(nombre)}",
                                   "ResponseContentType": tipo or "application/octet-stream"}, ExpiresIn=segundos)
     except Exception as e:  # noqa: BLE001
         log.warning("No se pudo firmar la descarga de %s: %s", ruta, e)

@@ -56,6 +56,11 @@
   <td class="rp-txt"><span class="pl">{{ c.texto }}</span>
     {% if rem %}<div class="rp-rem"><b>Causa:</b> <span class="pl">{{ rem.causa }}</span><br><b>Acción:</b> <span class="pl">{{ rem.accion }}</span> · <b>Nueva fecha:</b> {{ fecha(rem.nueva_fecha) }}</div>
     {% elif c.estado == 'no_cumplido' %}<div class="rp-rem r"><b>Sin remediación registrada.</b></div>{% endif %}
+    {% if c.evidencias %}<div class="rp-evid">
+      <button type="button" class="rp-evid-btn noprint" data-evid='{{ {"folio": "CMP-%04d" % c.id, "texto": c.texto[:160]} | tojson }}'
+        data-arch='{{ c.evidencias|map("evid_json")|list|tojson }}'>{{ icon('clip', 14) }}Ver evidencias ({{ c.evidencias|length }})</button>
+      <span class="rp-evid-imp">Evidencias: {% for e in c.evidencias %}{{ e.nombre }}{{ ', ' if not loop.last }}{% endfor %}</span></div>
+    {% elif c.estado != 'abierto' or c.avance %}<div class="rp-sinev">Sin evidencias cargadas</div>{% endif %}
     {% if nota %}<div class="rp-notav"><b>Nota {{ hora_local(nota.creado)[:10] }} · {{ nota.usuario.nombre if nota.usuario else '' }}:</b> <span class="pl">{{ nota.texto }}</span></div>{% endif %}</td>
   {% set dv = rs.dias_vencido(c) %}{% set dp = rs.dias_por_vencer(c) %}{% set dt = rs.dias_tarde_cierre(c) %}
   <td class="rp-vence {{ 'rp-venc' if dv }}">{{ fecha(c.fecha_limite) }}
@@ -100,6 +105,46 @@
     </tbody></table>
 </section>
 {% endfor %}
+<dialog class="rp-visor" id="rp-visor" aria-labelledby="rp-visor-t">
+  <div class="rp-visor-cab"><div><b id="rp-visor-t"></b><div class="rp-sm" id="rp-visor-sub"></div></div>
+    <button type="button" class="btn ghost" id="rp-visor-x" aria-label="Cerrar" style="width:42px;padding:0">{{ icon('x') }}</button></div>
+  <div class="rp-visor-cuerpo"><ul class="rp-visor-lista" id="rp-visor-lista"></ul><div class="rp-visor-ver" id="rp-visor-ver"></div></div>
+</dialog>
 <div class="rp-pie">Generado {{ hora_local(generado) }} · Bitácora MCI OneCore</div>
 </div>
 {% endblock %}
+
+{% block scripts %}<script>
+(function () {
+  var dlg = document.getElementById("rp-visor"), lista = document.getElementById("rp-visor-lista"), ver = document.getElementById("rp-visor-ver");
+  function mostrar(a) {
+    lista.querySelectorAll("li").forEach(function (li) { li.classList.toggle("on", li.dataset.id == a.id); });
+    var url = "/evidencias/" + a.id + "?ver=1";
+    ver.innerHTML = "";
+    if (/^image\//.test(a.tipo)) { var i = document.createElement("img"); i.src = url; i.alt = a.nombre; ver.appendChild(i); }
+    else if (a.tipo === "application/pdf") { var f = document.createElement("iframe"); f.src = url; f.title = a.nombre; ver.appendChild(f); }
+    else { var p = document.createElement("p"); p.className = "rp-visor-nada"; p.textContent = "Este tipo de archivo no se puede ver aquí."; ver.appendChild(p); }
+    var d = document.createElement("a"); d.href = "/evidencias/" + a.id; d.className = "btn soft sm"; d.textContent = "Descargar " + a.nombre; ver.appendChild(d);
+  }
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest(".rp-evid-btn");
+    if (!b) return;
+    var info = JSON.parse(b.dataset.evid), arch = JSON.parse(b.dataset.arch);
+    document.getElementById("rp-visor-t").textContent = info.folio + " · " + arch.length + " evidencia" + (arch.length === 1 ? "" : "s");
+    document.getElementById("rp-visor-sub").textContent = info.texto;
+    lista.innerHTML = "";
+    arch.forEach(function (a) {
+      var li = document.createElement("li"); li.dataset.id = a.id;
+      li.innerHTML = "<b></b><span></span>";
+      li.querySelector("b").textContent = a.nombre;
+      li.querySelector("span").textContent = a.fecha + " · " + a.autor + " · " + a.tam;
+      li.addEventListener("click", function () { mostrar(a); });
+      lista.appendChild(li);
+    });
+    if (arch.length) mostrar(arch[0]);
+    dlg.showModal();
+  });
+  document.getElementById("rp-visor-x").addEventListener("click", function () { dlg.close(); });
+  dlg.addEventListener("click", function (e) { if (e.target === dlg) dlg.close(); });
+})();
+</script>{% endblock %}

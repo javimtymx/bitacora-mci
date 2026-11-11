@@ -473,3 +473,59 @@ def test_catalogo_como_se_resolvio(admin, db):
               horas_reales="1")
     db.commit()
     assert "Escalado al proveedor" in admin.get(f"/tickets/{t.id}").text
+
+
+def test_pago_agrupado_fija_la_tarifa(admin, db):
+    jm, m = _u(db, "jmartinez@onecore.mx"), _u(db, "mcoronado@onecore.mx")
+    jm.costo_hora = None
+    db.commit()
+    ts = []
+    for h in ("2", "3"):
+        t = _ticket(db, m)
+        tk.planear(db, jm, t, horas=h, fecha_entrega=date.today(), asignado=jm)
+        tk.cerrar(db, jm, t, tipo_cierre="corregido", causa="Causa larga del problema",
+                  solucion="Solución aplicada en la validación", horas_reales=h)
+        ts.append(t)
+    db.commit()
+    assert all(t.costo_hora is None for t in ts)  # se cerraron sin tarifa
+    pdf = ("c.pdf", b"%PDF-1.4", "application/pdf")
+    admin.post("/tickets-pagos", data={"ingeniero_id": jm.id, "tickets": [t.id for t in ts], "monto": "1"},
+               files={"comprobante": pdf})
+    assert db.scalar(select(TicketPago)) is None  # sin tarifa no se calcula el pago
+    jm.costo_hora = 500
+    db.commit()
+    html = admin.get(f"/tickets-pagos?ingeniero={jm.id}").text
+    assert "2,500.00" in html and "vigente, se fija al pagar" in html  # 5 h × 500
+    r = admin.post("/tickets-pagos", data={"ingeniero_id": jm.id, "tickets": [t.id for t in ts], "monto": "2500",
+                                           "fecha": date.today().isoformat()}, files={"comprobante": pdf},
+                   follow_redirects=False)
+    assert r.status_code == 303
+    p = db.scalar(select(TicketPago))
+    db.expire_all()
+    assert len(p.tickets) == 2 and float(p.monto) == 2500
+    assert all(float(t.costo_hora) == 500 for t in p.tickets)
+    jm.costo_hora = 900  # cambia el catálogo: lo pagado no se recalcula
+    db.commit()
+    db.expire_all()
+    assert sum(t.costo for t in p.tickets) == 2500
+
+
+def test_rendicion_muestra_evidencias(admin, db):
+    from app.models import Area, Compromiso, Mci, Predictiva
+    from app.services import evidencias
+    from app.services.util import hoy, semana_iso
+    a = db.scalar(select(Area).join(Mci, Mci.area_id == Area.id))
+    p = db.scalar(select(Predictiva).join(Mci).where(Mci.area_id == a.id))
+    jm = _u(db, "jmartinez@onecore.mx")
+    c = Compromiso(semana=semana_iso(hoy()), area_id=a.id, responsable_id=jm.id, autor_id=jm.id, predictiva_id=p.id,
+                   texto="Compromiso con evidencia", fecha_limite=hoy(), estado="abierto", avance=50)
+    db.add(c)
+    db.flush()
+    png = b"\\x89PNG\\r\\n\\x1a\\n" + b"0" * 64
+    ev = evidencias.guardar(db, c, "foto.png", png, jm)
+    db.commit()
+    html = admin.get("/semanal?tipo=todo").text
+    assert "Ver evidencias (1)" in html and "foto.png" in html and 'id="rp-visor"' in html
+    r = admin.get(f"/evidencias/{ev.id}?ver=1")
+    assert r.status_code == 200 and r.headers["content-disposition"].startswith("inline")
+    assert admin.get(f"/evidencias/{ev.id}").headers["content-disposition"].startswith("attachment")
