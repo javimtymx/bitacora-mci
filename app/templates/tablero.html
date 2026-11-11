@@ -63,16 +63,7 @@
 {% if not n_mci %}<div class="card pad muted">No hay indicadores en esta vista. Dirección los da de alta en Configurar → Catálogo.</div>{% endif %}
 
 {% if cons %}
-<div class="grid2" style="grid-template-columns:{{ '1fr 1.4fr' if cons.ayf else '1fr' }}">
-{% if cons.ayf %}<section class="card pad"><div class="row between"><h2>Panel AyF · informativo</h2><span class="tag n">no es MCI</span></div>
-  <span class="small muted" style="margin-top:-8px">Calculado de las facturas (CFDI). Sirve de contexto; los compromisos atacan CrossSelling y Nuevos clientes.</span>
-  {% for vt in cons.ayf %}<div class="small" style="padding:10px 12px;border-radius:10px;background:#F6F8FA;display:flex;flex-direction:column;gap:4px">
-    <span class="cap">{{ 'Facturación recurrente' if vt.fuente=='cfdi_recurrente' else 'Facturación total · último mes cerrado' }}</span>
-    <span>Crecimiento vs base ({{ vt.periodo_base }}): <b style="font-size:16px;color:{{ 'var(--g-fg)' if (vt.pct or 0) >= 0 else 'var(--r-fg)' }}">{{ valor(vt.pct, '%', 1) if vt.pct is not none else '—' }}</b>{% if vt.meta_pct is not none %} · meta {{ valor(vt.meta_pct, '%', 1) }}{% endif %}</span>
-    {% if vt.necesario_mensual is not none and vt.falta is not none and vt.falta > 0 %}<span>Para la meta hay que crecer <b>${{ '{:,.0f}'.format(vt.necesario_mensual) }}</b> al mes hasta {{ fmt_fecha(vt.fecha_meta) }}</span>{% endif %}
-    {% if u.puede_confidencial and vt.actual is not none %}<span class="muted">{{ icon('lock', 12) }} Actual ${{ '{:,.0f}'.format(vt.actual) }}/mes · base ${{ '{:,.0f}'.format(vt.base or 0) }}/mes</span>{% endif %}
-  </div>{% endfor %}</section>
-{% endif %}
+<div class="grid2" style="grid-template-columns:1fr">
 <section class="card pad"><details class="diag-area">
   <summary><div class="row between" style="gap:10px;width:100%"><h2 class="row" style="gap:8px">{{ icon('ia', 18) }}<span>Diagnóstico de {{ guardia }}</span></h2>
     <span class="row" style="gap:8px">{% if cons.diag %}{{ veredicto_tag(cons.diag.veredicto) }}<span class="muted small">S{{ num_semana(cons.diag.semana) }}</span>{% else %}<span class="muted small">Sin diagnóstico</span>{% endif %}<span class="chev" aria-hidden="true">▸</span></span></div></summary>
@@ -97,10 +88,7 @@
 <section class="card pad" id="metas"><div class="row between" style="align-items:flex-start">
   <div class="col" style="gap:4px"><h2>Metas y medidas predictivas · {{ nombre_mes(mes) }}</h2><span class="small muted">El resultado de cada meta es mensual; sus predictivas y compromisos se siguen por semana. Al desplegar ves los compromisos de cada predictiva.</span></div>
   <div class="row" style="gap:8px">
-    <a class="lnk small" href="/compromisos/archivados?area={{ sel.clave }}" style="margin-right:4px" title="Eliminados con autorización y cancelados de {{ sel.nombre }}">{{ icon('doc', 14) }}Archivados ({{ n_arch }})</a>
-    <button class="btn sm soft" type="button" data-sub-todos="1">Expandir todo</button>
-    <button class="btn sm soft" type="button" data-sub-todos="0">Contraer todo</button>
-    {% if u.es_lider %}<a class="btn sm soft" href="/indicadores/captura">Capturar valores</a>{% endif %}
+    {% if n_arch %}<a class="lnk small" href="/compromisos/archivados?area={{ sel.clave }}" style="margin-right:4px" title="Eliminados con autorización y cancelados de {{ sel.nombre }}">{{ icon('doc', 14) }}Archivados ({{ n_arch }})</a>{% endif %}
     <button class="btn sm yellow" type="button" data-open="nuevo-compromiso" data-fill-nc-area="{{ sel.id }}" data-fill-nc-pred="">{{ icon('plus', 15) }}Nuevo compromiso</button>
   </div></div>
   <div class="tabs vista-tabs" role="tablist"><button type="button" class="on" data-vista="pred" role="tab">Por medida predictiva</button><button type="button" data-vista="lista" role="tab">Compromisos abiertos ({{ cons.abiertos|length }})</button><button type="button" data-vista="tablero" role="tab">Tablero de tareas</button></div>
@@ -175,7 +163,7 @@
   tabs.forEach(function (t) { t.addEventListener("click", function () { ver(t.dataset.vista); }); });
   try { var g = localStorage.getItem("tablero-vista"); if (g) ver(g); } catch (e) {}
 })();
-</script><script src="/static/js/tablero_tareas.js?v=1"></script>{% endblock %}
+</script><script src="/static/js/tablero_tareas.js?v=2"></script>{% endblock %}
 {% block modals %}{% if cons %}
 {% include "_modal_compromiso.html" %}
 {% for g in cons.grupos %}{% for p, v, fila in g.filas %}{% for c in fila[:-1] if c.compromisos %}

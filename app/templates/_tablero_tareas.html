@@ -10,8 +10,7 @@
     <select class="input tt-sel" data-tt-persona aria-label="Persona"><option value="">Todas las personas</option>
       {% for r in responsables %}<option value="{{ r.id }}">{{ r.nombre }}</option>{% endfor %}</select>
     <select class="input tt-sel" data-tt-estado aria-label="Estatus"><option value="">Abiertos y cerrados</option><option value="abierto">Solo abiertos</option><option value="vencido">Solo vencidos</option><option value="cerrado">Solo cerrados</option></select>
-    <button type="button" class="btn sm soft" data-tt-subs="1">Ver subtareas</button>
-    <button type="button" class="btn sm soft" data-tt-subs="0">Ocultar subtareas</button>
+    <button type="button" class="btn sm soft" data-tt-subs="1" aria-pressed="false">Ver subtareas</button>
     <span class="muted small">Entran los abiertos de cualquier semana y lo cerrado de las semanas que muestra el tablero.</span>
   </div>
 

@@ -93,7 +93,7 @@ def _consolidado_area(db: Session, area: Area, sem: str, sems8: list[str]) -> di
     ideas = list(db.scalars(select(Idea).where(Idea.area_id == area.id, Idea.creado >= utcnow() - _td(days=90))
                             .order_by(Idea.actualizado.desc())))
     d = diagnostico.ultimo(db, area.id)
-    return {"tablero": _tablero_tareas(db, area, preds, comps, abiertos), "ayf": _panel_ayf(db, area), "matriz": matriz, "grupos": grupos, "comps_sem": comps_sem, "sems8": sems8,
+    return {"tablero": _tablero_tareas(db, area, preds, comps, abiertos), "ayf": [], "matriz": matriz, "grupos": grupos, "comps_sem": comps_sem, "sems8": sems8,
             "abiertos": abiertos, "pendientes_sem": {c.semana for c in abiertos},
             "temas": sorted(temas.items(), key=lambda x: -x[1])[:5], "tipos": sorted(tipos.items(), key=lambda x: -x[1][0]),
             "n_ses": n_ses, "ideas": ideas[:5], "ideas_estado": {k: sum(1 for i in ideas if i.estado == k)

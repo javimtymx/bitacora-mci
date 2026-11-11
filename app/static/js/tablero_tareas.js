@@ -51,7 +51,14 @@
     const sb = e.target.closest("[data-tt-sub]");
     if (sb) { const f = sb.closest(".tt-fila"); verSubs(f, !f.classList.contains("abierta")); return; }
     const todos = e.target.closest("[data-tt-subs]");
-    if (todos) { $$(".tt-fila", raiz).forEach((f) => verSubs(f, todos.dataset.ttSubs === "1")); return; }
+    if (todos) {  // un solo botón: ver / ocultar todas las subtareas
+      const abrir = todos.dataset.ttSubs === "1";
+      $$(".tt-fila", raiz).forEach((f) => verSubs(f, abrir));
+      todos.dataset.ttSubs = abrir ? "0" : "1";
+      todos.textContent = abrir ? "Ocultar subtareas" : "Ver subtareas";
+      todos.setAttribute("aria-pressed", abrir ? "true" : "false");
+      return;
+    }
     const q = e.target.closest("[data-tt-quitar]");
     if (q) {
       const d = await post(`/subtareas/${q.dataset.ttQuitar}/quitar`, new FormData());

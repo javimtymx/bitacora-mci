@@ -287,7 +287,7 @@ def test_ventas_automaticas_desde_panel_ayf(admin, mario, db):
     # todos ven % y crecimiento necesario; los montos solo con permiso confidencial
     t_admin = admin.get("/?area=ventas").text
     t_mario = mario.get("/?area=ventas").text
-    assert "hay que crecer" in t_mario and "250,000" not in t_mario and "Actual $250,000" in t_admin
+    assert "250,000" not in t_mario and "Panel AyF · informativo" not in t_admin  # el recuadro informativo se quitó
     # la captura manual ya no ofrece los indicadores automáticos
     assert f'name="valor_{_mci(db).id}"' not in admin.get("/indicadores/captura").text  # automático: no se captura
 
@@ -296,7 +296,7 @@ def test_vista_consolidada_por_area(admin, db):
     t = admin.get("/?area=ventas").text
     assert "Palancas de Ventas" not in t  # palancas = medidas predictivas
     for txt in ("Metas y medidas predictivas · ", "mci-row", "pred-row", "Citas por LinkedIn",
-                "Nuevo compromiso", "Expandir todo", "Voz del cliente · 6 semanas", "Ideas del área"):
+                "Nuevo compromiso", "Tablero de tareas", "Voz del cliente · 6 semanas", "Ideas del área"):
         assert txt in t, txt
     t = admin.get("/").text
     assert "Resumen por área" in t and "Ver área" in t
@@ -320,8 +320,8 @@ def test_ventas_por_frentes_con_panel_ayf_informativo(admin, mario, db):
     assert cs.activo and nv.activo and len(cs.predictivas) == 3 and len(nv.predictivas) == 3
     assert not ventas_auto.es_auto(cs)
     t_admin, t_mario = admin.get("/?area=ventas").text, mario.get("/?area=ventas").text
-    assert "CrossSelling · clientes actuales cotizados" in t_admin and "Panel AyF · informativo" in t_admin
-    assert "Actual $130,000" in t_admin and "130,000" not in t_mario
+    assert "CrossSelling · clientes actuales cotizados" in t_admin
+    assert "Panel AyF · informativo" not in t_admin and "130,000" not in t_mario  # el recuadro de Panel AyF se quitó
     assert f'name="valor_{cs.id}"' in admin.get("/indicadores/captura").text
 
 
