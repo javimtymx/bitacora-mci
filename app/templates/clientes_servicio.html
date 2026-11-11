@@ -1,0 +1,73 @@
+{% extends "base.html" %}{% from "_ui.html" import icon, ai_badge with context %}
+{% block title %}Recurrencias de servicio{% endblock %}
+{% set CC = {'atacar':'#E2445C','cronica':'#FDAB3D','puntual':'#A25DDC','monitorear':'#8A949E'} %}
+{% block content %}
+<div class="top">
+  <div class="col" style="gap:4px"><span class="muted small">Clientes · Seguimiento</span><h1>Recurrencias de servicio</h1>
+    <span class="muted">Quejas, tareas y minutas de todas las sesiones con clientes, compiladas para atacar lo que se repite. No compite con Voz del Cliente (propuesta de valor).</span></div>
+  <form method="post" action="/clientes/servicio" class="row" style="gap:8px">{{ ai_badge() }}
+    <input class="input" type="date" name="desde" value="{{ desde_def.isoformat() }}" required aria-label="Desde" style="width:auto">
+    <input class="input" type="date" name="hasta" value="{{ hasta_def.isoformat() }}" required aria-label="Hasta" style="width:auto">
+    <button class="btn aibtn">{{ icon('ia') }}<span>Compilar con Guard<span class="gia">IA</span></span></button></form>
+</div>
+{% if lista %}<nav class="seg" aria-label="Análisis anteriores" style="flex-wrap:wrap">{% for x in lista[:8] %}<a href="?ver={{ x.id }}" class="{{ 'on' if an and an.id == x.id }}">{{ x.desde.strftime('%d/%m/%y') }} – {{ x.hasta.strftime('%d/%m/%y') }}</a>{% endfor %}</nav>{% endif %}
+
+{% if not an %}
+<section class="card pad" style="text-align:center;padding:40px 20px"><h2>Aún no hay análisis</h2>
+  <span class="muted">Elige el periodo y compila: {{ guardia }} agrupa lo que se repite, propone la causa raíz y el plan de acción, y lo ubica en el cuadrante frecuencia × impacto.</span></section>
+{% elif an.estado == 'analizando' %}
+<div class="verif neutro" role="status" {% if not atorado %}data-auto-refresh="6"{% endif %}><div class="row" style="gap:10px">{% if not atorado %}<span class="spin"></span>{% endif %}<b>{{ guardia }} {{ 'tardó demasiado; vuelve a compilar' if atorado else 'está compilando las sesiones del periodo…' }}</b></div></div>
+{% elif an.estado == 'error' %}<div class="flash error">{{ r.error }}</div>
+{% else %}
+<div class="tb-pulso card"><div class="tb-pulso-fila">
+  <span class="tb-mini"><b>{{ r.n_fuentes }}</b> quejas, tareas y puntos de minuta</span>
+  <span class="tb-mini"><b>{{ r.n_clientes }}</b> clientes</span>
+  <span class="tb-mini"><b>{{ r.temas|length }}</b> temas recurrentes</span>
+  {% for k, c in cuadrantes.items() %}{% set n = r.temas|selectattr('cuadrante','equalto',k)|list|length %}<span class="tb-mini"><i class="sv-dot" style="background:{{ CC[k] }}"></i><b>{{ n }}</b> {{ c[0]|lower }}</span>{% endfor %}
+</div></div>
+{% if r.lectura %}<section class="card pad"><h3>Cómo estamos en servicio</h3><p style="margin:0;line-height:1.6">{{ r.lectura }}</p></section>{% endif %}
+
+<div class="grid2" style="grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);align-items:start">
+<section class="card pad"><div class="row between"><h2>Frecuencia × impacto</h2><span class="small muted">Burbuja = menciones · línea vertical: {{ r.umbral_clientes }} clientes</span></div>
+  {% if svg %}<svg viewBox="0 0 {{ svg.ancho }} {{ svg.alto }}" class="sv-svg" role="img" aria-label="Cuadrante de frecuencia por impacto">
+    <rect x="{{ svg.xu }}" y="{{ svg.arr }}" width="{{ svg.der - svg.xu }}" height="{{ svg.yu - svg.arr }}" fill="#FDECEF"/>
+    <rect x="{{ svg.izq }}" y="{{ svg.arr }}" width="{{ svg.xu - svg.izq }}" height="{{ svg.yu - svg.arr }}" fill="#F5EEFC"/>
+    <rect x="{{ svg.xu }}" y="{{ svg.yu }}" width="{{ svg.der - svg.xu }}" height="{{ svg.base - svg.yu }}" fill="#FFF6E8"/>
+    <rect x="{{ svg.izq }}" y="{{ svg.yu }}" width="{{ svg.xu - svg.izq }}" height="{{ svg.base - svg.yu }}" fill="#F4F6F8"/>
+    <text x="{{ svg.der - 8 }}" y="{{ svg.arr + 16 }}" class="sv-q" text-anchor="end">Atacar ya</text>
+    <text x="{{ svg.izq + 8 }}" y="{{ svg.arr + 16 }}" class="sv-q">Riesgo puntual</text>
+    <text x="{{ svg.der - 8 }}" y="{{ svg.base - 8 }}" class="sv-q" text-anchor="end">Falla crónica</text>
+    <text x="{{ svg.izq + 8 }}" y="{{ svg.base - 8 }}" class="sv-q">Monitorear</text>
+    {% for v, yy in svg.ticks_y %}<text x="{{ svg.izq - 8 }}" y="{{ yy + 4 }}" class="sv-t" text-anchor="end">{{ v }}</text>{% endfor %}
+    {% for v, xx in svg.ticks_x %}<text x="{{ xx }}" y="{{ svg.base + 16 }}" class="sv-t" text-anchor="middle">{{ v }}</text>{% endfor %}
+    <text x="{{ (svg.izq + svg.der) / 2 }}" y="{{ svg.alto - 6 }}" class="sv-t" text-anchor="middle">Clientes que lo repiten →</text>
+    <text x="14" y="{{ (svg.arr + svg.base) / 2 }}" class="sv-t" text-anchor="middle" transform="rotate(-90 14 {{ (svg.arr + svg.base) / 2 }})">Impacto →</text>
+    {% for p in svg.puntos %}<g><title>{{ p.n }}. {{ p.titulo }}</title><circle cx="{{ p.x }}" cy="{{ p.y }}" r="{{ p.r }}" fill="{{ CC[p.cuadrante] }}" fill-opacity=".85" stroke="#fff" stroke-width="2"/>
+      <text x="{{ p.x }}" y="{{ p.y + 4 }}" class="sv-n" text-anchor="middle">{{ p.n }}</text></g>{% endfor %}
+  </svg>{% else %}<span class="small muted">Sin temas.</span>{% endif %}
+</section>
+<section class="card pad"><h2>Qué hacer en cada cuadrante</h2>
+  {% for k, c in cuadrantes.items() %}<div class="sv-leg"><i class="sv-dot" style="background:{{ CC[k] }}"></i><span><b>{{ c[0] }}.</b> {{ c[1] }}</span></div>{% endfor %}
+  <span class="small muted">Frecuencia = clientes distintos (lo cuenta el sistema). Impacto 1-5 = lo estima {{ guardia }}: 5 si hay multas, incumplimiento ante SAT/ANAM, se detiene la operación o hay riesgo de baja.</span>
+</section>
+</div>
+
+<section class="card pad"><h2>Plan de acción por tema</h2>
+  {% for t in r.temas %}
+  <div class="sv-tema" style="--c:{{ CC[t.cuadrante] }}">
+    <div class="row between" style="gap:8px;flex-wrap:wrap"><div class="row" style="gap:8px;flex-wrap:wrap"><span class="sv-num">{{ loop.index }}</span><b>{{ t.titulo }}</b>
+      <span class="tag" style="background:{{ CC[t.cuadrante] }};color:#fff;border-color:transparent">{{ cuadrantes[t.cuadrante][0] }}</span>
+      <span class="tag n">{{ t.categoria }}</span>{% if t.modulo %}<span class="tag n">{{ t.modulo }}</span>{% endif %}</div>
+      <span class="small muted"><b>{{ t.clientes }}</b> cliente{{ 's' if t.clientes != 1 }} · {{ t.menciones }} menciones · impacto <b>{{ t.impacto }}/5</b>{% if t.abiertos %} · {{ t.abiertos }} abiertos{% endif %}{% if t.vencidos %} · <b style="color:var(--red)">{{ t.vencidos }} vencidos</b>{% endif %}{% if t.dias_resolucion is not none %} · {{ t.dias_resolucion }} días promedio en resolver{% endif %}</span></div>
+    {% if t.causa_raiz %}<div class="small"><b>Causa raíz probable:</b> {{ t.causa_raiz }}</div>{% endif %}
+    {% if t.impacto_por %}<div class="small muted">Impacto: {{ t.impacto_por }}</div>{% endif %}
+    {% if t.plan %}<table class="sv-plan"><thead><tr><th>Acción</th><th>Tipo</th><th>Área</th><th>Plazo</th><th>Cómo medimos que funcionó</th></tr></thead><tbody>
+      {% for p in t.plan %}<tr><td><b>{{ p.accion }}</b></td><td>{{ p.tipo }}</td><td>{{ p.area }}</td><td>{{ p.plazo_dias ~ ' días' if p.plazo_dias else '—' }}</td><td>{{ p.indicador }}</td></tr>{% endfor %}</tbody></table>{% endif %}
+    <details class="ev-hist"><summary class="small">Fuentes ({{ t.fuentes|length }})</summary>
+      {% for c in t.fuentes %}{% set f = r.fuentes.get(c, {}) %}<a class="ag-pend" href="{{ f.url }}"><span class="tag n">{{ {'queja':'Queja','tarea':'Tarea','acuerdo':'Acuerdo','riesgo':'Riesgo','tema_abierto':'Tema abierto','punto_no_cubierto':'Punto no cubierto'}.get(f.tipo, f.tipo) }}</span><span style="flex:1">{{ f.texto }}</span><span class="small muted">{{ f.folio }}</span></a>{% endfor %}</details>
+  </div>
+  {% else %}<span class="muted small">No se encontraron temas recurrentes en el periodo.</span>{% endfor %}
+</section>
+<span class="small muted">Periodo {{ fmt_fecha(an.desde) }} a {{ fmt_fecha(an.hasta) }} · compiló {{ an.autor.nombre }} · {{ hora_local(an.creado) }}</span>
+{% endif %}
+{% endblock %}

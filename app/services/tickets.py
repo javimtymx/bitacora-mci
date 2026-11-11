@@ -18,7 +18,7 @@ import json
 import logging
 import re
 import unicodedata
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import func, select
@@ -795,6 +795,10 @@ def mover(db: Session, u: Usuario, t: Ticket, estado: str) -> None:
         return
     if estado in ("en_curso", "revision") and t.horas_estimadas is None:
         raise TicketInvalido("Primero planéalo: horas estimadas, fecha de entrega e ingeniero.")
+    if estado == "revision":
+        raise TicketInvalido("Para pasarlo a revisión captura cómo se resolvió (resolver): lo revisa quien levantó el ticket.")
+    if t.estado == "revision" and estado != "revision":
+        raise TicketInvalido("Está en revisión de quien lo levantó: él lo acepta o lo regresa con motivo.")
     db.add(TicketComentario(ticket_id=t.id, autor_id=u.id, tipo="sistema",
                             texto=f"Pasó de «{TICKET_ESTADOS[t.estado]}» a «{TICKET_ESTADOS[estado]}»."))
     t.estado, t.actualizado = estado, utcnow()
@@ -917,6 +921,86 @@ def cerrar(db: Session, u: Usuario, t: Ticket, *, tipo_cierre: str, causa: str, 
     auditar(db, "ticket_cerrar", "ticket", t.id, u.id, tipo=tipo_cierre)
 
 
+def _datos_solucion(db: Session, tipo_cierre: str, causa: str, solucion: str, horas_reales, t: Ticket):
+    if tipo_cierre not in cierres(db):
+        raise TicketInvalido("Elige cómo se resolvió.")
+    if horas_reales in (None, ""):
+        horas_reales = t.horas_estimadas
+    try:
+        horas_reales = round(float(str(horas_reales).replace(",", ".")), 2) if horas_reales is not None else None
+    except ValueError:
+        raise TicketInvalido("Las horas invertidas deben ser un número.")
+    if horas_reales is None or horas_reales < 0 or horas_reales > 5000:
+        raise TicketInvalido("Indica las horas que realmente se invirtieron.")
+    causa, solucion = (causa or "").strip(), (solucion or "").strip()
+    if len(causa) < 10 or len(solucion) < 15:
+        raise TicketInvalido("Escribe la causa y la solución: con eso GuardIA resuelve los próximos tickets parecidos.")
+    return horas_reales, causa, solucion
+
+
+def resolver(db: Session, u: Usuario, t: Ticket, *, tipo_cierre: str, causa: str, solucion: str, modulos: str = "",
+             horas_reales=None) -> None:
+    """El ingeniero lo resolvió: captura la base de conocimiento (causa, solución, módulos, horas) y el ticket pasa a
+    «En revisión», donde el responsable es quien lo levantó: él lo acepta (se cierra) o lo regresa con motivo."""
+    if t.estado in ("cerrado", "revision"):
+        raise TicketInvalido("El ticket ya está resuelto.")
+    if t.horas_estimadas is None:
+        raise TicketInvalido("Primero planéalo: horas estimadas, fecha de entrega e ingeniero.")
+    horas_reales, causa, solucion = _datos_solucion(db, tipo_cierre, causa, solucion, horas_reales, t)
+    previo = dict(t.resolucion or {})
+    t.resolucion = {"tipo": tipo_cierre, "causa": causa[:3000], "solucion": solucion[:5000],
+                    "modulos": (modulos or "").strip()[:1000], "por": u.id, "por_nombre": u.nombre,
+                    "resuelto_en": utcnow().isoformat(timespec="seconds"), "rechazos": previo.get("rechazos", [])}
+    if not t.asignado_id:
+        t.asignado_id = u.id
+    t.horas_reales = horas_reales
+    t.estado, t.actualizado = "revision", utcnow()
+    db.add(TicketComentario(ticket_id=t.id, autor_id=u.id, tipo="sistema",
+                            texto=f"Resuelto: {cierres(db, True).get(tipo_cierre, tipo_cierre)} · {horas_reales:g} h. "
+                                  f"Pasa a revisión de {t.autor.nombre if t.autor else 'quien lo levantó'}."))
+    auditar(db, "ticket_resolver", "ticket", t.id, u.id, tipo=tipo_cierre)
+
+
+def puede_aceptar(u: Usuario, t: Ticket) -> bool:
+    """La revisión la hace quien levantó el ticket (o Dirección si esa persona ya no está activa)."""
+    return u.id == t.creado_por or (u.es_direccion and not (t.autor and t.autor.activo))
+
+
+def aceptar(db: Session, u: Usuario, t: Ticket, comentario: str = "") -> None:
+    if t.estado != "revision":
+        raise TicketInvalido("El ticket no está en revisión.")
+    ingeniero = db.get(Usuario, t.asignado_id) if t.asignado_id else None
+    t.costo_hora = ingeniero.costo_hora if ingeniero else None  # tarifa vigente al cerrar: el costo ya no cambia
+    t.estado, t.cerrado_en, t.actualizado = "cerrado", utcnow(), utcnow()
+    t.resolucion = {**(t.resolucion or {}), "aceptado_por": u.id, "aceptado_en": utcnow().isoformat(timespec="seconds")}
+    db.add(TicketComentario(ticket_id=t.id, autor_id=u.id, tipo="sistema",
+                            texto="Solución aceptada por quien levantó el ticket: cerrado."
+                                  + (f" Comentario: {comentario.strip()[:1000]}" if comentario.strip() else "")))
+    auditar(db, "ticket_aceptar", "ticket", t.id, u.id)
+
+
+def rechazar(db: Session, u: Usuario, t: Ticket, motivo: str) -> None:
+    if t.estado != "revision":
+        raise TicketInvalido("El ticket no está en revisión.")
+    motivo = (motivo or "").strip()
+    if len(motivo) < 10:
+        raise TicketInvalido("Explica qué sigue sin funcionar para que el ingeniero lo atienda.")
+    r = dict(t.resolucion or {})
+    r["rechazos"] = (r.get("rechazos") or []) + [{"en": utcnow().isoformat(timespec="seconds"), "por": u.nombre,
+                                                  "motivo": motivo[:1000], "solucion": r.get("solucion", "")[:500]}]
+    t.resolucion = r
+    t.estado, t.actualizado = "en_curso", utcnow()
+    db.add(TicketComentario(ticket_id=t.id, autor_id=u.id, tipo="comentario",
+                            texto=f"No está resuelto; regresa al ingeniero. Motivo: {motivo[:1000]}"))
+    auditar(db, "ticket_rechazar", "ticket", t.id, u.id)
+
+
+def dias_en_revision(t: Ticket) -> int:
+    r = (t.resolucion or {}).get("resuelto_en")
+    base = datetime.fromisoformat(r) if r else t.actualizado
+    return max(0, (utcnow() - base).days)
+
+
 def reabrir(db: Session, u: Usuario, t: Ticket, motivo: str) -> None:
     if t.estado != "cerrado":
         raise TicketInvalido("El ticket no está cerrado.")
@@ -998,3 +1082,26 @@ def vence_en(t: Ticket) -> tuple[str, str]:
 
 def _horas(h: float) -> str:
     return f"{h:.0f} h" if h < 48 else f"{h / 24:.0f} días"
+
+
+# ---------------------------------------------------------------- pendientes de clientes delegados a soporte
+
+def sincronizar_pendiente(db: Session, t: Ticket, u: Usuario | None = None) -> None:
+    """El pendiente de cliente avanza solo con su ticket. Queda «Delegado a soporte» cuando soporte lo acepta
+    (sale de triage); al cerrarse el ticket regresa a «En revisión» para que Operaciones lo confirme con el cliente."""
+    from ..models import TICKET_ESTADOS, PendienteCliente
+    from .clientes import evento
+    p = db.scalar(select(PendienteCliente).where(PendienteCliente.ticket_id == t.id))
+    if not p or p.estado in ("historico", "no_vigente"):
+        return
+    ultimo = next((h.get("ticket") for h in reversed(p.historial or []) if h.get("ticket")), None)
+    if t.estado != ultimo:
+        evento(p, u, f"Soporte: {t.folio} está en «{TICKET_ESTADOS.get(t.estado, t.estado)}».", ticket=t.estado)
+    if t.estado in ("pendiente", "planeado", "en_curso", "info", "revision") and p.estado not in ("delegado", "resuelto"):
+        p.estado = "delegado"
+        evento(p, u, f"Soporte aceptó {t.folio}: el pendiente queda delegado y avanza con el ticket.")
+    elif t.estado == "cerrado" and p.estado == "delegado":
+        r = t.resolucion or {}
+        p.estado = "revision"
+        p.resolucion = p.resolucion or f"Soporte ({t.folio}): {r.get('solucion', '')}"[:3000]
+        evento(p, u, f"Soporte cerró {t.folio}. Regresa a revisión: confírmalo con el cliente y resuélvelo.")

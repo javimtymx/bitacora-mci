@@ -415,12 +415,12 @@ def test_botones_en_curso_y_revision_planean_primero(admin, db):
                                                  "asignado_id": jm.id, "despues": "en_curso"})
     db.refresh(t)
     assert t.estado == "en_curso" and float(t.horas_estimadas) == 4
-    # con plan, los botones vuelven a ser movimientos directos
+    # con plan, «En revisión» pide capturar cómo se resolvió (base de conocimiento): no es un movimiento directo
     html = admin.get(f"/tickets/{t.id}").text
-    assert 'name="estado" value="revision"' in html
+    assert "Resuelto → En revisión" in html
     admin.post(f"/tickets/{t.id}/mover", data={"estado": "revision"})
     db.refresh(t)
-    assert t.estado == "revision"
+    assert t.estado == "en_curso"
 
 
 def test_rendicion_todo_el_historial_y_dias_vencidos(admin, db):

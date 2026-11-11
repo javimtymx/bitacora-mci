@@ -7,7 +7,12 @@
     <h1 style="font-size:24px">{{ cliente }}</h1>
     <div class="row" style="gap:8px"><span class="tag {{ 'b' if a.tipo == 'operativa' else 'p' }}">{{ tipos[a.tipo] }}</span>
       <span class="tag {{ estado[1] }}">{{ estado[0] }}</span>
-      <span class="muted">{{ fmt_fecha(a.fecha) }}{% if a.hora %} · {{ a.hora }} h{% endif %} · Responsable: <b>{{ a.responsable.nombre }}</b></span></div></div>
+      <span class="muted">{{ fmt_fecha(a.fecha) }}{% if a.hora %} · {{ a.hora }} h{% endif %} · Responsable: <b>{{ a.responsable.nombre }}</b></span></div>
+    {% if serie %}{% set pos = (serie|map(attribute='id')|list).index(a.id) %}
+    <div class="serie-nav"><span class="tag n">↻ Serie {{ a.recurrencia }} · cita {{ pos + 1 }} de {{ serie|length }}</span>
+      {% if pos > 0 %}<a class="lnk small" href="/clientes/agenda/{{ serie[pos-1].id }}">‹ {{ serie[pos-1].fecha.strftime('%d/%m') }}</a>{% endif %}
+      {% if pos + 1 < serie|length %}<a class="lnk small" href="/clientes/agenda/{{ serie[pos+1].id }}">{{ serie[pos+1].fecha.strftime('%d/%m') }} ›</a>{% endif %}
+      <span class="small muted">{{ serie|selectattr('sesion_id')|list|length }} con transcripción · {{ serie|selectattr('estado','equalto','cancelada')|list|length }} canceladas</span></div>{% endif %}</div>
   <div class="row">{% if puede and a.estado in ('programada', 'reprogramada') %}
     <button class="btn soft" type="button" data-open="reprog">{{ icon('cal', 16) }}Reprogramar</button>
     <button class="btn ghost" type="button" data-open="cancel">Cancelar sesión</button>{% endif %}</div>
@@ -176,6 +181,7 @@
 <div class="overlay" id="cancel"><form class="modal" method="post" action="/clientes/agenda/{{ a.id }}/cancelar" role="dialog" aria-modal="true" aria-labelledby="t-can">
   <div class="mh"><h2 id="t-can">Cancelar sesión</h2><button class="btn ghost" type="button" data-close aria-label="Cerrar" style="width:42px;padding:0">{{ icon('x') }}</button></div>
   <div class="sec" style="border-top:0"><div class="field"><label for="cn-m">Motivo</label><input class="input" id="cn-m" name="motivo" required minlength="5"></div>
+    {% if a.serie_id %}<label class="check"><input type="checkbox" name="serie" value="true"><span>Cancelar también las siguientes citas de la serie</span></label>{% endif %}
     <span class="small muted">Queda en la agenda como cancelada, con su motivo.</span></div>
   <div class="mf"><button class="btn ghost" type="button" data-close>Volver</button><button class="btn red">Cancelar sesión</button></div></form></div>
 {% endif %}{% endblock %}

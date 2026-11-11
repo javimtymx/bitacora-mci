@@ -9,16 +9,17 @@
   <span class="small" id="tk-sinia-motivo" style="display:block;opacity:.8"></span></span></div>
 <div class="flash error" id="tk-error" hidden></div>
 
+{% if pre %}<div class="cint"><span class="ic">{{ icon('users') }}</span><span>Delegas a soporte el pendiente de cliente <b>{{ pre.folio }}</b>: ya traemos lo que se capturó. Completa lo que falte. El pendiente se marca «Delegado a soporte» cuando soporte acepte el ticket y avanza con él.</span></div>{% endif %}
 <div class="tkt-lay" id="tk-lay">
-<form class="card pad" id="tk-form" autocomplete="off" novalidate>
+<form class="card pad" id="tk-form" autocomplete="off" novalidate>{% if pre %}<input type="hidden" name="pendiente_id" value="{{ pre.pendiente_id }}">{% endif %}
   <div class="row between"><h2>Lo indispensable</h2><span class="muted small"><span class="ast">*</span> Obligatorio</span></div>
   <div class="grid3">
     <div class="field"><label for="tk-producto">Producto <span class="ast">*</span></label>
       <select class="input" id="tk-producto" name="producto" required><option value="">Elige…</option>
-        {% for p in catalogo %}<option value="{{ p }}">{{ p }}</option>{% endfor %}</select></div>
+        {% for p in catalogo %}<option value="{{ p }}" {{ 'selected' if pre and pre.producto == p }}>{{ p }}</option>{% endfor %}</select></div>
     <div class="field"><label for="tk-tipo">Tipo <span class="ast">*</span></label>
       <select class="input" id="tk-tipo" name="tipo" required><option value="">Elige…</option>
-        {% for k, v in tipos.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></div>
+        {% for k, v in tipos.items() %}<option value="{{ k }}" {{ 'selected' if pre and pre.tipo == k }}>{{ v }}</option>{% endfor %}</select></div>
     <div class="field"><label for="tk-impacto">¿Cómo afecta tu operación? <span class="ast">*</span></label>
       <select class="input" id="tk-impacto" name="impacto" required><option value="">Elige…</option>
         {% for k, v in impactos.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></div>
@@ -29,7 +30,7 @@
     <div class="tkt-guia"><span class="muted small">Para atenderte a la primera incluye:</span>
       <span>Dónde (pantalla)</span><span>Qué pasó</span><span>Desde cuándo</span><span>Qué esperabas</span><span>Cliente y pedimento o RFC</span></div>
     <textarea class="input tkt-auto" id="tk-descripcion" name="descripcion" required minlength="15" rows="3"
-      placeholder="Ej. Desde ayer, al cargar el layout en SAFE (Validación › Pedimentos por validar) me sale «valor en aduana inválido» en todas las partidas…"></textarea>
+      placeholder="Ej. Desde ayer, al cargar el layout en SAFE (Validación › Pedimentos por validar) me sale «valor en aduana inválido» en todas las partidas…">{{ pre.descripcion if pre }}</textarea>
     <span class="muted small" id="tk-lee">Al terminar la descripción, {{ guardia }} propone el título y llena lo que ya mencionaste.</span>
   </div>
   <div class="grid2">
@@ -37,7 +38,7 @@
       <div class="tkt-titulo"><input class="input" id="tk-titulo" name="titulo" maxlength="200" readonly placeholder="GuardIA lo propone con tu descripción">
         <button type="button" class="btn sm ghost" id="tk-titulo-ed" title="Editar título">{{ icon('edit', 15) }}</button></div></div>
     <div class="field"><label for="tk-cliente">Cliente <span class="iab">IA</span></label>
-      <input class="input" id="tk-cliente" name="cliente" maxlength="200" placeholder="Razón social (RFC), si el caso es de un cliente"></div>
+      <input class="input" id="tk-cliente" name="cliente" maxlength="200" placeholder="Razón social (RFC), si el caso es de un cliente" value="{{ pre.cliente if pre }}"></div>
   </div>
 
   <div class="field"><label for="tk-cc">Mantener informado a (correos, opcional)</label>
@@ -47,11 +48,11 @@
   <div class="tkt-sep"><h3>Ayuda a resolverlo más rápido</h3><span class="muted small" id="tk-sep-nota">Lo marcado como <span class="rec" style="margin:0">recomendado</span> es lo que suele hacer falta para este tipo de ticket; {{ guardia }} solo te preguntará lo necesario.</span></div>
   <div class="grid3">
     <div class="field" data-req="pantalla"><label for="tk-menu">Menú</label>
-      <input class="input" id="tk-menu" name="menu" list="tk-l-menu" maxlength="120" placeholder="Ej. Validación"></div>
+      <input class="input" id="tk-menu" name="menu" list="tk-l-menu" maxlength="120" placeholder="Ej. Validación" value="{{ pre.menu if pre }}"></div>
     <div class="field" data-req="pantalla"><label for="tk-pantalla">Pantalla</label>
       <input class="input" id="tk-pantalla" name="pantalla" list="tk-l-pantalla" maxlength="160" placeholder="Ej. Pedimentos por validar"></div>
     <div class="field" data-req="referencia"><label for="tk-referencia">Referencia: pedimento, RFC, patente o folio</label>
-      <input class="input" id="tk-referencia" name="referencia" maxlength="300" placeholder="Ej. 26 19 3001 6001234"></div>
+      <input class="input" id="tk-referencia" name="referencia" maxlength="300" placeholder="Ej. 26 19 3001 6001234" value="{{ pre.referencia if pre }}"></div>
   </div>
   <div class="grid2">
     <div class="field" data-req="pasos"><label for="tk-pasos">Pasos para replicar</label>

@@ -10,9 +10,18 @@
       {% if p.asignado %}<span class="muted">Asignado a <b>{{ p.asignado.nombre }}</b>{% if p.fecha_compromiso %} · compromiso {{ fmt_fecha(p.fecha_compromiso) }}{% endif %}</span>{% endif %}</div></div>
   {% if atiende and p.estado in ('pendiente','en_curso','revision') %}<div class="row">
     {% for e, et in (('pendiente','Por atender'),('en_curso','En curso'),('revision','En revisión')) if e != p.estado %}
-    <form method="post" action="/clientes/pendientes/{{ p.id }}/mover"><input type="hidden" name="estado" value="{{ e }}"><button class="btn soft">→ {{ et }}</button></form>{% endfor %}</div>{% endif %}
+    <form method="post" action="/clientes/pendientes/{{ p.id }}/mover"><input type="hidden" name="estado" value="{{ e }}"><button class="btn soft">→ {{ et }}</button></form>{% endfor %}
+    {% if puede_delegar %}<a class="btn yellow" href="/tickets/nuevo?pendiente={{ p.id }}" title="Abre el formulario de ticket de soporte con lo ya capturado">{{ icon('send', 16) }}Delegar a soporte</a>{% endif %}</div>{% endif %}
 </div>
 
+{% if p.ticket %}{% set tt = p.ticket %}
+<section class="card pad deleg {{ 'acept' if p.estado == 'delegado' else '' }}">
+  <div class="row between"><h3>{{ icon('send', 17) }} {% if tt.estado == 'nuevo' %}Enviado a soporte · espera que lo acepten{% elif p.estado == 'delegado' %}Delegado a soporte{% else %}Atendido por soporte{% endif %}</h3>
+    <a class="btn sm soft" href="/tickets/{{ tt.id }}">{{ tt.folio }} · {{ estados_ticket.get(tt.estado, tt.estado) }}</a></div>
+  <span class="small">{% if tt.estado == 'nuevo' %}Soporte aún no lo acepta en triage: el pendiente sigue en su columna y lo sigues atendiendo.
+    {% elif p.estado == 'delegado' %}Soporte lo aceptó: este pendiente avanza solo con el ticket{% if tt.asignado %} (ingeniero {{ tt.asignado.nombre }}{% if tt.fecha_entrega %}, entrega {{ tt.fecha_entrega.strftime('%d/%m/%Y') }}{% endif %}){% endif %}. Cuando soporte lo cierre, regresa a «En revisión» para confirmarlo con el cliente.
+    {% elif tt.estado == 'cerrado' %}Soporte lo cerró{% if (tt.resolucion or {}).solucion %}: {{ tt.resolucion.solucion }}{% endif %}. Confírmalo con el cliente y resuélvelo.{% endif %}</span>
+</section>{% endif %}
 <div class="grid2" style="grid-template-columns:1.3fr 1fr;align-items:start">
 <div class="col" style="gap:16px">
   <section class="card pad">
@@ -63,15 +72,16 @@
     {% elif p.veredicto in ('dudoso','no_corresponde') %}<div class="verif mal"><b>{{ icon('alert', 15) }} Resuelto con sospecha: {{ 'la evidencia no corresponde' if p.veredicto == 'no_corresponde' else 'no se ve resuelto satisfactoriamente' }}</b>
       {% if d.motivo %}<span>{{ d.motivo }}</span>{% endif %}{% if d.falta %}<span><b>Falta demostrar:</b> {{ d.falta|join('; ') }}</span>{% endif %}{% if d.cumple %}<span><b>Sí se ve:</b> {{ d.cumple|join('; ') }}</span>{% endif %}
       <span class="small">Si retiras la evidencia equivocada y subes la correcta, {{ guardia }} vuelve a revisarlo.</span></div>
+    {% elif p.veredicto == 'soporte' %}<div class="verif ok"><b>{{ icon('ok', 15) }} Resuelto por soporte</b><span>La evidencia es el ticket {{ p.ticket.folio if p.ticket }}, cerrado y aceptado por quien lo levantó.</span></div>
     {% elif p.veredicto == 'sin_verificar' %}<div class="verif neutro"><b>Sin verificar por la IA.</b>{% if d.error %}<span>{{ d.error }}</span>{% endif %}</div>{% endif %}
     {% if lider %}<details class="ev-ret"><summary class="btn sm ghost">Reabrir</summary><form method="post" action="/clientes/pendientes/{{ p.id }}/reabrir" class="ev-ret-f"><input class="input" name="motivo" required minlength="5" placeholder="¿Por qué se reabre?" aria-label="Motivo"><button class="btn sm red">Reabrir</button></form></details>{% endif %}
   </section>
   {% elif atiende and p.estado in ('pendiente','en_curso','revision') %}
   <section class="card pad" id="resolver"><h3>Resolver</h3>
     <form method="post" action="/clientes/pendientes/{{ p.id }}/resolver" enctype="multipart/form-data" data-subidas="evidencia" class="col" style="gap:10px">
-      <div class="field"><label for="rs-t">¿Cómo se resolvió?</label><textarea class="input" id="rs-t" name="resolucion" rows="3" required minlength="10" placeholder="Ej. Se corrigió el reporte y se envió al cliente; confirmó por correo"></textarea></div>
-      <div class="field"><label for="rs-a">{{ 'Agregar más evidencia (opcional)' if p.evidencias else 'Evidencia de la resolución (obligatoria)' }}</label>
-        <div class="drop"><input type="file" id="rs-a" name="archivos" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.txt,.csv,.md,.eml,.docx,.xlsx,.pptx" {{ 'required' if not p.evidencias }}></div></div>
+      <div class="field"><label for="rs-t">¿Cómo se resolvió?</label><textarea class="input" id="rs-t" name="resolucion" rows="3" required minlength="10" placeholder="Ej. Se corrigió el reporte y se envió al cliente; confirmó por correo">{{ p.resolucion if p.ticket and p.ticket.estado == 'cerrado' }}</textarea></div>
+      <div class="field"><label for="rs-a">{{ 'Agregar más evidencia (opcional)' if p.evidencias or (p.ticket and p.ticket.estado == 'cerrado') else 'Evidencia de la resolución (obligatoria)' }}</label>
+        <div class="drop"><input type="file" id="rs-a" name="archivos" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.txt,.csv,.md,.eml,.docx,.xlsx,.pptx" {{ 'required' if not p.evidencias and not (p.ticket and p.ticket.estado == 'cerrado') }}></div></div>
       <button class="btn yellow" style="align-self:flex-start">{{ icon('ok') }}Marcar como resuelto</button>
       <span class="small muted">{{ guardia }} revisa que la evidencia demuestre que se atendió lo que pidió el cliente; si tiene dudas, queda marcado con sospecha.</span></form>
   </section>
@@ -95,6 +105,14 @@
 </div>
 
 <div class="col" style="gap:16px">
+  <section class="card pad"><h3>Módulo</h3>
+    {% if atiende or decide %}<form method="post" action="/clientes/pendientes/{{ p.id }}/modulo" class="col" style="gap:8px">
+      <select class="input" name="producto" aria-label="Producto o módulo"><option value="">Sin módulo</option>{% for prod in catalogo_mod %}<option value="{{ prod }}" {{ 'selected' if prod == p.producto }}>{{ prod }}</option>{% endfor %}</select>
+      <input class="input" name="menu" value="{{ p.menu }}" maxlength="120" placeholder="Menú (opcional)" list="pc-menus" aria-label="Menú">
+      <datalist id="pc-menus">{% for prod, menus in catalogo_mod.items() %}{% for m in menus %}<option value="{{ m }}">{{ prod }}</option>{% endfor %}{% endfor %}</datalist>
+      <button class="btn sm soft" style="align-self:flex-start">Guardar módulo</button></form>
+    {% else %}<span class="small">{{ (p.producto ~ (' › ' ~ p.menu if p.menu else '')) or 'Sin módulo' }}</span>{% endif %}
+    <span class="small muted">Catálogo de productos de tickets; se usa para las recurrencias por módulo y al delegar a soporte.</span></section>
   {% if lider and p.estado in ('pendiente','en_curso','revision') %}
   <section class="card pad"><h3>Asignación</h3>
     <form method="post" action="/clientes/pendientes/{{ p.id }}/asignar" class="col" style="gap:8px">

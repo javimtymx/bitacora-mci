@@ -58,7 +58,7 @@ ETAPAS_TEXTO = {
     "pendiente": "Está en la fila de atención; el equipo lo planeará pronto.",
     "planeado": "Ya está planeado.",
     "en_curso": "El ingeniero ya está trabajando en él.",
-    "revision": "La solución está en revisión antes de entregarse.",
+    "revision": "Ya está resuelto y te toca revisarlo: acéptalo o regrésalo con el motivo.",
     "info": "Está en pausa: se necesita información (revisa el ticket).",
     "cerrado": "Quedó resuelto.",
 }
@@ -142,6 +142,20 @@ def avisos(db: Session, evento: str, t: Ticket, actor: Usuario | None, **x) -> l
           f"El ticket quedó resuelto.\n{ficha}{plan}\nCómo: {_cierres(db).get(r.get('tipo'), r.get('tipo', ''))}\n"
           f"Solución: {r.get('solucion', '')}\nSi vuelve a pasar, entra al ticket y usa «Reabrir».", "Ver la solución",
           interesados=True)
+    elif evento == "revision":
+        r = t.resolucion or {}
+        a([t.autor], f"Acción requerida · {t.folio} resuelto: revísalo",
+          f"{r.get('por_nombre', 'El ingeniero')} resolvió el ticket y ahora te toca revisarlo.\n{ficha}\n"
+          f"Cómo: {_cierres(db).get(r.get('tipo'), r.get('tipo', ''))}\nSolución: {r.get('solucion', '')}\n"
+          "Entra al ticket y elige «Aceptar y cerrar» si quedó resuelto, o «No está resuelto» con el motivo para que "
+          "regrese al ingeniero.", "Revisar el ticket", interesados=True)
+    elif evento == "rechazado":
+        a([t.asignado], f"{t.folio}: el usuario indica que no está resuelto",
+          f"{actor.nombre} revisó «{t.titulo}» y no lo dio por resuelto:\n{x.get('motivo', '')}\nEl ticket regresó a En curso.",
+          "Ver el ticket")
+    elif evento == "aceptado":
+        a([t.asignado], f"{t.folio}: solución aceptada · cerrado",
+          f"{actor.nombre} aceptó la solución de «{t.titulo}». El ticket quedó cerrado.", "Ver el ticket")
     elif evento == "reabierto":
         a([t.asignado], f"{t.folio} reabierto", f"{actor.nombre} reabrió «{t.titulo}»: {x.get('motivo', '')}", "Ver el ticket")
         a([t.autor], f"{t.folio}: reabierto", f"{actor.nombre} reabrió el ticket: {x.get('motivo', '')}\n{ficha}",
@@ -168,3 +182,45 @@ def en_fondo(evento: str, tid: int, actor_id: int | None, **x) -> None:
         t = db.get(Ticket, tid)
         if t:
             enviar(db, evento, t, db.get(Usuario, actor_id) if actor_id else None, **x)
+
+
+def recordar_revision(db: Session, actor: Usuario | None) -> int:
+    """«Recordar revisión»: a cada persona que levantó tickets resueltos sin revisar, y a su jefe directo, una tabla con
+    ticket, descripción, días desde que se resolvió, ingeniero y liga. Regresa cuántos correos salieron."""
+    from .tickets import dias_en_revision
+    base = get_settings().base_url.rstrip("/")
+    tickets = list(db.scalars(select(Ticket).where(Ticket.estado == "revision").order_by(Ticket.id)))
+    por_persona: dict[int, list[Ticket]] = {}
+    for t in tickets:
+        por_persona.setdefault(t.creado_por, []).append(t)
+    por_jefe: dict[int, list[Ticket]] = {}
+    for uid, ts in por_persona.items():
+        u = db.get(Usuario, uid)
+        if u and u.jefe_id:
+            por_jefe.setdefault(u.jefe_id, []).extend(ts)
+
+    def fila(t):
+        return [t.folio, (t.titulo or t.descripcion or "")[:140] + (f" · {t.autor.nombre}" if t.autor else ""),
+                dias_en_revision(t), (t.resolucion or {}).get("por_nombre") or (t.asignado.nombre if t.asignado else "—"),
+                f"{base}/tickets/{t.id}"]
+
+    columnas = ["Ticket", "Descripción", "Días desde que se resolvió", "Ingeniero que lo resolvió", "Liga"]
+    n = 0
+    for uid, ts in list(por_persona.items()) + [(j, ts) for j, ts in por_jefe.items()]:
+        u = db.get(Usuario, uid)
+        if not (u and u.activo and u.email):
+            continue
+        propio = uid in por_persona and ts is por_persona[uid]
+        ts = sorted(ts, key=lambda t: -dias_en_revision(t))
+        cuerpo = ((f"Tienes {len(ts)} ticket(s) ya resueltos esperando tu revisión. Entra a cada uno y elige «Aceptar y "
+                   "cerrar» o «No está resuelto» con el motivo.") if propio else
+                  (f"Tu equipo tiene {len(ts)} ticket(s) ya resueltos que esperan la revisión de quien los levantó. "
+                   "Ayúdanos a que los revisen."))
+        try:
+            correo.enviar([u.email], f"Recordatorio: {len(ts)} ticket(s) resueltos por revisar", cuerpo, f"{base}/tickets?tab=cerrar",
+                          boton="Ver mis tickets", pie=PIE, titulo="Soporte",
+                          tabla={"columnas": columnas, "filas": [fila(t) for t in ts], "enlace": 4})
+            n += 1
+        except Exception as e:  # noqa: BLE001
+            log.warning("No se pudo enviar el recordatorio de revisión a %s: %s", u.email, e)
+    return n

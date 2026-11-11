@@ -12,7 +12,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import unicodedata
-from datetime import date
+from datetime import date, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -92,6 +92,32 @@ def limpiar_invitados(nombres: list[str], emails: list[str], lados: list[str], a
 
 
 # ---------------------------------------------------------------- agenda del mes
+
+MAX_SERIE_DIAS = 366
+
+
+def fechas_serie(inicio: date, recurrencia: str, fin: date | None) -> list[date]:
+    """Fechas de una serie semanal o mensual (mismo día del mes; si no existe, el último del mes), hasta la fecha fin."""
+    import calendar
+    if not fin:
+        raise ValueError("Indica hasta qué fecha se repite la cita.")
+    if fin < inicio:
+        raise ValueError("La fecha fin de la serie debe ser posterior a la primera cita.")
+    if (fin - inicio).days > MAX_SERIE_DIAS:
+        raise ValueError("Una serie puede durar hasta 12 meses; al terminar se programa otra.")
+    out, i = [], 0
+    while True:
+        if recurrencia == "semanal":
+            f = inicio + timedelta(weeks=i)
+        else:
+            m = inicio.month - 1 + i
+            y, m = inicio.year + m // 12, m % 12 + 1
+            f = date(y, m, min(inicio.day, calendar.monthrange(y, m)[1]))
+        if f > fin:
+            break
+        out.append(f)
+        i += 1
+    return out
 
 def estado_visible(a: AgendaCliente) -> tuple[str, str]:
     """(texto, color) de la celda de estatus. Una sesión con fecha pasada sin transcripción queda en naranja."""
@@ -352,7 +378,20 @@ def error_analisis(db: Session, s: SesionCliente) -> None:
 # ---------------------------------------------------------------- pendientes
 
 COLUMNAS = (("propuesta", "Por decidir (minutas)"), ("pendiente", "Por atender"), ("en_curso", "En curso"),
-            ("revision", "En revisión"), ("resuelto", "Resuelto"))
+            ("revision", "En revisión"), ("delegado", "Delegado a soporte"), ("resuelto", "Resuelto"))
+
+
+def coincide(p: PendienteCliente, q: str) -> bool:
+    """Búsqueda del kanban: folio (PC-0012, #12 o 12), folio del ticket de soporte, o todas las palabras en el texto."""
+    qn = _norm(q).replace("#", "")
+    num = qn.replace("pc-", "").replace("pc", "").strip()
+    if num.isdigit():
+        return p.id == int(num) or bool(p.ticket_id and p.ticket_id == int(num))
+    if qn.startswith("one") and qn.replace("one-", "").replace("one", "").strip().isdigit():  # folio del ticket de soporte
+        return bool(p.ticket_id and p.ticket_id == int(qn.replace("one-", "").replace("one", "").strip()))
+    texto = _norm(" ".join([p.folio, p.titulo, p.detalle or "", p.cita or "", p.cliente_nombre or "", p.producto or "",
+                            p.menu or "", p.resolucion or "", p.ticket.folio if p.ticket else ""]))
+    return all(w in texto for w in qn.split())
 
 
 def puede_gestionar(u: Usuario) -> bool:
@@ -365,7 +404,7 @@ def puede_atender(u: Usuario, p: PendienteCliente) -> bool:
 
 
 def vence(p: PendienteCliente) -> tuple[str, str]:
-    if not p.fecha_compromiso or p.estado in ("resuelto", "historico", "no_vigente", "propuesta"):
+    if not p.fecha_compromiso or p.estado in ("resuelto", "historico", "no_vigente", "propuesta", "delegado"):
         return "", ""
     d = (p.fecha_compromiso - hoy()).days
     if d < 0:

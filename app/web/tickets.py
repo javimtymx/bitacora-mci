@@ -13,8 +13,8 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..db import get_db
-from ..models import (TICKET_CIERRES, TICKET_ESTADOS, TICKET_IMPACTOS, TICKET_TIPOS, Ticket, TicketAnexo,
-                      TicketDiagnostico, TicketPrompt, TicketRegla, Usuario, utcnow)
+from ..models import (PendienteCliente, TICKET_CIERRES, TICKET_ESTADOS, TICKET_IMPACTOS, TICKET_TIPOS, Ticket, TicketAnexo,
+                      TicketComentario, TicketDiagnostico, TicketPrompt, TicketRegla, Usuario, utcnow)
 from ..services import accesos, almacen, correo, ia
 from ..services import subidas as subidas_srv
 from ..services import tickets as tk
@@ -95,7 +95,8 @@ def lista(request: Request, tab: str = "pendientes", ver: str = "mios", q: str =
 
 
 @router.get("/tickets/nuevo")
-def nuevo(request: Request, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+def nuevo(request: Request, pendiente: OptInt = None, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+    pre = _prellenado_pendiente(db, u, pendiente) if pendiente else {}
     p = tk.prompt_vigente(db)
     cat = tk.catalogo(db)
     db.commit()
@@ -103,7 +104,27 @@ def nuevo(request: Request, db: Session = Depends(get_db), u: Usuario = Depends(
     req = {t: tk.requeridos(p, t) for t in tipos_act}
     return render(request, "ticket_nuevo.html", u, "tickets", catalogo=cat, requeridos=req, campos_req=tk.CAMPOS_REQ,
                   tipos=tipos_act, impactos=tk.impactos(db), prompt_version=p.version,
-                  ia_ok=ia.cliente().disponible, aceptar=",".join("." + e for e in tk.PERMITIDOS))
+                  ia_ok=ia.cliente().disponible, aceptar=",".join("." + e for e in tk.PERMITIDOS), pre=pre)
+
+
+def _prellenado_pendiente(db: Session, u: Usuario, pid: int) -> dict:
+    """Delegar a soporte un pendiente de cliente: el formulario de ticket llega con lo que ya se capturó."""
+    from ..services import clientes as cl
+    p = db.get(PendienteCliente, pid)
+    if not p or not cl.puede_atender(u, p) or p.estado not in ("pendiente", "en_curso", "revision"):
+        raise HTTPException(403, "Solo quien atiende el pendiente puede delegarlo a soporte.")
+    if p.ticket and p.ticket.estado != "cerrado":
+        raise HTTPException(400, f"Ya está delegado en {p.ticket.folio}.")
+    partes = [f"{p.titulo}."]
+    if p.detalle:
+        partes.append(p.detalle)
+    if p.cita:
+        partes.append(f"Lo que dijo el cliente: «{p.cita}»")
+    if p.agenda:
+        partes.append(f"Salió de la sesión con el cliente del {p.agenda.fecha:%d/%m/%Y}.")
+    return {"pendiente_id": p.id, "folio": p.folio, "descripcion": "\n".join(partes)[:4000], "producto": p.producto,
+            "menu": p.menu, "cliente": (p.cliente_nombre or p.cliente_rfc) if cl.ve_cliente(u, p) else "",
+            "referencia": p.folio, "tipo": "error" if p.tipo == "queja" else ""}
 
 
 @router.post("/api/tickets/revisar")
@@ -136,7 +157,9 @@ async def api_nuevo(request: Request, bg: BackgroundTasks, descripcion: str = Fo
                     referencia: str = Form(""), cliente: str = Form(""), validacion: str = Form("sin_ia"),
                     faltantes: str = Form("[]"), conversacion: str = Form("[]"), prompt_version: OptInt = Form(None),
                     archivos: list[UploadFile] | None = File(None), subidas: list[str] = Form([]), cc: str = Form(""),
-                    db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+                    pendiente_id: OptInt = Form(None), db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+    if pendiente_id:
+        _prellenado_pendiente(db, u, pendiente_id)  # valida permiso y que no esté ya delegado
     campos = dict(descripcion=descripcion, producto=producto, menu=menu, pantalla=pantalla, tipo=tipo, impacto=impacto,
                   titulo=titulo, pasos=pasos, esperado=esperado, obtenido=obtenido, referencia=referencia, cliente=cliente)
     try:
@@ -150,6 +173,14 @@ async def api_nuevo(request: Request, bg: BackgroundTasks, descripcion: str = Fo
         t = tk.crear(db, u, campos, await _archivos(archivos), validacion=validacion, faltantes=falt,
                      conversacion=[{"de": str(h.get("de"))[:2], "t": str(h.get("t", ""))[:2000]} for h in conv],
                      prompt_version=prompt_version, subidos=subidos, cc=tk.limpiar_cc(cc))
+        if pendiente_id:
+            from ..services import clientes as cl
+            pc = db.get(PendienteCliente, pendiente_id)
+            pc.ticket_id = t.id
+            cl.evento(pc, u, f"Enviado a soporte como {t.folio}. Sigue aquí hasta que soporte lo acepte en triage; "
+                             "después queda «Delegado a soporte» y avanza con el ticket.", ticket=t.estado)
+            db.add(TicketComentario(ticket_id=t.id, autor_id=u.id, tipo="sistema",
+                                    texto=f"Viene del pendiente de cliente {pc.folio}: avanza junto con este ticket."))
         db.commit()
     except (tk.TicketInvalido, subidas_srv.SubidaInvalida) as e:
         db.rollback()
@@ -157,7 +188,8 @@ async def api_nuevo(request: Request, bg: BackgroundTasks, descripcion: str = Fo
     bg.add_task(tk.triage_en_fondo, t.id)
     _avisar(bg, "nuevo", t, u)
     flash(request, f"Ticket {t.folio} levantado. Te avisaremos por correo cuando haya novedades.")
-    return JSONResponse({"ok": True, "url": f"/tickets/{t.id}", "folio": t.folio})
+    return JSONResponse({"ok": True, "url": f"/clientes/pendientes/{pendiente_id}" if pendiente_id else f"/tickets/{t.id}",
+                         "folio": t.folio})
 
 
 @router.get("/tickets/{tid}")
@@ -172,7 +204,9 @@ def detalle(tid: int, request: Request, db: Session = Depends(get_db), u: Usuari
                   campos_req=tk.CAMPOS_REQ, asignables=tk.asignables(db) if staff else [], vence_en=tk.vence_en,
                   aceptar=",".join("." + e for e in tk.PERMITIDOS), ve_costos=tk.ve_costos(u),
                   edita_cc=tk.puede_editar_cc(u, t), hoy=date.today(), areas_u=tk.areas_usuario(db, True),
-                  gente=tk.asignables(db) if accesos.puede(u, "tickets-tablero") else [])
+                  gente=tk.asignables(db) if accesos.puede(u, "tickets-tablero") else [],
+                  puede_aceptar=t.estado == "revision" and tk.puede_aceptar(u, t), dias_revision=tk.dias_en_revision(t),
+                  pendiente=db.scalar(select(PendienteCliente).where(PendienteCliente.ticket_id == t.id)))
 
 
 @router.post("/tickets/{tid}/comentar")
@@ -234,12 +268,14 @@ def mover(tid: int, request: Request, bg: BackgroundTasks, estado: str = Form(..
     try:
         antes = t.estado
         tk.mover(db, u, t, estado)
+        tk.sincronizar_pendiente(db, t, u)
         db.commit()
         if t.estado != antes:
             _avisar(bg, "etapa", t, u)
     except tk.TicketInvalido as e:
         if quiere_json:
-            return JSONResponse({"ok": False, "mensaje": str(e), "planear": "planéalo" in str(e)}, status_code=400)
+            return JSONResponse({"ok": False, "mensaje": str(e), "planear": "planéalo" in str(e),
+                                 "resolver": "resolver" in str(e)}, status_code=400)
         flash(request, str(e), "error")
     if quiere_json:
         return JSONResponse({"ok": True, "estado": t.estado})
@@ -259,15 +295,19 @@ def planear(tid: int, request: Request, bg: BackgroundTasks, horas: str = Form("
     antes = t.estado
     try:
         tk.planear(db, u, t, horas=horas, fecha_entrega=fecha_entrega, asignado=asignado, motivo=motivo)
-        if despues in ("en_curso", "revision"):  # se planeó desde el botón «En curso» / «En revisión»
+        if despues == "en_curso":  # se planeó desde el botón «En curso»
             tk.mover(db, u, t, despues)
+        tk.sincronizar_pendiente(db, t, u)
         db.commit()
     except tk.TicketInvalido as e:
         db.rollback()
         flash(request, str(e), "error")
         return ir(f"/tickets/{tid}#planear")
     _avisar(bg, "etapa", t, u)
-    if despues in ("en_curso", "revision"):
+    if despues == "revision":  # se planeó desde «En revisión»: ahora se captura la solución
+        flash(request, f"{t.folio} planeado. Ahora captura cómo se resolvió para pasarlo a revisión.")
+        return ir(f"/tickets/{tid}#cerrar")
+    if despues == "en_curso":
         flash(request, f"{t.folio} planeado y movido a «{TICKET_ESTADOS[t.estado]}»: entrega {t.fecha_entrega:%d/%m/%Y}.")
     else:
         flash(request, f"{t.folio} {'planeado' if antes != t.estado else 'actualizado'}: entrega {t.fecha_entrega:%d/%m/%Y}.")
@@ -314,15 +354,97 @@ def paquete(tid: int, request: Request, db: Session = Depends(get_db), u: Usuari
     return ir(f"/tickets/{tid}#paquete")
 
 
+@router.post("/tickets/{tid}/resolver")
+def resolver(tid: int, request: Request, bg: BackgroundTasks, tipo_cierre: str = Form(""), causa: str = Form(""),
+             solucion: str = Form(""), modulos: str = Form(""), horas_reales: str = Form(""), db: Session = Depends(get_db),
+             u: Usuario = Depends(usuario_actual)):
+    """El ingeniero lo resolvió: captura la base de conocimiento y pasa a revisión de quien lo levantó."""
+    _exigir(u, "tickets-tablero")
+    t = _ticket(db, tid, u)
+    try:
+        tk.resolver(db, u, t, tipo_cierre=tipo_cierre, causa=causa, solucion=solucion, modulos=modulos,
+                    horas_reales=horas_reales or None)
+        if t.creado_por == u.id:  # si quien lo resolvió es quien lo levantó, no tiene caso revisarlo
+            tk.aceptar(db, u, t)
+        tk.sincronizar_pendiente(db, t, u)
+        db.commit()
+    except tk.TicketInvalido as e:
+        flash(request, str(e), "error")
+        return ir(f"/tickets/{tid}")
+    _avisar(bg, "revision" if t.estado == "revision" else "cerrado", t, u)
+    flash(request, f"{t.folio} resuelto." + (f" Ahora lo revisa {t.autor.nombre}; se le avisó por correo." if t.estado == "revision" else ""))
+    return ir(f"/tickets/{tid}")
+
+
+@router.post("/tickets/{tid}/aceptar")
+def aceptar(tid: int, request: Request, bg: BackgroundTasks, comentario: str = Form(""), db: Session = Depends(get_db),
+            u: Usuario = Depends(usuario_actual)):
+    t = _ticket(db, tid, u)
+    if not tk.puede_aceptar(u, t):
+        raise HTTPException(403, "La revisión la hace quien levantó el ticket.")
+    try:
+        tk.aceptar(db, u, t, comentario)
+        tk.sincronizar_pendiente(db, t, u)
+        db.commit()
+    except tk.TicketInvalido as e:
+        flash(request, str(e), "error")
+        return ir(f"/tickets/{tid}")
+    _avisar(bg, "aceptado", t, u)
+    flash(request, f"{t.folio} cerrado. Gracias por revisarlo.")
+    return ir(f"/tickets/{tid}")
+
+
+@router.post("/tickets/{tid}/rechazar")
+def rechazar(tid: int, request: Request, bg: BackgroundTasks, motivo: str = Form(""), db: Session = Depends(get_db),
+             u: Usuario = Depends(usuario_actual)):
+    t = _ticket(db, tid, u)
+    if not tk.puede_aceptar(u, t):
+        raise HTTPException(403, "La revisión la hace quien levantó el ticket.")
+    try:
+        tk.rechazar(db, u, t, motivo)
+        tk.sincronizar_pendiente(db, t, u)
+        db.commit()
+    except tk.TicketInvalido as e:
+        flash(request, str(e), "error")
+        return ir(f"/tickets/{tid}")
+    _avisar(bg, "rechazado", t, u, motivo=motivo.strip())
+    flash(request, f"{t.folio} regresó al ingeniero con tu motivo.")
+    return ir(f"/tickets/{tid}")
+
+
+@router.post("/tickets-revision/recordar")
+def recordar_revision(request: Request, bg: BackgroundTasks, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+    _exigir(u, "tickets-tablero")
+    from ..services import tickets_correo
+    n_t = db.query(Ticket).filter(Ticket.estado == "revision").count()
+    if not n_t:
+        flash(request, "No hay tickets en revisión.", "error")
+    else:
+        bg.add_task(_recordar_en_fondo, u.id)
+        flash(request, f"Se envía el recordatorio de {n_t} ticket(s) en revisión a quienes los levantaron y a sus jefes.")
+    destino = request.headers.get("referer") or "/tickets-tablero"
+    return ir(destino if "/tickets" in destino else "/tickets-tablero")
+
+
+def _recordar_en_fondo(uid: int) -> None:
+    from ..db import SessionLocal
+    from ..services import tickets_correo
+    with SessionLocal() as db:
+        tickets_correo.recordar_revision(db, db.get(Usuario, uid))
+
+
 @router.post("/tickets/{tid}/cerrar")
 def cerrar(tid: int, request: Request, bg: BackgroundTasks, tipo_cierre: str = Form(""), causa: str = Form(""),
            solucion: str = Form(""), modulos: str = Form(""), horas_reales: str = Form(""), db: Session = Depends(get_db),
            u: Usuario = Depends(usuario_actual)):
     _exigir(u, "tickets-tablero")
     t = _ticket(db, tid, u)
+    if not (u.es_direccion or t.creado_por == u.id):
+        raise HTTPException(403, "El cierre lo da quien levantó el ticket al revisarlo; resuélvelo para pasarlo a revisión.")
     try:
         tk.cerrar(db, u, t, tipo_cierre=tipo_cierre, causa=causa, solucion=solucion, modulos=modulos,
                   horas_reales=horas_reales or None)
+        tk.sincronizar_pendiente(db, t, u)
         db.commit()
     except tk.TicketInvalido as e:
         flash(request, str(e), "error")
@@ -340,6 +462,7 @@ def reabrir(tid: int, request: Request, bg: BackgroundTasks, motivo: str = Form(
         raise HTTPException(403, "No puedes reabrir este ticket.")
     try:
         tk.reabrir(db, u, t, motivo)
+        tk.sincronizar_pendiente(db, t, u)
         db.commit()
         _avisar(bg, "reabierto", t, u, motivo=motivo.strip())
     except tk.TicketInvalido as e:
@@ -348,18 +471,27 @@ def reabrir(tid: int, request: Request, bg: BackgroundTasks, motivo: str = Form(
 
 
 @router.get("/tickets-tablero")
-def tablero(request: Request, persona: OptInt = None, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
-    q = select(Ticket).where(or_(Ticket.estado.in_(tk.ABIERTOS_ATENCION),
-                                 Ticket.cerrado_en >= utcnow() - timedelta(days=7)))
+def tablero(request: Request, persona: OptInt = None, buscar: str = "", cerrados: bool = False, db: Session = Depends(get_db),
+            u: Usuario = Depends(usuario_actual)):
+    buscar = buscar.strip()
+    if buscar:  # por folio (ONE-12 o 12) o palabras; por omisión solo en tickets activos
+        q = select(Ticket).where(tk.filtro_busqueda(buscar))
+        if not cerrados:
+            q = q.where(Ticket.estado != "cerrado")
+    else:
+        q = select(Ticket).where(or_(Ticket.estado.in_(tk.ABIERTOS_ATENCION),
+                                     Ticket.cerrado_en >= utcnow() - timedelta(days=7)))
     if persona:
         q = q.where(Ticket.asignado_id == persona)
     orden = {"P1": 0, "P2": 1, "P3": 2, "P4": 3}
     ts = sorted(db.scalars(q).all(), key=lambda t: (orden.get(t.prioridad or "", 4), t.sla_vence or t.creado))
     columnas = [(e, TICKET_ESTADOS[e], [t for t in ts if t.estado == e])
-                for e in ("pendiente", "planeado", "en_curso", "revision", "info", "cerrado")]
+                for e in (("nuevo",) if buscar and any(t.estado == "nuevo" for t in ts) else ())
+                + ("pendiente", "planeado", "en_curso", "revision", "info", "cerrado")]
     n_nuevos = len(db.scalars(select(Ticket.id).where(Ticket.estado == "nuevo")).all())
     return render(request, "tickets_tablero.html", u, "tickets-tablero", columnas=columnas, persona=persona,
-                  gente=tk.asignables(db), vence_en=tk.vence_en, n_nuevos=n_nuevos, hoy=date.today(), tipos=tk.tipos(db, True))
+                  gente=tk.asignables(db), vence_en=tk.vence_en, n_nuevos=n_nuevos, hoy=date.today(), tipos=tk.tipos(db, True),
+                  buscar=buscar, cerrados=cerrados, dias_revision=tk.dias_en_revision)
 
 
 # ---------------------------------------------------------------- triage
@@ -387,6 +519,7 @@ def triage_guardar(tid: int, request: Request, bg: BackgroundTasks, prioridad: s
         raise HTTPException(400, "Esa persona no atiende tickets.")
     try:
         tk.triage(db, u, t, prioridad, asignado, nota)
+        tk.sincronizar_pendiente(db, t, u)
         db.commit()
     except tk.TicketInvalido as e:
         flash(request, str(e), "error")

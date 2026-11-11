@@ -45,6 +45,8 @@ MENUS = (
          "colaborador", ("/clientes/agenda", "/clientes")),
     Menu("clientes-pendientes", "clientes", "Pendientes de clientes", "Quejas y tareas hasta su resolución",
          "/clientes/pendientes", "colaborador", ("/clientes/pendientes",)),
+    Menu("clientes-servicio", "clientes", "Recurrencias de servicio", "Quejas y tareas que se repiten: plan de mejora",
+         "/clientes/servicio", "lider", ("/clientes/servicio",)),
     Menu("clientes-benchmark", "clientes", "Benchmark", "Competidores, propuesta de valor e insights", "/clientes/benchmark",
          "lider", ("/clientes/benchmark",)),
     Menu("ideas", "innovacion", "Ideas", "Propuestas del equipo", "/ideas", "colaborador", ("/ideas", "/api/ia/idea")),

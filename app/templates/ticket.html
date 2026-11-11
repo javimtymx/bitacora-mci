@@ -12,6 +12,23 @@
   </div>
 </div>
 
+{% if t.estado == 'revision' %}{% set r = t.resolucion or {} %}
+<section class="card pad tkt-rev">
+  <div class="row between"><h2>{{ icon('ok', 18) }} Resuelto: {{ 'te toca revisarlo' if puede_aceptar else 'en revisión de ' ~ (t.autor.nombre if t.autor else 'quien lo levantó') }}</h2>
+    <span class="small muted">Resolvió {{ r.por_nombre or '—' }}{% if r.resuelto_en %} · hace {{ dias_revision }} día{{ 's' if dias_revision != 1 }}{% endif %}</span></div>
+  <dl class="tkt-dl" style="grid-template-columns:90px 1fr">
+    <dt>Cómo</dt><dd>{{ cierres.get(r.tipo, r.tipo) }}</dd><dt>Solución</dt><dd>{{ r.solucion }}</dd></dl>
+  {% if puede_aceptar %}
+  <div class="row" style="gap:10px;flex-wrap:wrap;align-items:flex-start">
+    <form method="post" action="/tickets/{{ t.id }}/aceptar" class="row" style="gap:8px"><input class="input" name="comentario" maxlength="1000" placeholder="Comentario (opcional)" aria-label="Comentario" style="min-width:220px">
+      <button class="btn yellow">{{ icon('ok') }}Aceptar y cerrar</button></form>
+    <details class="ev-ret"><summary class="btn soft">No está resuelto</summary>
+      <form method="post" action="/tickets/{{ t.id }}/rechazar" class="ev-ret-f"><input class="input" name="motivo" required minlength="10" placeholder="¿Qué sigue sin funcionar?" aria-label="Motivo"><button class="btn sm red">Regresar al ingeniero</button></form></details>
+  </div>{% else %}<span class="small muted">El responsable en esta etapa es quien levantó el ticket: él lo acepta (se cierra) o lo regresa con el motivo.</span>{% endif %}
+</section>
+{% endif %}
+{% if pendiente %}<div class="cint"><span class="ic">{{ icon('users') }}</span><span>Viene del pendiente de cliente <a href="/clientes/pendientes/{{ pendiente.id }}"><b>{{ pendiente.folio }}</b></a>: avanza junto con este ticket.</span></div>{% endif %}
+{% if (t.resolucion or {}).rechazos %}<div class="tkt-aviso">{{ icon('alert', 18) }}<span><b>Regresado {{ t.resolucion.rechazos|length }} vez/veces por quien lo levantó.</b> Último motivo: {{ t.resolucion.rechazos[-1].motivo }}</span></div>{% endif %}
 {% if t.estado == 'info' and u.id == t.creado_por %}
 <div class="tkt-aviso">{{ icon('alert', 18) }}<span><b>El equipo necesita información para seguir.</b> Responde abajo en la conversación (puedes adjuntar archivos). Al responder, tu ticket regresa a atención.</span></div>
 {% endif %}
@@ -95,18 +112,20 @@
     {% if dev and t.estado != 'cerrado' %}
     <button class="btn sm {{ 'yellow' if t.estado in ('nuevo','pendiente','info') else 'soft' }}" type="button" data-open="planear" style="align-self:flex-start;margin-top:10px">{{ icon('cal', 15) }}{{ 'Mover a Planeados' if t.estado in ('nuevo','pendiente','info') else 'Cambiar plan' }}</button>
     {% endif %}
-    {% if dev and t.estado not in ('cerrado',) %}
+    {% if dev and t.estado not in ('cerrado', 'revision') %}
     <div class="col" style="gap:8px;border-top:1px solid var(--line);padding-top:12px">
       <span class="lbl">Mover a</span>
       <div class="row" style="gap:6px">{% for e in ('pendiente','en_curso','revision') if e != t.estado %}
-        {% if e != 'pendiente' and t.horas_estimadas is none %}
+        {% if e == 'revision' and t.horas_estimadas is not none %}
+        <button class="btn sm soft" type="button" data-open="cerrar" title="Captura cómo se resolvió; lo revisa quien levantó el ticket">Resuelto → En revisión</button>
+        {% elif e != 'pendiente' and t.horas_estimadas is none %}
         <button class="btn sm soft" type="button" data-open="planear" data-despues="{{ e }}" title="Primero se planea: horas, fecha de entrega e ingeniero">{{ estados[e] }}</button>
         {% else %}
         <form method="post" action="/tickets/{{ t.id }}/mover"><input type="hidden" name="estado" value="{{ e }}"><button class="btn sm soft" type="submit">{{ estados[e] }}</button></form>
         {% endif %}{% endfor %}</div>
       <div class="row" style="gap:6px">
         <button class="btn sm soft" type="button" data-open="pedir">{{ icon('alert', 15) }}Pedir más información</button>
-        <button class="btn sm dark" type="button" data-open="cerrar">{{ icon('ok', 15) }}Cerrar ticket</button></div>
+        {% if t.horas_estimadas is not none %}<button class="btn sm dark" type="button" data-open="cerrar">{{ icon('ok', 15) }}Resolver</button>{% endif %}</div>
     </div>
     {% endif %}
     {% if t.estado == 'cerrado' and (dev or u.id == t.creado_por) %}
@@ -145,7 +164,8 @@
       <dt>Causa</dt><dd>{{ t.resolucion.causa }}</dd>
       <dt>Solución</dt><dd>{{ t.resolucion.solucion }}</dd>
       {% if t.resolucion.modulos %}<dt>Módulos</dt><dd>{{ t.resolucion.modulos }}</dd>{% endif %}
-      <dt>Cerró</dt><dd>{{ t.resolucion.por_nombre }} · {{ hora_local(t.cerrado_en) }}</dd>
+      <dt>Resolvió</dt><dd>{{ t.resolucion.por_nombre }}</dd>
+      <dt>Cerrado</dt><dd>{{ hora_local(t.cerrado_en) }}{% if t.resolucion.aceptado_por %} · aceptado por quien lo levantó{% endif %}</dd>
     </dl>
   </section>
   {% endif %}
@@ -209,11 +229,11 @@
   </div>
   <div class="mf"><button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn yellow">{{ icon('ok') }}Planear</button></div></form></div>
 
-<div class="overlay" id="cerrar"><form class="modal" method="post" action="/tickets/{{ t.id }}/cerrar" role="dialog" aria-modal="true" aria-labelledby="t-cer">
-  <div class="mh"><div class="row"><h2 id="t-cer">Cerrar ticket</h2><span class="muted" style="font-weight:600">{{ t.folio }}</span></div>
+<div class="overlay" id="cerrar"><form class="modal" method="post" action="/tickets/{{ t.id }}/resolver" role="dialog" aria-modal="true" aria-labelledby="t-cer">
+  <div class="mh"><div class="row"><h2 id="t-cer">Resuelto: pasar a revisión</h2><span class="muted" style="font-weight:600">{{ t.folio }}</span></div>
     <button class="btn ghost" type="button" data-close aria-label="Cerrar" style="width:42px;padding:0">{{ icon('x') }}</button></div>
   <div class="sec" style="border-top:0">
-    <div class="cint"><span class="ic">{{ icon('ia') }}</span><span style="flex:1">La causa y la solución alimentan a {{ guardia }}: con ellas sugiere la respuesta cuando alguien reporte algo parecido.</span></div>
+    <div class="cint"><span class="ic">{{ icon('ia') }}</span><span style="flex:1">Base de conocimiento: la causa, la solución y los módulos alimentan a {{ guardia }} para sugerir la respuesta cuando alguien reporte algo parecido. Después lo revisa {{ t.autor.nombre if t.autor else 'quien lo levantó' }}: él lo acepta y se cierra, o te lo regresa con motivo.</span></div>
     <div class="field"><label for="cer-t">¿Cómo se resolvió?</label><select class="input" id="cer-t" name="tipo_cierre" required><option value="">Elige…</option>
       {% for k, v in cierres_activos.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></div>
     <div class="field"><label for="cer-c">Causa raíz</label><textarea class="input" id="cer-c" name="causa" required minlength="10" rows="2" style="padding:10px 12px"></textarea></div>
@@ -225,7 +245,9 @@
         <span class="muted small">Si lo dejas vacío se toman las horas planeadas. Con ellas se calcula el pago del ingeniero.</span></div>
     </div>
   </div>
-  <div class="mf"><button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn dark">{{ icon('ok') }}Cerrar ticket</button></div></form></div>
+  <div class="mf"><button class="btn ghost" type="button" data-close>Cancelar</button>
+    {% if u.es_direccion %}<button class="btn soft" formaction="/tickets/{{ t.id }}/cerrar" title="Solo Dirección: cierra sin revisión del solicitante">Cerrar sin revisión</button>{% endif %}
+    <button class="btn dark">{{ icon('ok') }}Resuelto → enviar a revisión</button></div></form></div>
 {% endif %}
 {% endblock %}
 {% block scripts %}<script>

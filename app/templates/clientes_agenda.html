@@ -35,7 +35,7 @@
       <tr class="tt-fila{{ ' ag-cancel' if a.estado == 'cancelada' }}">
         <td class="tt-borde"></td>
         <td><b>{{ DIAS[a.fecha.weekday()] }} {{ a.fecha.day }}</b>{% if a.hora %}<div class="small muted">{{ a.hora }} h</div>{% endif %}</td>
-        <td><a href="/clientes/agenda/{{ a.id }}" class="jt-link"><b>{{ nombre_cliente(u, a) }}</b></a>
+        <td><a href="/clientes/agenda/{{ a.id }}" class="jt-link"><b>{{ nombre_cliente(u, a) }}</b></a>{% if a.serie_id %} <span class="tag n" title="Cita recurrente">↻ {{ a.recurrencia }}</span>{% endif %}
           <div class="small muted">{{ (a.puntos or [])[:3]|join(' · ') }}{% if (a.puntos or [])|length > 3 %} · +{{ (a.puntos|length) - 3 }}{% endif %}</div></td>
         <td class="tt-st st-{{ 'b' if a.tipo == 'operativa' else 'p' }}">{{ tipos[a.tipo] }}</td>
         <td><span class="tt-persona"><span class="tt-av">{{ inic(a.responsable.nombre) }}</span>{{ a.responsable.nombre }}</span></td>
@@ -56,6 +56,10 @@
 {% endblock %}
 
 {% block scripts %}<script>
+document.querySelectorAll("[data-rec]").forEach(function (sel) {
+  var fin = document.querySelector("[data-rec-fin]"), inp = fin.querySelector("input");
+  sel.addEventListener("change", function () { fin.hidden = !sel.value; inp.required = !!sel.value; });
+});
 /* equipo OneCore: se elige de los usuarios activos (su correo es su login) */
 document.querySelectorAll("[data-equipo]").forEach(function (box) {
   var sel = box.querySelector("[data-eq-sel]"), lista = box.querySelector("[data-eq-lista]");
@@ -84,6 +88,10 @@ document.querySelectorAll("[data-equipo]").forEach(function (box) {
       <div class="field"><label for="ag-clin">{{ 'Cliente que no está en el catálogo' if catalogo else 'Cliente' }} {{ icon('lock', 13) }}</label><input class="input" id="ag-clin" name="cliente_nombre" maxlength="255" placeholder="Ej. Manufacturas del Norte"></div>
       <div class="field"><label for="ag-f">Fecha</label><input class="input" type="date" id="ag-f" name="fecha" required value="{{ hoy.isoformat() if mes == hoy.strftime('%Y-%m') else mes ~ '-01' }}"></div>
       <div class="field"><label for="ag-h">Hora</label><input class="input" type="time" id="ag-h" name="hora"></div>
+      <div class="field"><label for="ag-rec">Se repite</label><select class="input" id="ag-rec" name="recurrencia" data-rec>
+        <option value="">Una sola vez</option><option value="semanal">Cada semana</option><option value="mensual">Cada mes (mismo día)</option></select></div>
+      <div class="field" data-rec-fin hidden><label for="ag-fin">Hasta</label><input class="input" type="date" id="ag-fin" name="fecha_fin">
+        <span class="muted small">Máximo 12 meses. Cada cita queda en la agenda con su transcripción obligatoria.</span></div>
       <div class="field"><label for="ag-area">Área</label><select class="input" id="ag-area" name="area_id">{% for a in areas %}<option value="{{ a.id }}" {{ 'selected' if a.id == area_def }}>{{ a.nombre }}</option>{% endfor %}</select></div>
     </div>
     <div class="field"><label for="ag-p">Agenda <span class="muted" style="font-weight:500">· un punto por renglón; con esto {{ guardia }} confirma qué se cubrió</span></label>

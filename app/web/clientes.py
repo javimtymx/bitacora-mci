@@ -14,6 +14,7 @@ from ..models import (
     AGENDA_ESTADOS,
     AGENDA_TIPOS,
     INSIGHT_TIPOS,
+    TICKET_ESTADOS,
     PENDIENTE_ESTADOS,
     PENDIENTE_TIPOS,
     AgendaCliente,
@@ -26,7 +27,7 @@ from ..models import (
     Usuario,
     utcnow,
 )
-from ..services import agenda_avisos, almacen, benchmark, clientes as cl, ia, vozcliente
+from ..services import agenda_avisos, almacen, benchmark, clientes as cl, ia, tickets as tk, vozcliente
 from ..services.evidencias import PERMITIDOS, EvidenciaInvalida
 from ..services.util import auditar, hoy
 from .base import OptDate, OptInt, flash, ir, render, requiere_lider, usuario_actual
@@ -111,8 +112,8 @@ def agenda(request: Request, mes: str = "", area: OptInt = None, db: Session = D
 def crear_agenda(request: Request, fondo: BackgroundTasks, tipo: str = Form(...), fecha: date = Form(...), hora: str = Form(""),
                  responsable_id: int = Form(...), area_id: OptInt = Form(None), cliente: str = Form(""),
                  cliente_nombre: str = Form(""), puntos: str = Form(""), p_nombre: list[str] = Form([]),
-                 p_email: list[str] = Form([]), p_lado: list[str] = Form([]), db: Session = Depends(get_db),
-                 u: Usuario = Depends(usuario_actual)):
+                 p_email: list[str] = Form([]), p_lado: list[str] = Form([]), recurrencia: str = Form(""),
+                 fecha_fin: OptDate = Form(None), db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
     if tipo not in AGENDA_TIPOS:
         raise HTTPException(400, "Tipo de sesión inválido.")
     rfc, nombre = "", cliente_nombre.strip()[:255]
@@ -125,18 +126,40 @@ def crear_agenda(request: Request, fondo: BackgroundTasks, tipo: str = Form(...)
     if not lista:
         flash(request, "Escribe al menos un punto de la agenda: es contra lo que se confirma la ejecución.", "error")
         return ir(f"/clientes/agenda?mes={fecha:%Y-%m}")
+    fechas = [fecha]
+    serie = None
+    if recurrencia in ("semanal", "mensual"):
+        try:
+            fechas = cl.fechas_serie(fecha, recurrencia, fecha_fin)
+        except ValueError as e:
+            flash(request, str(e), "error")
+            return ir(f"/clientes/agenda?mes={fecha:%Y-%m}")
+        import uuid
+        serie = str(uuid.uuid4())
     ops = _area_operaciones(db)
-    a = AgendaCliente(mes=f"{fecha:%Y-%m}", tipo=tipo, area_id=area_id or (ops.id if ops else u.area_id),
-                      responsable_id=responsable_id, cliente_rfc=rfc[:13], cliente_nombre=nombre[:255], fecha=fecha,
-                      hora=hora[:5], puntos=lista, invitados=cl.limpiar_invitados(p_nombre, p_email, p_lado),
-                      creado_por=u.id, historial=[], ejecucion={})
-    cl.evento(a, u, f"Sesión programada para el {fecha:%d/%m/%Y}{' a las ' + hora if hora else ''}.")
-    db.add(a)
+    invitados = cl.limpiar_invitados(p_nombre, p_email, p_lado)
+    creadas = []
+    for i, f in enumerate(fechas, 1):
+        a = AgendaCliente(mes=f"{f:%Y-%m}", tipo=tipo, area_id=area_id or (ops.id if ops else u.area_id),
+                          responsable_id=responsable_id, cliente_rfc=rfc[:13], cliente_nombre=nombre[:255], fecha=f,
+                          hora=hora[:5], puntos=list(lista), invitados=[dict(x) for x in invitados], creado_por=u.id,
+                          historial=[], ejecucion={}, serie_id=serie, recurrencia=recurrencia if serie else None)
+        cl.evento(a, u, f"Sesión programada para el {f:%d/%m/%Y}{' a las ' + hora if hora else ''}"
+                  + (f" · cita {i} de {len(fechas)} de la serie {recurrencia}." if serie else "."))
+        db.add(a)
+        creadas.append(a)
     db.flush()
-    auditar(db, "programar", "agenda_cliente", a.id, u.id, tipo=tipo, fecha=str(fecha))
+    a = creadas[0]
+    auditar(db, "programar", "agenda_cliente", a.id, u.id, tipo=tipo, fecha=str(fecha), serie=serie, citas=len(creadas))
     db.commit()
-    fondo.add_task(agenda_avisos.enviar_en_fondo, a.id, "invitacion")
-    flash(request, "Sesión agregada a la agenda del mes. Se envía la invitación de calendario al equipo de OneCore.")
+    for x in creadas:  # invitación de calendario de lo próximo; las demás salen solas al acercarse (35 días)
+        if (x.fecha - hoy()).days <= agenda_avisos.DIAS_INVITACION:
+            fondo.add_task(agenda_avisos.enviar_en_fondo, x.id, "invitacion")
+    if serie:
+        flash(request, f"Serie {recurrencia} creada: {len(creadas)} citas hasta el {fechas[-1]:%d/%m/%Y}. Cada una tiene su "
+                       f"transcripción obligatoria; la invitación de calendario sale {agenda_avisos.DIAS_INVITACION} días antes de cada cita.")
+    else:
+        flash(request, "Sesión agregada a la agenda del mes. Se envía la invitación de calendario al equipo de OneCore.")
     return ir(f"/clientes/agenda/{a.id}")
 
 
@@ -149,7 +172,7 @@ def copiar_mes(request: Request, fondo: BackgroundTasks, mes: str = Form(...), d
     y, m = map(int, mes.split("-"))
     n, nuevas = 0, []
     for a in cl.agenda_mes(db, cl.mes_mover(mes, -1)):
-        if a.estado == "cancelada" or (a.cliente_rfc, a.cliente_nombre, a.tipo) in ya:
+        if a.estado == "cancelada" or a.serie_id or (a.cliente_rfc, a.cliente_nombre, a.tipo) in ya:
             continue
         f = date(y, m, min(a.fecha.day, calendar.monthrange(y, m)[1]))
         nueva = AgendaCliente(mes=mes, tipo=a.tipo, area_id=a.area_id, responsable_id=a.responsable_id, cliente_rfc=a.cliente_rfc,
@@ -188,7 +211,9 @@ def ver_agenda(aid: int, request: Request, db: Session = Depends(get_db), u: Usu
                   propuestas=[p for p in a.pendientes if p.estado == "propuesta"],
                   pendientes=[p for p in a.pendientes if p.estado != "propuesta"], pend_estados=PENDIENTE_ESTADOS,
                   por_id={p.id: p for p in a.pendientes},
-                  vence=cl.vence, fecha_def=hoy() + timedelta(days=5), prep=agenda_avisos.preparacion(db, a))
+                  vence=cl.vence, fecha_def=hoy() + timedelta(days=5), prep=agenda_avisos.preparacion(db, a),
+                  serie=list(db.scalars(select(AgendaCliente).where(AgendaCliente.serie_id == a.serie_id)
+                                        .order_by(AgendaCliente.fecha))) if a.serie_id else [])
 
 
 @router.post("/clientes/agenda/{aid}/editar")
@@ -235,18 +260,27 @@ def reprogramar(aid: int, request: Request, fondo: BackgroundTasks, fecha: date 
 
 
 @router.post("/clientes/agenda/{aid}/cancelar")
-def cancelar(aid: int, request: Request, fondo: BackgroundTasks, motivo: str = Form(""), db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+def cancelar(aid: int, request: Request, fondo: BackgroundTasks, motivo: str = Form(""), serie: bool = Form(False),
+             db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
     a = _agenda(db, aid)
     if not _puede_editar_agenda(u, a) or a.estado not in ("programada", "reprogramada"):
         raise HTTPException(403)
     if len(motivo.strip()) < 5:
         flash(request, "Escribe por qué se cancela.", "error")
         return ir(f"/clientes/agenda/{a.id}")
-    a.estado = "cancelada"
-    cl.evento(a, u, f"Cancelada. Motivo: {motivo.strip()}")
+    lista = [a]
+    if serie and a.serie_id:  # esta y las siguientes de la serie que aún no ocurren
+        lista = list(db.scalars(select(AgendaCliente).where(AgendaCliente.serie_id == a.serie_id, AgendaCliente.fecha >= a.fecha,
+                                                            AgendaCliente.estado.in_(("programada", "reprogramada")))))
+    for x in lista:
+        x.estado = "cancelada"
+        cl.evento(x, u, f"Cancelada{' (con el resto de la serie)' if len(lista) > 1 else ''}. Motivo: {motivo.strip()}")
     db.commit()
-    fondo.add_task(agenda_avisos.enviar_en_fondo, a.id, "cancelacion")
-    flash(request, "Sesión cancelada; queda en la agenda como cancelada.")
+    for x in lista:
+        if any(v["tipo"] in ("invitacion", "reprogramacion") for v in x.avisos or []):  # solo a quien ya la tenía en su calendario
+            fondo.add_task(agenda_avisos.enviar_en_fondo, x.id, "cancelacion")
+    flash(request, f"Se cancelaron {len(lista)} citas de la serie; quedan en la agenda como canceladas." if len(lista) > 1
+          else "Sesión cancelada; queda en la agenda como cancelada.")
     return ir(f"/clientes/agenda?mes={a.mes}")
 
 
@@ -296,24 +330,32 @@ def _pend(db: Session, pid: int) -> PendienteCliente:
 
 
 @router.get("/clientes/pendientes")
-def pendientes(request: Request, persona: OptInt = None, tipo: str = "", db: Session = Depends(get_db),
-               u: Usuario = Depends(usuario_actual)):
-    q = select(PendienteCliente).where(PendienteCliente.estado.notin_(("historico", "no_vigente"))).order_by(PendienteCliente.id.desc())
-    lista = list(db.scalars(q))
-    desde = utcnow() - timedelta(days=30)
-    lista = [p for p in lista if p.estado != "resuelto" or (p.resuelto_en and p.resuelto_en >= desde)]
+def pendientes(request: Request, persona: OptInt = None, tipo: str = "", q: str = "", cerrados: bool = False,
+               db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+    q = q.strip()
+    if q:  # búsqueda: por folio (PC-0012 o 12) o por palabras; por omisión solo en lo activo
+        excluir = () if cerrados else ("historico", "no_vigente", "resuelto")
+        lista = [p for p in db.scalars(select(PendienteCliente).order_by(PendienteCliente.id.desc()))
+                 if p.estado not in excluir and cl.coincide(p, q)]
+    else:
+        lista = list(db.scalars(select(PendienteCliente).where(PendienteCliente.estado.notin_(("historico", "no_vigente")))
+                                .order_by(PendienteCliente.id.desc())))
+        desde = utcnow() - timedelta(days=30)
+        lista = [p for p in lista if p.estado != "resuelto" or (p.resuelto_en and p.resuelto_en >= desde)]
     if persona:
         lista = [p for p in lista if p.asignado_id == persona]
     if tipo in PENDIENTE_TIPOS:
         lista = [p for p in lista if p.tipo == tipo]
+    fuera = [p for p in lista if p.estado in ("historico", "no_vigente")]  # resultados de búsqueda fuera del kanban
     orden = {"alta": 0, "media": 1, "baja": 2}
     cols = []
     for clave, titulo in cl.COLUMNAS:
         xs = sorted([p for p in lista if p.estado == clave],
                     key=lambda p: (orden.get(p.severidad, 1), p.fecha_compromiso or date.max, p.id))
         cols.append((clave, titulo, xs))
-    abiertos = [p for p in lista if p.estado in ("pendiente", "en_curso", "revision")]
+    abiertos = [p for p in lista if p.estado in ("pendiente", "en_curso", "revision", "delegado")]
     return render(request, "clientes_pendientes.html", u, "clientes-pendientes", columnas=cols, gente=_gente(db),
+                  q=q, cerrados=cerrados, fuera=fuera, productos=tk.productos(db),
                   persona=persona, tipo=tipo, tipos=PENDIENTE_TIPOS, vence=cl.vence, nombre_cliente=cl.nombre_cliente,
                   lider=cl.puede_gestionar(u), catalogo=_clientes(db) if u.puede_confidencial else [], ve_hist=cl.ve_historico(u),
                   n_hist=db.query(PendienteCliente).filter(PendienteCliente.estado == "historico").count(),
@@ -328,6 +370,7 @@ def pendientes(request: Request, persona: OptInt = None, tipo: str = "", db: Ses
 def crear_pendiente(request: Request, tipo: str = Form("tarea"), titulo: str = Form(...), detalle: str = Form(""),
                     severidad: str = Form("media"), cliente: str = Form(""), cliente_nombre: str = Form(""),
                     agenda_id: OptInt = Form(None), asignado_id: OptInt = Form(None), fecha_compromiso: OptDate = Form(None),
+                    producto: str = Form(""), menu: str = Form(""),
                     db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
     if len(titulo.strip()) < 5:
         flash(request, "Escribe qué hay que resolver.", "error")
@@ -342,6 +385,7 @@ def crear_pendiente(request: Request, tipo: str = Form("tarea"), titulo: str = F
     p = PendienteCliente(tipo=tipo if tipo in PENDIENTE_TIPOS else "tarea", titulo=titulo.strip()[:200], detalle=detalle.strip()[:2000],
                          severidad=severidad if severidad in ("alta", "media", "baja") else "media", cliente_rfc=rfc[:13],
                          cliente_nombre=nombre[:255], origen="manual", agenda_id=a.id if a else None,
+                         producto=tk.producto_valido(db, producto) if producto.strip() else "", menu=menu.strip()[:120],
                          sesion_id=a.sesion_id if a else None,
                          estado="pendiente" if lider and asignado_id else "propuesta",
                          asignado_id=asignado_id if lider else None, fecha_compromiso=fecha_compromiso if lider else None,
@@ -375,6 +419,9 @@ def ver_pendiente(pid: int, request: Request, db: Session = Depends(get_db), u: 
     return render(request, "clientes_pendiente.html", u, "clientes-pendientes", p=p, cliente=cl.nombre_cliente(u, p),
                   estados=PENDIENTE_ESTADOS, tipos=PENDIENTE_TIPOS, gente=_gente(db), lider=cl.puede_gestionar(u),
                   decide=cl.puede_decidir(u, p), cs=cl.es_customer_success(u), fecha_def=hoy() + timedelta(days=5),
+                  catalogo_mod=tk.catalogo(db), estados_ticket=TICKET_ESTADOS,
+                  puede_delegar=cl.puede_atender(u, p) and p.estado in ("pendiente", "en_curso", "revision")
+                  and not (p.ticket and p.ticket.estado != "cerrado"),
                   atiende=cl.puede_atender(u, p), vence=cl.vence(p),
                   ve_sesion=bool(p.sesion and (u.es_direccion or p.sesion.autor_id == u.id or
                                                (u.rol == "lider" and u.area_id == p.sesion.area_id))))
@@ -489,6 +536,20 @@ def mover(pid: int, request: Request, estado: str = Form(...), db: Session = Dep
     return ir(f"/clientes/pendientes/{p.id}")
 
 
+@router.post("/clientes/pendientes/{pid}/modulo")
+def modulo(pid: int, request: Request, producto: str = Form(""), menu: str = Form(""), db: Session = Depends(get_db),
+           u: Usuario = Depends(usuario_actual)):
+    p = _pend(db, pid)
+    if not (cl.puede_atender(u, p) or cl.puede_decidir(u, p)):
+        raise HTTPException(403)
+    antes = " › ".join(x for x in (p.producto, p.menu) if x)
+    p.producto = tk.producto_valido(db, producto) if producto.strip() else ""
+    p.menu = menu.strip()[:120]
+    cl.evento(p, u, f"Módulo: {' › '.join(x for x in (p.producto, p.menu) if x) or 'sin módulo'}" + (f" (antes {antes})" if antes else ""))
+    db.commit()
+    return ir(f"/clientes/pendientes/{p.id}")
+
+
 @router.post("/clientes/pendientes/{pid}/asignar")
 def asignar(pid: int, request: Request, asignado_id: int = Form(...), fecha_compromiso: date = Form(...), motivo: str = Form(""),
             db: Session = Depends(get_db), u: Usuario = Depends(requiere_lider)):
@@ -577,13 +638,16 @@ async def resolver(pid: int, request: Request, fondo: BackgroundTasks, resolucio
         db.rollback()
         flash(request, " ".join(errores), "error")
         return ir(f"/clientes/pendientes/{p.id}#resolver")
-    if not p.evidencias:
+    por_soporte = bool(p.ticket and p.ticket.estado == "cerrado")
+    if not p.evidencias and not por_soporte:
         db.rollback()
         flash(request, "Para resolverlo sube al menos un archivo que demuestre la solución.", "error")
         return ir(f"/clientes/pendientes/{p.id}#resolver")
     p.estado, p.resolucion, p.resuelto_en = "resuelto", resolucion.strip()[:3000], utcnow()
     cl.evento(p, u, f"Resuelto: {p.resolucion[:300]}")
-    if ia.cliente().disponible:
+    if por_soporte and not p.evidencias:  # la evidencia es el ticket de soporte cerrado y aceptado por quien lo levantó
+        p.veredicto = "soporte"
+    elif ia.cliente().disponible:
         p.veredicto = "verificando"
         fondo.add_task(cl.verificar_en_fondo, p.id)
     else:
@@ -758,3 +822,34 @@ def transcripcion_competidor(sid: int, request: Request, db: Session = Depends(g
 @router.get("/clientes/benchmark/archivos/{xid}")
 def archivo_benchmark(xid: int, ver: int = 0, db: Session = Depends(get_db), u: Usuario = Depends(requiere_lider)):
     return _servir(_archivo(db, xid, "benchmark"), ver)
+
+
+# ================================================================ recurrencias de servicio (frecuencia × impacto)
+
+@router.get("/clientes/servicio")
+def servicio(request: Request, ver: OptInt = None, db: Session = Depends(get_db), u: Usuario = Depends(requiere_lider)):
+    from ..models import AnalisisServicio
+    from ..services import servicio as sv
+    lista = list(db.scalars(select(AnalisisServicio).order_by(AnalisisServicio.id.desc()).limit(24)))
+    an = db.get(AnalisisServicio, ver) if ver else (lista[0] if lista else None)
+    r = (an.resultado or {}) if an else {}
+    return render(request, "clientes_servicio.html", u, "clientes-servicio", an=an, r=r, lista=lista,
+                  svg=sv.svg(r.get("temas") or [], r.get("umbral_clientes") or 2) if an and an.estado == "listo" else {},
+                  cuadrantes=sv.CUADRANTES, desde_def=hoy() - timedelta(days=90), hasta_def=hoy(),
+                  atorado=bool(an and an.estado == "analizando" and (utcnow() - an.creado).total_seconds() > 900))
+
+
+@router.post("/clientes/servicio")
+def servicio_generar(request: Request, fondo: BackgroundTasks, desde: date = Form(...), hasta: date = Form(...),
+                     db: Session = Depends(get_db), u: Usuario = Depends(requiere_lider)):
+    from ..models import AnalisisServicio
+    from ..services import servicio as sv
+    if hasta < desde:
+        flash(request, "La fecha final debe ser posterior a la inicial.", "error")
+        return ir("/clientes/servicio")
+    an = AnalisisServicio(desde=desde, hasta=hasta, autor_id=u.id, resultado={})
+    db.add(an)
+    db.commit()
+    fondo.add_task(sv.analizar_en_fondo, an.id)
+    flash(request, "GuardIA está compilando las sesiones del periodo; la pantalla se actualiza sola.")
+    return ir(f"/clientes/servicio?ver={an.id}")

@@ -7,29 +7,36 @@
     {% if n_nuevos %}<a class="btn soft" href="/tickets-triage">{{ n_nuevos }} por triage</a>{% endif %}
     <a class="btn soft" href="/tickets-tablero/mis-pagos">Mis horas y pagos</a>
     <form method="get" class="row" style="gap:8px"><select class="input" name="persona" onchange="this.form.submit()" style="min-width:200px" aria-label="Filtrar por ingeniero">
-      <option value="">Todo el equipo</option>{% for g in gente %}<option value="{{ g.id }}" {{ 'selected' if persona == g.id }}>{{ g.nombre }}</option>{% endfor %}</select></form>
+      <option value="">Todo el equipo</option>{% for g in gente %}<option value="{{ g.id }}" {{ 'selected' if persona == g.id }}>{{ g.nombre }}</option>{% endfor %}</select>
+      {% if buscar %}<input type="hidden" name="buscar" value="{{ buscar }}">{% if cerrados %}<input type="hidden" name="cerrados" value="true">{% endif %}{% endif %}</form>
     <a class="btn yellow" href="/tickets/nuevo">{{ icon('plus') }}Levantar ticket</a>
   </div>
 </div>
-<span class="muted small">Arrastra las tarjetas entre columnas. Al soltar en <b>Planeado</b> se piden horas, fecha de entrega e ingeniero; en <b>Esperando información</b> o <b>Cerrado</b> se abre el ticket para capturar lo necesario.</span>
+<form method="get" class="kbusca" role="search">{% if persona %}<input type="hidden" name="persona" value="{{ persona }}">{% endif %}
+  <label class="tt-buscar">{{ icon('search', 15) }}<input type="search" name="buscar" value="{{ buscar }}" placeholder="Buscar por folio (ONE-12) o palabras" aria-label="Buscar tickets"></label>
+  <label class="check"><input type="checkbox" name="cerrados" value="true" {{ 'checked' if cerrados }}><span>Buscar también en cerrados</span></label>
+  <button class="btn soft sm">Buscar</button>{% if buscar %}<a class="btn ghost sm" href="?{{ 'persona=%d'|format(persona) if persona }}">Quitar búsqueda</a><span class="small muted">{{ columnas|map(attribute=2)|map('length')|sum }} resultado(s){{ '' if cerrados else ' en tickets activos' }}</span>{% endif %}</form>
+<span class="muted small">Arrastra las tarjetas entre columnas. Al soltar en <b>Planeado</b> se piden horas, fecha de entrega e ingeniero; en <b>En revisión</b> se captura cómo se resolvió (base de conocimiento) y lo revisa quien levantó el ticket, que es quien lo cierra.</span>
 <div class="kan" id="kan">
 {% for clave, titulo, lista in columnas %}
-  <div class="kcolum" data-estado="{{ clave }}" aria-label="{{ titulo }}"><h3><span>{{ titulo }}{% if clave == 'cerrado' %} <span class="muted small" style="font-weight:600">· 7 días</span>{% endif %}</span><span class="muted">{{ lista|length }}</span></h3>
+  <div class="kcolum" data-estado="{{ clave }}" aria-label="{{ titulo }}"><h3><span>{{ titulo }}{% if clave == 'cerrado' and not buscar %} <span class="muted small" style="font-weight:600">· 7 días</span>{% endif %}</span><span class="muted">{{ lista|length }}</span></h3>
+  {% if clave == 'revision' and lista %}<form method="post" action="/tickets-revision/recordar"><button class="btn sm soft" style="width:100%" title="Correo a quienes levantaron los tickets y a sus jefes, con la lista y los días que llevan resueltos">{{ icon('mail', 14) }}Recordar revisión</button></form>{% endif %}
   {% for t in lista %}{% set v = vence_en(t) %}
-    <div class="tkc" draggable="{{ 'true' if clave != 'cerrado' else 'false' }}" data-id="{{ t.id }}" data-estado="{{ t.estado }}" data-folio="{{ t.folio }}"
+    <div class="tkc" draggable="{{ 'true' if clave not in ('cerrado', 'revision', 'nuevo') else 'false' }}" data-id="{{ t.id }}" data-estado="{{ t.estado }}" data-folio="{{ t.folio }}"
          data-horas="{{ t.horas_estimadas|float if t.horas_estimadas is not none else '' }}" data-entrega="{{ t.fecha_entrega.isoformat() if t.fecha_entrega else '' }}" data-asignado="{{ t.asignado_id or '' }}" data-original="{{ t.horas_originales|float if t.horas_originales is not none else '' }}">
       <a href="/tickets/{{ t.id }}" style="color:var(--ink);text-decoration:none;display:flex;flex-direction:column;gap:6px" draggable="false">
         <span class="row between" style="gap:6px"><span class="fol">{{ t.folio }} · {{ tipos.get(t.tipo, t.tipo) }}</span>{% if t.prioridad %}<span class="prio {{ t.prioridad }}">{{ t.prioridad }}</span>{% endif %}</span>
         <b style="font-weight:700">{{ t.titulo }}</b>
         <span class="muted">{{ t.producto }}{% if t.pantalla %} › {{ t.pantalla }}{% endif %}</span></a>
       {% if t.fecha_entrega %}<span class="small {{ 'tarde' if clave != 'cerrado' and t.fecha_entrega < hoy }}"><b>{{ 'Vencida · ' if clave != 'cerrado' and t.fecha_entrega < hoy }}Entrega {{ t.fecha_entrega.strftime('%d/%m') }}</b>{% if t.horas_estimadas is not none %} · {{ t.horas_estimadas|float|round(1) }} h{% endif %}</span>{% endif %}
+      {% if clave == 'revision' %}{% set dr = dias_revision(t) %}<span class="small rev-quien"><b>Revisa: {{ t.autor.nombre if t.autor else '—' }}</b> · {{ 'hoy' if dr == 0 else 'hace %d día%s'|format(dr, '' if dr == 1 else 's') }}</span>{% endif %}
       {% if t.horas_modificadas %}<span class="tag o" style="align-self:flex-start" title="Original {{ t.horas_originales|float }} h">Horas modificadas · orig. {{ t.horas_originales|float|round(1) }} h</span>{% endif %}
       {% if t.validacion != 'completo' %}<span class="tag o" style="align-self:flex-start">{{ 'Sin validar por IA' if t.validacion == 'sin_ia' else 'Le faltan datos' }}</span>{% endif %}
       <div class="ft"><span class="row" style="gap:6px">{% if t.asignado %}<span class="av" title="{{ t.asignado.nombre }}">{{ t.asignado.nombre.split()|map('first')|join('')|upper|truncate(2, True, '') }}</span>{% endif %}
         {% if t.anexos %}<span class="muted" title="Anexos">{{ icon('clip', 13) }}{{ t.anexos|length }}</span>{% endif %}</span>
         {% if v[0] %}<span class="sla {{ v[1] }}">{{ v[0] }}</span>{% endif %}</div>
-      {% if clave not in ('cerrado',) %}
-      <div class="row" style="gap:4px">{% for e, et in (('pendiente','Pendiente'),('planeado','Planeado'),('en_curso','En curso'),('revision','Revisión')) if e != clave %}
+      {% if clave not in ('cerrado', 'revision', 'nuevo') %}
+      <div class="row" style="gap:4px">{% for e, et in (('pendiente','Pendiente'),('planeado','Planeado'),('en_curso','En curso'),('revision','Resuelto → Revisión')) if e != clave %}
         <button class="btn sm ghost kmov" type="button" data-a="{{ e }}" style="height:26px;padding:0 8px;font-size:11.5px" title="Mover a {{ et }}">→ {{ et }}</button>{% endfor %}</div>
       {% endif %}
     </div>
@@ -82,7 +89,8 @@
   function mover(card, estado) {
     if (estado === card.dataset.estado) return;
     if (estado === "planeado") return planear(card);
-    if (estado === "cerrado") { location.href = "/tickets/" + card.dataset.id + "#cerrar"; return; }
+    if (estado === "cerrado") { alert("El cierre lo da quien levantó el ticket al revisarlo. Suéltalo en «En revisión» para capturar cómo se resolvió."); return; }
+    if (estado === "revision") { if (!card.dataset.horas) return planear(card, estado); location.href = "/tickets/" + card.dataset.id + "#cerrar"; return; }
     if (estado === "info") { location.href = "/tickets/" + card.dataset.id + "#pedir"; return; }
     var fd = new FormData(); fd.append("estado", estado);
     card.style.opacity = ".5";

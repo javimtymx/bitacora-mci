@@ -32,8 +32,24 @@ def _cliente_ses():
     return _ses
 
 
+def _tabla_html(tabla: dict) -> str:
+    """tabla = {"columnas": [...], "filas": [[celda, ...]], "enlace": índice de la columna con URL (se pinta como liga)}."""
+    th = "".join(f"<th style='text-align:left;padding:6px 8px;border-bottom:2px solid #053B3F;font-size:13px'>{escape(c)}</th>"
+                 for c in tabla["columnas"])
+    filas = []
+    for f in tabla["filas"]:
+        celdas = []
+        for i, c in enumerate(f):
+            v = (f"<a href='{escape(str(c))}' style='color:#0F766E;font-weight:700'>Abrir</a>"
+                 if i == tabla.get("enlace") else escape(str(c)))
+            celdas.append(f"<td style='padding:6px 8px;border-bottom:1px solid #E6ECF0;font-size:13px;vertical-align:top'>{v}</td>")
+        filas.append("<tr>" + "".join(celdas) + "</tr>")
+    return (f"<table style='border-collapse:collapse;width:100%;margin:0 0 16px'><thead><tr>{th}</tr></thead>"
+            f"<tbody>{''.join(filas)}</tbody></table>")
+
+
 def _html(cuerpo: str, enlace: str | None, boton: str = "Abrir la bitácora", pie: str = PIE,
-          titulo: str = "Bitácora MCI") -> str:
+          titulo: str = "Bitácora MCI", tabla: dict | None = None) -> str:
     partes, lista = [], False
     for linea in cuerpo.split("\n"):
         t = linea.strip()
@@ -50,6 +66,8 @@ def _html(cuerpo: str, enlace: str | None, boton: str = "Abrir la bitácora", pi
             partes.append(f"<p style='margin:0 0 12px'>{escape(t)}</p>")
     if lista:
         partes.append("</ul>")
+    if tabla:
+        partes.append(_tabla_html(tabla))
     btn = (f"<p style='margin:20px 0 0'><a href='{escape(enlace)}' style='background:#FFE14D;color:#15191E;"
            f"padding:10px 16px;border-radius:8px;text-decoration:none;font-weight:700'>{escape(boton)}</a></p>"
            if enlace else "")
@@ -61,7 +79,7 @@ def _html(cuerpo: str, enlace: str | None, boton: str = "Abrir la bitácora", pi
 
 def enviar(destinatarios: list[str], asunto: str, cuerpo: str, enlace: str | None = None, *,
            boton: str = "Abrir la bitácora", pie: str = PIE, titulo: str = "Bitácora MCI", cc: list[str] | None = None,
-           calendario: tuple[str, str] | None = None) -> str:
+           calendario: tuple[str, str] | None = None, tabla: dict | None = None) -> str:
     """Envía un correo. Devuelve 'enviado' o 'simulado'. Lanza excepción si falla.
     calendario=(método, ics): invitación iCalendar (REQUEST/CANCEL) que Google Calendar y Outlook ofrecen agendar."""
     s = get_settings()
@@ -79,8 +97,11 @@ def enviar(destinatarios: list[str], asunto: str, cuerpo: str, enlace: str | Non
     if cc:
         msg["Cc"] = ", ".join(cc)
     msg["Subject"] = asunto
-    msg.set_content(cuerpo + (f"\n\n{enlace}" if enlace else ""))
-    msg.add_alternative(_html(cuerpo, enlace, boton, pie, titulo), subtype="html")
+    texto_tabla = ""
+    if tabla:
+        texto_tabla = "\n\n" + "\n".join(" | ".join(str(c) for c in f) for f in [tabla["columnas"]] + tabla["filas"])
+    msg.set_content(cuerpo + texto_tabla + (f"\n\n{enlace}" if enlace else ""))
+    msg.add_alternative(_html(cuerpo, enlace, boton, pie, titulo, tabla), subtype="html")
     if calendario:
         metodo, ics = calendario
         msg.add_alternative(ics, subtype="calendar", params={"method": metodo})

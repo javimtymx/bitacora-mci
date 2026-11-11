@@ -45,11 +45,12 @@
   <div class="tbl"><table data-tabla id="triage-clasificados"><thead><tr>
     <th data-f="texto" data-o="num">Folio</th><th data-f="texto">Título</th><th data-f="lista">Tipo</th><th data-f="lista">Producto</th>
     <th data-f="lista">Solicitante</th><th data-f="lista">Prioridad</th><th data-f="lista">Responsable</th><th data-f="lista">Estado</th>
-    <th data-o="fecha">Entrega</th><th data-o="fecha">Triage</th></tr></thead><tbody>
+    <th data-f="lista" data-o="num" title="Horas estimadas del plan">Horas est.</th><th data-o="fecha">Entrega</th><th data-o="fecha">Triage</th></tr></thead><tbody>
   {% for t in recientes %}<tr><td data-v="{{ t.id }}"><a href="/tickets/{{ t.id }}"><b>{{ t.folio }}</b></a></td><td>{{ t.titulo }}</td>
     <td>{{ tipos.get(t.tipo, t.tipo) }}</td><td>{{ t.producto }}</td><td>{{ t.autor.nombre }}</td>
     <td data-l="{{ t.prioridad or '—' }}"><span class="prio {{ t.prioridad }}">{{ t.prioridad }}</span></td><td>{{ t.asignado.nombre if t.asignado else '—' }}</td>
     <td data-l="{{ estados[t.estado] }}">{{ estados[t.estado] }}</td>
+    <td data-l="{{ 'Con estimación' if t.horas_estimadas is not none else 'Sin estimación' }}" data-v="{{ t.horas_estimadas|float if t.horas_estimadas is not none else -1 }}">{% if t.horas_estimadas is not none %}<b>{{ t.horas_estimadas|float|round(1) }} h</b>{% if t.horas_modificadas %} <span class="tag o" title="Original {{ t.horas_originales|float }} h">mod.</span>{% endif %}{% else %}<span class="tag n" title="Aún no se planea">Sin estimación</span>{% endif %}</td>
     <td data-v="{{ t.fecha_entrega.isoformat() if t.fecha_entrega else '' }}" class="small">{{ t.fecha_entrega.strftime('%d/%m/%Y') if t.fecha_entrega else '—' }}</td>
     <td data-v="{{ t.triage_en.isoformat() }}" class="small">{{ hora_local(t.triage_en) }}</td></tr>{% endfor %}
   </tbody></table></div></section>

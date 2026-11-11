@@ -23,6 +23,7 @@ from .util import hoy
 log = logging.getLogger("bitacora.agenda")
 
 DIAS_RECORDATORIO = 5
+DIAS_INVITACION = 35  # en series, la invitación de calendario de cada cita sale cuando falta este número de días
 BANDERA = {"verde": "VERDE · vamos preparados", "amarillo": "AMARILLO · hay pendientes por cerrar antes de la sesión",
            "rojo": "ROJO · hay pendientes vencidos con el cliente"}
 ABIERTOS = ("propuesta", "pendiente", "en_curso", "revision")
@@ -242,6 +243,19 @@ def recordatorios(db: Session) -> int:
             continue
         enviar(db, a, "recordatorio")
         n += 1
+    db.commit()
+    return n
+
+
+def invitaciones_pendientes(db: Session) -> int:
+    """Diario: citas de series que entran a la ventana de invitación y aún no tienen su invitación de calendario."""
+    n = 0
+    limite = hoy() + timedelta(days=DIAS_INVITACION)
+    for a in db.scalars(select(AgendaCliente).where(AgendaCliente.estado.in_(("programada", "reprogramada")),
+                                                    AgendaCliente.fecha >= hoy(), AgendaCliente.fecha <= limite)):
+        if not any(x["tipo"] in ("invitacion", "reprogramacion") for x in a.avisos or []):
+            enviar(db, a, "invitacion")
+            n += 1
     db.commit()
     return n
 

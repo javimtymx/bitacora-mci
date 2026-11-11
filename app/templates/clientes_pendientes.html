@@ -19,8 +19,13 @@
   {% if ve_hist %}<a class="tb-diag" href="/clientes/pendientes/historico">{{ icon('hist', 14) }}<span>Histórico</span>{% if n_hist %}<span class="tag o">{{ n_hist }} por auditar</span>{% endif %}<span class="chev">›</span></a>{% endif %}
   {% if n_sospecha %}<span class="tb-mini o">{{ icon('alert', 13) }}<b>{{ n_sospecha }}</b> resueltos con sospecha</span>{% endif %}
 </div></div>
-<span class="muted small">Arrastra las tarjetas entre columnas. Lo «por decidir» sale de las minutas: el responsable de la sesión decide si pasa al kanban o queda en el histórico (que audita Customer Success). Para pasar a <b>Resuelto</b> se describe la solución y se sube la evidencia; {{ guardia }} la verifica.</span>
-<div class="kan kan5" id="kan">
+<form method="get" class="kbusca" role="search">{% if persona %}<input type="hidden" name="persona" value="{{ persona }}">{% endif %}{% if tipo %}<input type="hidden" name="tipo" value="{{ tipo }}">{% endif %}
+  <label class="tt-buscar">{{ icon('search', 15) }}<input type="search" name="q" value="{{ q }}" placeholder="Buscar por folio (PC-12, ONE-34) o palabras" aria-label="Buscar pendientes"></label>
+  <label class="check"><input type="checkbox" name="cerrados" value="true" {{ 'checked' if cerrados }}><span>Buscar también en resueltos e histórico</span></label>
+  <button class="btn soft sm">Buscar</button>{% if q %}<a class="btn ghost sm" href="?">Quitar búsqueda</a><span class="small muted">{{ columnas|map(attribute=2)|map('length')|sum + fuera|length }} resultado(s){{ '' if cerrados else ' activos' }}</span>{% endif %}</form>
+{% if fuera %}<div class="card pad" style="gap:6px"><b class="small">También en el histórico</b>{% for p in fuera %}<a class="ag-pend" href="/clientes/pendientes/{{ p.id }}"><span class="tag n">{{ 'Histórico' if p.estado == 'historico' else 'No vigente' }}</span><span style="flex:1"><b>{{ p.folio }}</b> {{ p.titulo }}</span></a>{% endfor %}</div>{% endif %}
+<span class="muted small">Arrastra las tarjetas entre columnas. Lo que se delega a soporte pasa a <b>Delegado a soporte</b> cuando soporte lo acepta y avanza solo con su ticket. Lo «por decidir» sale de las minutas: el responsable de la sesión decide si pasa al kanban o queda en el histórico (que audita Customer Success). Para pasar a <b>Resuelto</b> se describe la solución y se sube la evidencia; {{ guardia }} la verifica.</span>
+<div class="kan kan6" id="kan">
 {% for clave, titulo, lista in columnas %}
   <div class="kcolum" data-estado="{{ clave }}" aria-label="{{ titulo }}"><h3><span>{{ titulo }}{% if clave == 'resuelto' %} <span class="muted small" style="font-weight:600">· 30 días</span>{% endif %}</span><span class="muted">{{ lista|length }}</span></h3>
   {% for p in lista %}{% set v = vence(p) %}
@@ -28,7 +33,8 @@
       <a href="/clientes/pendientes/{{ p.id }}" style="color:var(--ink);text-decoration:none;display:flex;flex-direction:column;gap:6px" draggable="false">
         <span class="row between" style="gap:6px"><span class="fol">{{ p.folio }} · <span class="pc-t">{{ tipos[p.tipo] }}</span></span><span class="prio {{ p.severidad }}">{{ p.severidad }}</span></span>
         <b style="font-weight:700">{{ p.titulo }}</b>
-        <span class="muted">{{ nombre_cliente(u, p) }}</span></a>
+        <span class="muted">{{ nombre_cliente(u, p) }}{% if p.producto %} · {{ p.producto }}{% if p.menu %} › {{ p.menu }}{% endif %}{% endif %}</span></a>
+      {% if p.ticket %}<a class="tag {{ 'b' if p.estado == 'delegado' else 'n' }}" style="align-self:flex-start" href="/tickets/{{ p.ticket_id }}" title="Ticket de soporte">{{ icon('send', 11) }} {{ p.ticket.folio }} · {{ 'por aceptar' if p.ticket.estado == 'nuevo' else {'pendiente':'pendiente','planeado':'planeado','en_curso':'en curso','revision':'en revisión','info':'esperando info','cerrado':'cerrado'}.get(p.ticket.estado, p.ticket.estado) }}</a>{% endif %}
       {% if clave == 'propuesta' and p.cita %}<span class="quote small" style="margin:0">«{{ p.cita[:140] }}{{ '…' if p.cita|length > 140 }}»</span>{% endif %}
       {% if clave == 'resuelto' %}{% if p.veredicto == 'verificando' %}<span class="tag n" style="align-self:flex-start">{{ guardia }} verificando…</span>
         {% elif p.veredicto in ('dudoso','no_corresponde') %}<span class="tt-sosp" style="align-self:flex-start">{{ icon('alert', 12) }}Sospecha</span>
@@ -59,6 +65,8 @@
       <div class="field"><label for="np-s">Severidad</label><select class="input" id="np-s" name="severidad"><option value="alta">Alta</option><option value="media" selected>Media</option><option value="baja">Baja</option></select></div>
     </div>
     <div class="field"><label for="np-ti">¿Qué hay que resolver?</label><input class="input" id="np-ti" name="titulo" required minlength="5" maxlength="200" placeholder="Ej. Corregir el reporte de descargos de octubre"></div>
+    <div class="grid2"><div class="field"><label for="np-pr">Módulo</label><select class="input" id="np-pr" name="producto"><option value="">Sin módulo</option>{% for x in productos %}<option value="{{ x }}">{{ x }}</option>{% endfor %}</select></div>
+      <div class="field"><label for="np-me">Menú (opcional)</label><input class="input" id="np-me" name="menu" maxlength="120"></div></div>
     <div class="field"><label for="np-d">Detalle</label><textarea class="input" id="np-d" name="detalle" rows="3" maxlength="2000"></textarea></div>
     <div class="grid2">
       {% if agendas %}<div class="field"><label for="np-a">Sesión de origen (opcional)</label><select class="input" id="np-a" name="agenda_id"><option value="">Ninguna</option>{% for a in agendas %}<option value="{{ a.id }}">{{ a.fecha.strftime('%d/%m') }} · {{ nombre_cliente(u, a) }}</option>{% endfor %}</select></div>{% endif %}
@@ -80,6 +88,7 @@
     if (estado === card.dataset.estado) return;
     if (estado === "resuelto") { location.href = "/clientes/pendientes/" + card.dataset.id + "#resolver"; return; }
     if (estado === "propuesta") return;
+    if (estado === "delegado") { location.href = "/tickets/nuevo?pendiente=" + card.dataset.id; return; }
     var fd = new FormData(); fd.append("estado", estado);
     card.style.opacity = ".5";
     fetch("/clientes/pendientes/" + card.dataset.id + "/mover", { method: "POST", body: fd, headers: { Accept: "application/json" } })

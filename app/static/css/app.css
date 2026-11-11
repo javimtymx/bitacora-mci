@@ -723,3 +723,22 @@ a.tag{text-decoration:none}
 .pv-f{display:flex;flex-direction:column;gap:2px;font-size:13px;line-height:1.45}
 .pv-k{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:#7A3FB0}
 .pv-op b{color:var(--ink)}
+/* buscador de los kanban */
+.kbusca{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
+.kbusca .tt-buscar{flex:0 1 460px}.kbusca .tt-buscar input{min-width:300px;width:100%}
+.kbusca .check{margin:0}
+.rev-quien{color:#9A5B00}
+.kan.kan6{grid-template-columns:repeat(6,minmax(210px,1fr))}
+.deleg{border-left:6px solid #8A949E}.deleg.acept{border-left-color:#0086C0}
+.serie-nav{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:4px}
+/* recurrencias de servicio */
+.sv-svg{width:100%;height:auto}
+.sv-q{font:800 11px Manrope,sans-serif;fill:#6B7580;text-transform:uppercase;letter-spacing:.04em}
+.sv-t{font:600 11px Manrope,sans-serif;fill:#8A949E}
+.sv-n{font:800 11px Manrope,sans-serif;fill:#fff}
+.sv-dot{display:inline-block;width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.sv-leg{display:flex;gap:8px;align-items:flex-start;font-size:13px;padding:6px 0}.sv-leg .sv-dot{margin-top:4px}
+.sv-tema{border-left:5px solid var(--c);padding:10px 12px;border-radius:8px;background:#FAFBFC;display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
+.sv-num{width:24px;height:24px;border-radius:50%;background:var(--c);color:#fff;font-weight:800;font-size:12px;display:inline-flex;align-items:center;justify-content:center}
+.sv-plan{width:100%;border-collapse:collapse;font-size:12.5px}.sv-plan th{text-align:left;color:var(--ink3);font-weight:700;padding:4px 6px;border-bottom:1px solid var(--line)}
+.sv-plan td{padding:6px;border-bottom:1px dashed var(--line);vertical-align:top}

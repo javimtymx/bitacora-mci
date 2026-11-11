@@ -810,9 +810,9 @@ AGENDA_ESTADOS = {"programada": "Programada", "reprogramada": "Reprogramada", "a
                   "cancelada": "Cancelada"}
 PENDIENTE_TIPOS = {"queja": "Queja", "tarea": "Tarea"}
 PENDIENTE_ESTADOS = {"propuesta": "Por decidir (minuta)", "pendiente": "Por atender", "en_curso": "En curso",
-                     "revision": "En revisión", "resuelto": "Resuelto",
+                     "revision": "En revisión", "delegado": "Delegado a soporte", "resuelto": "Resuelto",
                      "historico": "Histórico · no pasó al kanban", "no_vigente": "No vigente (confirmado por Customer Success)"}
-PENDIENTE_KANBAN = ("pendiente", "en_curso", "revision", "resuelto")
+PENDIENTE_KANBAN = ("pendiente", "en_curso", "revision", "delegado", "resuelto")
 
 
 class AgendaCliente(Base):
@@ -830,6 +830,8 @@ class AgendaCliente(Base):
     puntos: Mapped[list] = mapped_column(JSON, default=list)          # puntos de la agenda (texto)
     invitados: Mapped[list] = mapped_column(JSON, default=list)       # [{"nombre","email","lado","asistio"}]
     estado: Mapped[str] = mapped_column(String(16), default="programada", index=True)
+    serie_id: Mapped[str | None] = mapped_column(String(36), index=True)   # citas recurrentes: misma serie
+    recurrencia: Mapped[str | None] = mapped_column(String(10))           # semanal | mensual
     sesion_id: Mapped[int | None] = mapped_column(ForeignKey("sesiones_cliente.id"))
     ejecucion: Mapped[dict] = mapped_column(JSON, default=dict)      # lectura de GuardIA: puntos cubiertos, asistentes
     historial: Mapped[list] = mapped_column(JSON, default=list)      # reprogramaciones y cancelaciones con motivo
@@ -856,6 +858,9 @@ class PendienteCliente(Base):
     cliente_rfc: Mapped[str] = mapped_column(String(13), default="")
     cliente_nombre: Mapped[str] = mapped_column(String(255), default="")
     origen: Mapped[str] = mapped_column(String(10), default="manual")  # sesion | manual
+    producto: Mapped[str] = mapped_column(String(80), default="")   # módulo, del catálogo de productos de tickets
+    menu: Mapped[str] = mapped_column(String(120), default="")
+    ticket_id: Mapped[int | None] = mapped_column(ForeignKey("tickets.id"), index=True)  # delegado a soporte
     agenda_id: Mapped[int | None] = mapped_column(ForeignKey("agenda_clientes.id"), index=True)
     sesion_id: Mapped[int | None] = mapped_column(ForeignKey("sesiones_cliente.id"), index=True)
     estado: Mapped[str] = mapped_column(String(12), default="pendiente", index=True)
@@ -878,6 +883,7 @@ class PendienteCliente(Base):
 
     agenda: Mapped[AgendaCliente | None] = relationship(back_populates="pendientes")
     sesion: Mapped["SesionCliente | None"] = relationship()
+    ticket: Mapped["Ticket | None"] = relationship()
     asignado: Mapped[Usuario | None] = relationship(foreign_keys=[asignado_id])
     autor: Mapped[Usuario | None] = relationship(foreign_keys=[creado_por])
     decisor: Mapped[Usuario | None] = relationship(foreign_keys=[decidido_por])
@@ -914,6 +920,21 @@ class ArchivoCliente(Base):
 
     autor: Mapped[Usuario] = relationship(foreign_keys=[subido_por])
     retiro: Mapped[Usuario | None] = relationship(foreign_keys=[retirada_por])
+
+
+class AnalisisServicio(Base):
+    """Análisis compilado de recurrencias de servicio (quejas, tareas de minutas, riesgos, temas abiertos) de las
+    sesiones con clientes. Cuadrante frecuencia × impacto y plan de acción por tema."""
+    __tablename__ = "analisis_servicio"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    desde: Mapped[date] = mapped_column(Date)
+    hasta: Mapped[date] = mapped_column(Date)
+    estado: Mapped[str] = mapped_column(String(12), default="analizando")  # analizando | listo | error
+    resultado: Mapped[dict] = mapped_column(JSON, default=dict)
+    autor_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"))
+    creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    autor: Mapped[Usuario] = relationship()
 
 
 class Competidor(Base):

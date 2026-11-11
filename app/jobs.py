@@ -21,7 +21,8 @@ TAREAS = {
     "informe-diario": lambda db: f"informe {agente.informe_diario(db).id}",
     "recordatorios": lambda db: (f"{agente.recordatorios(db)} recordatorios; "
                                  f"{agenda_avisos.recordatorios(db)} recordatorios de sesiones con cliente; "
-                                 f"{agenda_avisos.falta_transcripcion(db)} transcripciones pendientes"),
+                                 f"{agenda_avisos.falta_transcripcion(db)} transcripciones pendientes; "
+                                 f"{agenda_avisos.invitaciones_pendientes(db)} invitaciones de citas recurrentes"),
     "ejecutar-acciones": lambda db: f"{acciones.ejecutar_pendientes(db)} acciones ejecutadas",
     "sync-cfdi": lambda db: f"{cfdi.sincronizar(db)} comprobantes leídos",
     "diagnostico-semanal": lambda db: (f"{diagnostico.semanal_todas(db)} diagnósticos generados"
