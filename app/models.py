@@ -66,6 +66,9 @@ class Usuario(Base):
     # aparece en «Indicador de cada persona» del tablero (solo visibilidad; todo lo demás funciona igual)
     en_indicador_personas: Mapped[bool] = mapped_column(Boolean, default=True)
     avisos_triage: Mapped[bool] = mapped_column(Boolean, default=True)  # correo de cada ticket nuevo por clasificar
+    # puesto para avisos de la agenda de clientes (Customer Success recibe cada agenda; directores, la escalación en rojo)
+    puesto: Mapped[str | None] = mapped_column(String(30))
+    avisos_agenda: Mapped[bool | None] = mapped_column(Boolean)  # None = según su puesto (Customer Success sí)
     menus_bloqueados: Mapped[list | None] = mapped_column(JSON)  # claves de menú que Dirección le quitó
     menus_extra: Mapped[list | None] = mapped_column(JSON)  # menús por otorgamiento que Dirección le dio
     jefe_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))  # jefe directo (recibe copia de sus tickets)
@@ -82,6 +85,11 @@ class Usuario(Base):
     @property
     def es_lider(self) -> bool:
         return self.rol in ("lider", "direccion", "admin")
+
+    @property
+    def recibe_agenda(self) -> bool:
+        """Recibe la invitación de cada sesión de la agenda de clientes (lo decide él en su perfil)."""
+        return self.puesto == "customer_success" if self.avisos_agenda is None else bool(self.avisos_agenda)
 
     @property
     def es_direccion(self) -> bool:
@@ -266,7 +274,13 @@ class Compromiso(Base):
     predictiva_version: Mapped[PredictivaVersion | None] = relationship()
     estrategia: Mapped[Estrategia | None] = relationship()
     notas: Mapped[list["CompromisoNota"]] = relationship(order_by="CompromisoNota.creado")
-    evidencias: Mapped[list["EvidenciaArchivo"]] = relationship(order_by="EvidenciaArchivo.creado")
+    # solo las vigentes; las retiradas viven en evidencias_retiradas (historial)
+    evidencias: Mapped[list["EvidenciaArchivo"]] = relationship(
+        primaryjoin="and_(Compromiso.id == EvidenciaArchivo.compromiso_id, EvidenciaArchivo.retirada.is_(False))",
+        order_by="EvidenciaArchivo.creado")
+    evidencias_retiradas: Mapped[list["EvidenciaArchivo"]] = relationship(
+        primaryjoin="and_(Compromiso.id == EvidenciaArchivo.compromiso_id, EvidenciaArchivo.retirada.is_(True))",
+        order_by="EvidenciaArchivo.retirada_en", viewonly=True)
     subtareas: Mapped[list["CompromisoSubtarea"]] = relationship(order_by="CompromisoSubtarea.orden, CompromisoSubtarea.id")
     remediaciones: Mapped[list["Remediacion"]] = relationship(
         back_populates="compromiso", order_by="Remediacion.creado"
@@ -304,8 +318,14 @@ class EvidenciaArchivo(Base):
     sha256: Mapped[str] = mapped_column(String(64), default="")
     subido_por: Mapped[int] = mapped_column(ForeignKey("usuarios.id"))
     creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    # retirar no borra: el archivo se conserva en el historial y deja de contar para el cierre y el diagnóstico
+    retirada: Mapped[bool] = mapped_column(Boolean, default=False, server_default=sa_false(), index=True)
+    retirada_en: Mapped[datetime | None] = mapped_column(DateTime)
+    retirada_por: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+    retirada_motivo: Mapped[str | None] = mapped_column(Text)
 
-    autor: Mapped[Usuario] = relationship()
+    autor: Mapped[Usuario] = relationship(foreign_keys=[subido_por])
+    retiro: Mapped[Usuario | None] = relationship(foreign_keys=[retirada_por])
 
 
 class SolicitudEliminacion(Base):
@@ -767,6 +787,172 @@ class Voto(Base):
 
     iniciativa: Mapped[Iniciativa] = relationship(back_populates="votos")
     usuario: Mapped[Usuario] = relationship()
+
+
+# ---------------------------------------------------------------- clientes: agenda, pendientes y benchmark
+
+PUESTOS = {"director_general": "Director general", "director_comercial": "Director comercial",
+           "director_operaciones": "Director de operaciones", "customer_success": "Responsable de Customer Success"}
+PUESTOS_ESCALACION = ("director_general", "director_comercial", "director_operaciones")
+
+AGENDA_TIPOS = {"operativa": "Operativa", "resultado": "Resultado mensual"}
+AGENDA_ESTADOS = {"programada": "Programada", "reprogramada": "Reprogramada", "analizando": "Analizando transcripción",
+                  "realizada": "Ejecutada", "con_huecos": "Ejecutada con huecos", "no_corresponde": "Transcripción no corresponde",
+                  "cancelada": "Cancelada"}
+PENDIENTE_TIPOS = {"queja": "Queja", "tarea": "Tarea"}
+PENDIENTE_ESTADOS = {"propuesta": "Propuesta de GuardIA", "pendiente": "Por atender", "en_curso": "En curso",
+                     "revision": "En revisión", "resuelto": "Resuelto", "descartado": "Descartado"}
+
+
+class AgendaCliente(Base):
+    """Sesión planeada con un cliente en el mes: agenda, invitados, asistencia y la transcripción que confirma que se hizo."""
+    __tablename__ = "agenda_clientes"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    mes: Mapped[str] = mapped_column(String(7), index=True)
+    tipo: Mapped[str] = mapped_column(String(12))  # operativa | resultado
+    area_id: Mapped[int] = mapped_column(ForeignKey("areas.id"))
+    responsable_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), index=True)
+    cliente_rfc: Mapped[str] = mapped_column(String(13), default="")
+    cliente_nombre: Mapped[str] = mapped_column(String(255), default="")
+    fecha: Mapped[date] = mapped_column(Date, index=True)
+    hora: Mapped[str] = mapped_column(String(5), default="")
+    puntos: Mapped[list] = mapped_column(JSON, default=list)          # puntos de la agenda (texto)
+    invitados: Mapped[list] = mapped_column(JSON, default=list)       # [{"nombre","email","lado","asistio"}]
+    estado: Mapped[str] = mapped_column(String(16), default="programada", index=True)
+    sesion_id: Mapped[int | None] = mapped_column(ForeignKey("sesiones_cliente.id"))
+    ejecucion: Mapped[dict] = mapped_column(JSON, default=dict)      # lectura de GuardIA: puntos cubiertos, asistentes
+    historial: Mapped[list] = mapped_column(JSON, default=list)      # reprogramaciones y cancelaciones con motivo
+    avisos: Mapped[list] = mapped_column(JSON, default=list)         # correos internos enviados (invitación, recordatorio)
+    creado_por: Mapped[int] = mapped_column(ForeignKey("usuarios.id"))
+    creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    area: Mapped[Area] = relationship()
+    responsable: Mapped[Usuario] = relationship(foreign_keys=[responsable_id])
+    autor: Mapped[Usuario] = relationship(foreign_keys=[creado_por])
+    sesion: Mapped["SesionCliente | None"] = relationship()
+    pendientes: Mapped[list["PendienteCliente"]] = relationship(back_populates="agenda", order_by="PendienteCliente.id")
+
+
+class PendienteCliente(Base):
+    """Queja o tarea de un cliente que Operaciones debe resolver; se cierra con evidencia que GuardIA verifica."""
+    __tablename__ = "pendientes_cliente"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tipo: Mapped[str] = mapped_column(String(10), default="tarea")  # queja | tarea
+    titulo: Mapped[str] = mapped_column(String(200))
+    detalle: Mapped[str] = mapped_column(Text, default="")
+    cita: Mapped[str] = mapped_column(Text, default="")
+    severidad: Mapped[str] = mapped_column(String(8), default="media")  # alta | media | baja
+    cliente_rfc: Mapped[str] = mapped_column(String(13), default="")
+    cliente_nombre: Mapped[str] = mapped_column(String(255), default="")
+    origen: Mapped[str] = mapped_column(String(10), default="manual")  # sesion | manual
+    agenda_id: Mapped[int | None] = mapped_column(ForeignKey("agenda_clientes.id"), index=True)
+    sesion_id: Mapped[int | None] = mapped_column(ForeignKey("sesiones_cliente.id"), index=True)
+    estado: Mapped[str] = mapped_column(String(12), default="pendiente", index=True)
+    asignado_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"), index=True)
+    fecha_compromiso: Mapped[date | None] = mapped_column(Date)
+    resolucion: Mapped[str] = mapped_column(Text, default="")
+    resuelto_en: Mapped[datetime | None] = mapped_column(DateTime)
+    veredicto: Mapped[str | None] = mapped_column(String(20))  # verificando | concluido | dudoso | no_corresponde | sin_verificar
+    verificacion: Mapped[dict | None] = mapped_column(JSON)
+    historial: Mapped[list] = mapped_column(JSON, default=list)
+    creado_por: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+    creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    agenda: Mapped[AgendaCliente | None] = relationship(back_populates="pendientes")
+    sesion: Mapped["SesionCliente | None"] = relationship()
+    asignado: Mapped[Usuario | None] = relationship(foreign_keys=[asignado_id])
+    autor: Mapped[Usuario | None] = relationship(foreign_keys=[creado_por])
+    evidencias: Mapped[list["ArchivoCliente"]] = relationship(
+        primaryjoin="and_(foreign(ArchivoCliente.entidad_id) == PendienteCliente.id, ArchivoCliente.entidad == 'pendiente', "
+                    "ArchivoCliente.retirada.is_(False))", order_by="ArchivoCliente.creado", viewonly=True)
+    evidencias_retiradas: Mapped[list["ArchivoCliente"]] = relationship(
+        primaryjoin="and_(foreign(ArchivoCliente.entidad_id) == PendienteCliente.id, ArchivoCliente.entidad == 'pendiente', "
+                    "ArchivoCliente.retirada.is_(True))", order_by="ArchivoCliente.retirada_en", viewonly=True)
+
+    @property
+    def folio(self) -> str:
+        return f"PC-{self.id:04d}"
+
+
+class ArchivoCliente(Base):
+    """Archivos de la sección Clientes: evidencias de resolución de pendientes y pantallas de sesiones con competidores."""
+    __tablename__ = "archivos_cliente"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    entidad: Mapped[str] = mapped_column(String(12), index=True)  # pendiente | benchmark
+    entidad_id: Mapped[int] = mapped_column(Integer, index=True)
+    nombre: Mapped[str] = mapped_column(String(255))
+    ruta: Mapped[str] = mapped_column(String(300))
+    tipo: Mapped[str] = mapped_column(String(120), default="")
+    bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    sha256: Mapped[str] = mapped_column(String(64), default="")
+    subido_por: Mapped[int] = mapped_column(ForeignKey("usuarios.id"))
+    creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    retirada: Mapped[bool] = mapped_column(Boolean, default=False, server_default=sa_false())
+    retirada_en: Mapped[datetime | None] = mapped_column(DateTime)
+    retirada_por: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+    retirada_motivo: Mapped[str | None] = mapped_column(Text)
+
+    autor: Mapped[Usuario] = relationship(foreign_keys=[subido_por])
+    retiro: Mapped[Usuario | None] = relationship(foreign_keys=[retirada_por])
+
+
+class Competidor(Base):
+    __tablename__ = "competidores"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    nombre: Mapped[str] = mapped_column(String(160), unique=True)
+    sitio: Mapped[str] = mapped_column(String(255), default="")
+    notas: Mapped[str] = mapped_column(Text, default="")
+    activo: Mapped[bool] = mapped_column(Boolean, default=True)
+    creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    sesiones: Mapped[list["SesionCompetidor"]] = relationship(back_populates="competidor", order_by="SesionCompetidor.fecha")
+
+
+class SesionCompetidor(Base):
+    """Junta con (o sobre) un competidor: la transcripción es la fuente; las pantallas acompañan. GuardIA la analiza con
+    lienzo de propuesta de valor, lienzo estratégico (océano azul) y matriz ERIC."""
+    __tablename__ = "sesiones_competidor"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    competidor_id: Mapped[int] = mapped_column(ForeignKey("competidores.id"), index=True)
+    fecha: Mapped[date] = mapped_column(Date)
+    titulo: Mapped[str] = mapped_column(String(200), default="")
+    contexto: Mapped[str] = mapped_column(Text, default="")
+    participantes: Mapped[str] = mapped_column(String(300), default="")
+    transcripcion: Mapped[str] = mapped_column(Text().with_variant(Text(length=4294967295), "mysql"), default="")
+    cifrada: Mapped[bool] = mapped_column(Boolean, default=False)
+    transcripcion_ruta: Mapped[str | None] = mapped_column(String(300))
+    palabras: Mapped[int] = mapped_column(Integer, default=0)
+    estado: Mapped[str] = mapped_column(String(12), default="cargada")  # cargada | analizando | analizada | error
+    resultado: Mapped[dict] = mapped_column(JSON, default=dict)
+    autor_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"))
+    creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    competidor: Mapped[Competidor] = relationship(back_populates="sesiones")
+    autor: Mapped[Usuario] = relationship()
+    insights: Mapped[list["InsightBenchmark"]] = relationship(back_populates="sesion", order_by="InsightBenchmark.id")
+    pantallas: Mapped[list["ArchivoCliente"]] = relationship(
+        primaryjoin="and_(foreign(ArchivoCliente.entidad_id) == SesionCompetidor.id, ArchivoCliente.entidad == 'benchmark', "
+                    "ArchivoCliente.retirada.is_(False))", order_by="ArchivoCliente.creado", viewonly=True)
+
+
+INSIGHT_TIPOS = {"nuestro": "Diferenciador nuestro", "suyo": "Diferenciador del competidor",
+                 "oportunidad": "Oportunidad de servicio", "eliminar": "Eliminar", "reducir": "Reducir",
+                 "incrementar": "Incrementar", "crear": "Crear"}
+
+
+class InsightBenchmark(Base):
+    """Conclusión de una sesión con competidor, con cita textual. Las oportunidades y la matriz ERIC alimentan el Círculo."""
+    __tablename__ = "insights_benchmark"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sesion_id: Mapped[int] = mapped_column(ForeignKey("sesiones_competidor.id"), index=True)
+    tipo: Mapped[str] = mapped_column(String(12), index=True)
+    titulo: Mapped[str] = mapped_column(String(200))
+    detalle: Mapped[str] = mapped_column(Text, default="")
+    cita: Mapped[str] = mapped_column(Text, default="")
+    impacto: Mapped[str] = mapped_column(String(8), default="media")
+    creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    sesion: Mapped[SesionCompetidor] = relationship(back_populates="insights")
 
 
 # ---------------------------------------------------------------- compromisos archivados

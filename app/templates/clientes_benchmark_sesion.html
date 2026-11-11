@@ -1,0 +1,55 @@
+{% extends "base.html" %}{% from "_ui.html" import icon, ai_badge with context %}{% from "_lienzo.html" import lienzo with context %}
+{% block title %}{{ s.competidor.nombre }} · Benchmark{% endblock %}
+{% set r = s.resultado or {} %}
+{% macro cub(v) %}<span class="bm-cub {{ v }}" title="OneCore: {{ {'si':'lo cubre','parcial':'lo cubre en parte','no':'no lo cubre'}[v] }}">OneCore: {{ {'si':'sí','parcial':'parcial','no':'no'}[v] }}</span>{% endmacro %}
+{% block content %}
+<div class="top">
+  <div class="col" style="gap:4px"><span class="muted small"><a href="/clientes/benchmark">Benchmark</a> · {{ fmt_fecha(s.fecha) }} · cargó {{ s.autor.nombre }}</span>
+    <h1 style="font-size:24px">{{ s.competidor.nombre }}{% if s.titulo %} · {{ s.titulo }}{% endif %}</h1>
+    {% if r.propuesta_competidor %}<span class="muted"><b>Su propuesta de valor:</b> {{ r.propuesta_competidor }}</span>{% endif %}</div>
+  <div class="row">{{ ai_badge() }}{% if ve_trans %}<a class="btn soft" href="/clientes/benchmark/sesiones/{{ s.id }}/transcripcion">{{ icon('doc', 16) }}Transcripción</a>{% endif %}
+    {% if s.estado in ('analizada','error') or atorado %}<form method="post" action="/clientes/benchmark/sesiones/{{ s.id }}/analizar"><button class="btn soft">{{ icon('refresh', 16) }}Analizar de nuevo</button></form>{% endif %}</div>
+</div>
+
+{% if s.estado == 'analizando' %}<div class="verif neutro" role="status" {% if not atorado %}data-auto-refresh="6"{% endif %}><div class="row" style="gap:10px">{% if not atorado %}<span class="spin"></span>{% endif %}<b>{{ guardia }} {{ 'tardó demasiado; vuelve a analizar' if atorado else 'está armando el análisis competitivo…' }}</b></div></div>
+{% elif s.estado == 'error' %}<div class="flash error">{{ r.error or 'El análisis falló.' }}</div>
+{% else %}
+{% if r.resumen %}<section class="card pad"><h3>Lectura</h3><p style="margin:0;line-height:1.6">{{ r.resumen }}</p>
+  {% if r.recomendacion and r.recomendacion.que %}<div class="cint" style="margin:0"><span class="ic">{{ icon('ia') }}</span><span><b>{{ '¿Modificar nuestra propuesta de valor? Sí.' if r.recomendacion.modificar else '¿Modificar nuestra propuesta de valor? No por ahora.' }}</b> {{ r.recomendacion.que }}{% if r.recomendacion.porque %} <span class="muted">— {{ r.recomendacion.porque }}</span>{% endif %}</span></div>{% endif %}
+</section>{% endif %}
+
+<section class="card pad"><div class="row between"><h2>1 · Lienzo de propuesta de valor</h2><span class="small muted">Lo que atiende el competidor y si OneCore lo cubre hoy</span></div>
+  <div class="bm-vpc">
+    <div class="bm-vpc-l"><h3>Mapa de valor del competidor</h3>
+      {% for k, t in (('productos','Productos y servicios'),('aliviadores','Aliviadores de dolor'),('creadores','Creadores de ganancia')) %}
+      <div class="bm-blq"><b class="small">{{ t }}</b>{% for x in r.mapa[k] if r.mapa %}<div class="bm-li"><span>{{ x.texto }}</span>{{ cub(x.onecore) }}</div>{% else %}<span class="small muted">—</span>{% endfor %}</div>{% endfor %}</div>
+    <div class="bm-vpc-r"><h3>Perfil del cliente</h3>
+      {% for k, t in (('trabajos','Trabajos (jobs)'),('dolores','Dolores'),('ganancias','Ganancias')) %}
+      <div class="bm-blq"><b class="small">{{ t }}</b>{% for x in r.perfil[k] if r.perfil %}<div class="bm-li"><span>{{ x.texto }}</span>{{ cub(x.onecore) }}</div>{% else %}<span class="small muted">—</span>{% endfor %}</div>{% endfor %}</div>
+  </div></section>
+
+<section class="card pad"><div class="row between"><h2>2 · Lienzo estratégico (océano azul)</h2><span class="small muted">Calificación de 1 a 5 por factor</span></div>
+  {{ lienzo(svg) }}
+  <div class="tbl"><table><thead><tr><th>Factor</th><th class="num">{{ s.competidor.nombre }}</th><th class="num">OneCore</th><th>Por qué</th></tr></thead><tbody>
+  {% for f in r.factores or [] %}<tr><td><b>{{ f.factor }}</b></td><td class="num">{{ f.competidor }}</td><td class="num"><b class="{{ 'bm-mas' if f.onecore > f.competidor else ('bm-menos' if f.onecore < f.competidor else '') }}">{{ f.onecore }}</b></td><td class="small">{{ f.nota }}</td></tr>{% endfor %}
+  </tbody></table></div></section>
+
+<section class="card pad"><div class="row between"><h2>3 · Matriz ERIC para OneCore</h2></div>
+  <div class="bm-eric">{% for k, t, c in (('eliminar','Eliminar','r'),('reducir','Reducir','o'),('incrementar','Incrementar','b'),('crear','Crear','g')) %}
+    <div class="bm-eric-c {{ c }}"><h3>{{ t }}</h3>{% for i in (r.eric or {}).get(k, []) %}<div class="bm-it"><b>{{ i.titulo }}</b>{% if i.detalle %}<span class="small">{{ i.detalle }}</span>{% endif %}{% if i.cita %}<span class="quote small">«{{ i.cita }}»</span>{% endif %}</div>{% else %}<span class="small muted">—</span>{% endfor %}</div>{% endfor %}</div></section>
+
+<div class="grid2" style="grid-template-columns:repeat(3,1fr);align-items:start">
+{% for k, titulo, c in (('nuestro','Diferenciadores nuestros','g'),('suyo','Diferenciadores del competidor','r'),('oportunidad','Oportunidades de servicio','o')) %}
+  <section class="card pad bm-col {{ c }}"><h3>{{ titulo }}</h3>
+    {% for i in s.insights if i.tipo == k %}<div class="bm-it"><div class="row between" style="gap:6px"><b>{{ i.titulo }}</b><span class="prio {{ i.impacto }}">{{ i.impacto }}</span></div>
+      {% if i.detalle %}<span class="small">{{ i.detalle }}</span>{% endif %}{% if i.cita %}<span class="quote small">«{{ i.cita }}»</span>{% endif %}</div>
+    {% else %}<span class="small muted">—</span>{% endfor %}</section>
+{% endfor %}
+</div>
+{% if r.citas_descartadas %}<span class="small muted">{{ r.citas_descartadas }} cita(s) se descartaron porque no aparecían tal cual en la transcripción.</span>{% endif %}
+{% endif %}
+
+{% if s.pantallas %}<section class="card pad"><h3>Pantallas</h3><div class="row" style="gap:10px;flex-wrap:wrap">
+  {% for a in s.pantallas %}<a class="lnk" href="/clientes/benchmark/archivos/{{ a.id }}?ver=1" target="_blank" rel="noopener">{{ icon('clip', 15) }}{{ a.nombre }}</a>{% endfor %}</div></section>{% endif %}
+{% if s.contexto %}<section class="card pad"><h3>Contexto</h3><p class="small" style="margin:0">{{ s.contexto }}</p>{% if s.participantes %}<span class="small muted">Participantes: {{ s.participantes }}</span>{% endif %}</section>{% endif %}
+{% endblock %}

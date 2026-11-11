@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import CUADRANTES, Area, Compromiso, Idea, SesionCliente, Usuario, VentaClienteMes, utcnow
+from ..models import CUADRANTES, AgendaCliente, Area, Compromiso, Idea, SesionCliente, Usuario, VentaClienteMes, utcnow
 from ..services import ia, vozcliente
 from ..services.util import auditar, hoy
 from .base import flash, ir, puede_actuar, render, requiere_lider, usuario_actual, OptInt
@@ -47,7 +47,7 @@ def nueva(request: Request, compromiso: int | None = None, db: Session = Depends
     tipo = "objeciones" if (c and c.area and c.area.clave == "ventas") else "retencion"
     if c and c.predictiva and "prospect" in c.predictiva.nombre.lower():
         tipo = "venta_nueva"
-    return render(request, "sesion_nueva.html", u, "voz", c=c, tipo=tipo, tipos=vozcliente.TIPOS_SESION, clientes=_clientes(db) if u.puede_confidencial else [],
+    return render(request, "sesion_nueva.html", u, "voz", c=c, tipo=tipo, tipos=vozcliente.TIPOS_CARGA, clientes=_clientes(db) if u.puede_confidencial else [],
                   areas=list(db.scalars(select(Area).where(Area.activo.is_(True)).order_by(Area.nombre))))
 
 
@@ -58,7 +58,7 @@ async def crear_sesion(request: Request, fondo: BackgroundTasks, tipo: str = For
                        p_nombre: list[str] = Form([]), p_email: list[str] = Form([]), p_lado: list[str] = Form([]),
                        archivo: UploadFile | None = File(None), subidas: list[str] = Form([]),
                        db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
-    if tipo not in vozcliente.TIPOS_SESION:
+    if tipo not in vozcliente.TIPOS_CARGA:
         raise HTTPException(400)
     c = db.get(Compromiso, compromiso_id) if compromiso_id else None
     if c and not puede_actuar(u, c):
@@ -119,7 +119,8 @@ def ver_sesion(sid: int, request: Request, db: Session = Depends(get_db), u: Usu
         raise HTTPException(404)
     return render(request, "sesion.html", u, "voz", s=s, cliente=etiqueta_cliente(u, s), cuadrantes=CUADRANTES,
                   tipos=vozcliente.TIPOS_SESION, atorado=vozcliente.analisis_atorado(s), ve_personas=(u.puede_confidencial or u.es_direccion or s.autor_id == u.id),
-                  puede_cerrar=bool(s.compromiso and puede_actuar(u, s.compromiso) and s.compromiso.estado == "abierto"))
+                  puede_cerrar=bool(s.compromiso and puede_actuar(u, s.compromiso) and s.compromiso.estado == "abierto"),
+                  agenda=db.scalar(select(AgendaCliente).where(AgendaCliente.sesion_id == s.id)) if s.tipo == "agenda" else None)
 
 
 @router.post("/sesiones/{sid}/participantes")
@@ -160,6 +161,8 @@ def reanalizar(sid: int, request: Request, fondo: BackgroundTasks, db: Session =
     if s.estado == "analizando" and not vozcliente.analisis_atorado(s):
         flash(request, "GuardIA ya está analizando esta sesión.")
         return ir(f"/sesiones/{sid}")
+    if s.tipo == "agenda" and (a := db.scalar(select(AgendaCliente).where(AgendaCliente.sesion_id == s.id))):
+        a.estado = "analizando"
     vozcliente.marcar_en_analisis(db, s)
     fondo.add_task(vozcliente.analizar_en_fondo, s.id)
     flash(request, "GuardIA está analizando de nuevo la sesión.")

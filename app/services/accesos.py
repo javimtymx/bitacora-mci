@@ -27,7 +27,7 @@ class Menu:
 
 
 GRUPOS = (("tablero", "Tablero", "home"), ("ejecucion", "Ejecución", "check"), ("ia", "GuardIA", "ia"),
-          ("innovacion", "Innovación", "idea"), ("soporte", "Soporte", "ticket"), ("datos", "Datos", "chart"))
+          ("clientes", "Clientes", "briefcase"), ("innovacion", "Innovación", "idea"), ("soporte", "Soporte", "ticket"), ("datos", "Datos", "chart"))
 
 MENUS = (
     Menu("inicio", "tablero", "Tablero", "Resultado del mes y seguimiento semanal", "/", "colaborador", ("/kardex",)),
@@ -41,6 +41,12 @@ MENUS = (
     Menu("pm", "ia", "GuardIA OneCore", "Informe, alertas y documentos", "/pm", "lider", ("/pm", "/acciones", "/informes")),
     Menu("voz", "ia", "Voz del cliente", "Sesiones 1:1 y objeciones", "/voz-cliente", "lider",
          ("/voz-cliente", "/sesiones", "/hallazgos")),
+    Menu("clientes-agenda", "clientes", "Agenda de clientes", "Sesiones del mes, asistencia y transcripción", "/clientes/agenda",
+         "colaborador", ("/clientes/agenda", "/clientes")),
+    Menu("clientes-pendientes", "clientes", "Pendientes de clientes", "Quejas y tareas hasta su resolución",
+         "/clientes/pendientes", "colaborador", ("/clientes/pendientes",)),
+    Menu("clientes-benchmark", "clientes", "Benchmark", "Competidores, propuesta de valor e insights", "/clientes/benchmark",
+         "lider", ("/clientes/benchmark",)),
     Menu("ideas", "innovacion", "Ideas", "Propuestas del equipo", "/ideas", "colaborador", ("/ideas", "/api/ia/idea")),
     Menu("circulo", "innovacion", "Círculo de innovación", "Iniciativas y votación", "/circulo", "colaborador",
          ("/circulo", "/estrategias")),

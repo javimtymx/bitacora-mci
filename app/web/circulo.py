@@ -24,7 +24,8 @@ def lista(request: Request, db: Session = Depends(get_db), u: Usuario = Depends(
     cs = list(db.scalars(select(CirculoInnovacion).order_by(CirculoInnovacion.creado.desc()).limit(24)))
     f = innovacion.fuentes(db)
     return render(request, "circulo_lista.html", u, "circulo", circulos=cs, mes_def=hoy().strftime("%Y-%m"),
-                  n_ideas=len(f["ideas"]), n_hall=len(f["hallazgos"]), n_obj=len(f["objeciones"]))
+                  n_ideas=len(f["ideas"]), n_hall=len(f["hallazgos"]), n_obj=len(f["objeciones"]),
+                  n_quejas=len(f["quejas"]), n_bench=len(f["benchmark"]))
 
 
 @router.post("")
@@ -133,5 +134,13 @@ def fuentes(cid: int, iid: int, request: Request, db: Session = Depends(get_db),
     ideas = [db.get(Idea, i) for i in ini.fuentes.get("ideas", [])]
     hall = [db.get(Hallazgo, i) for i in ini.fuentes.get("hallazgos", [])]
     objs = [db.get(Objecion, i) for i in ini.fuentes.get("objeciones", [])]
+    from ..models import InsightBenchmark, PendienteCliente
+    from ..services import clientes as cl
+    quejas = [x for x in (db.get(PendienteCliente, i) for i in ini.fuentes.get("quejas", [])) if x]
+    bench = [x for x in (db.get(InsightBenchmark, i) for i in ini.fuentes.get("benchmark", [])) if x]
+
+    def ve_sesion(s):  # la transcripción solo la abre quien ya puede verla; los demás ven la cita
+        return bool(s) and (u.es_direccion or s.autor_id == u.id or (u.rol == "lider" and u.area_id == s.area_id))
     return render(request, "circulo_fuentes.html", u, "circulo", ini=ini, ideas=[x for x in ideas if x],
-                  hall=[x for x in hall if x], objs=[x for x in objs if x])
+                  hall=[x for x in hall if x], objs=[x for x in objs if x], quejas=quejas, bench=bench,
+                  ve_sesion=ve_sesion, nombre_cliente=cl.nombre_cliente)

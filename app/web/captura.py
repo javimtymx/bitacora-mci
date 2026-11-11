@@ -369,21 +369,34 @@ def descargar_evidencia(eid: int, ver: int = 0, db: Session = Depends(get_db), u
 VISIBLES_EN_LINEA = {"image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"}
 
 
-@router.post("/evidencias/{eid}/quitar")
-def quitar_evidencia(eid: int, request: Request, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+@router.post("/evidencias/{eid}/retirar")
+def retirar_evidencia(eid: int, request: Request, fondo: BackgroundTasks, motivo: str = Form(""),
+                      db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+    """Retira una evidencia equivocada: no se borra (queda en el historial con motivo), deja de contar para el cierre
+    y, si el compromiso ya estaba cumplido, GuardIA vuelve a verificar con lo que quede o espera la evidencia correcta."""
     from ..models import EvidenciaArchivo
     from ..services import evidencias
     ev = db.get(EvidenciaArchivo, eid)
-    if not ev:
+    if not ev or ev.retirada:
         raise HTTPException(404)
     c = _comp_editable(db, ev.compromiso_id, u)
-    if c.estado != "abierto" or not (u.es_direccion or ev.subido_por == u.id):
-        raise HTTPException(403, "Solo quien la subió puede quitarla, y solo mientras el compromiso está abierto.")
-    auditar(db, "quitar_evidencia", "compromiso", c.id, u.id, archivo=ev.nombre, sha256=ev.sha256)
-    evidencias.borrar_archivo(ev)
-    db.delete(ev)
+    if c.estado not in ("abierto", "cumplido"):
+        raise HTTPException(400, "Solo se retiran evidencias de compromisos abiertos o cumplidos.")
+    if not (u.es_direccion or ev.subido_por == u.id or c.responsable_id == u.id):
+        raise HTTPException(403, "Solo quien la subió, el responsable o Dirección pueden retirarla.")
+    if len(motivo.strip()) < 5:
+        flash(request, "Escribe por qué se retira la evidencia (queda en el historial).", "error")
+        return ir(f"/compromisos/{c.id}")
+    evidencias.retirar(db, c, ev, u, motivo)
+    if c.estado == "cumplido":
+        if c.evidencias and ia.cliente().disponible:
+            c.cierre_veredicto = "verificando"
+            fondo.add_task(evidencias.verificar_en_fondo, c.id)
+        else:
+            evidencias.esperar_evidencia(c)
     db.commit()
-    flash(request, "Evidencia quitada.")
+    flash(request, f"Se retiró «{ev.nombre}». " + ("Sube la evidencia correcta: GuardIA la revisará al cargarla."
+                                                    if c.estado == "cumplido" and not c.evidencias else ""))
     return ir(f"/compromisos/{c.id}")
 
 

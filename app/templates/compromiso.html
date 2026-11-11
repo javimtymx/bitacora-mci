@@ -88,8 +88,18 @@
     {% if d.comentario %}<div class="small"><b>Comentario de cierre:</b> {{ d.comentario }}</div>{% endif %}
     {% for ev in c.evidencias %}<div class="evi"><div class="col" style="gap:2px;min-width:0"><a href="/evidencias/{{ ev.id }}">{{ icon('clip', 14) }} {{ ev.nombre }}</a>
         <span class="small muted">{{ tamano(ev.bytes) }} · {{ ev.autor.nombre }} · {{ hora_local(ev.creado) }}</span></div>
-      {% if puede and c.estado == 'abierto' and (u.es_direccion or ev.subido_por == u.id) %}<form method="post" action="/evidencias/{{ ev.id }}/quitar" data-sin-bloqueo><button class="btn sm ghost" aria-label="Quitar {{ ev.nombre }}">{{ icon('x', 14) }}</button></form>{% endif %}</div>
-    {% else %}<span class="small muted">Aún no hay archivos. Sube la captura, el documento, el correo o el folio que demuestre lo hecho.</span>{% endfor %}
+      {% if puede and c.estado in ('abierto', 'cumplido') and (u.es_direccion or ev.subido_por == u.id or c.responsable_id == u.id) %}
+      <details class="ev-ret"><summary class="btn sm ghost" title="Retirar esta evidencia (queda en el historial)">{{ icon('x', 14) }}Retirar</summary>
+        <form method="post" action="/evidencias/{{ ev.id }}/retirar" class="ev-ret-f">
+          <input class="input" name="motivo" required minlength="5" maxlength="1000" placeholder="¿Por qué se retira? Ej. se subió el archivo de otro cliente" aria-label="Motivo para retirar {{ ev.nombre }}">
+          <button class="btn sm red">Retirar</button></form>
+        <span class="small muted">No se borra: queda en el historial y deja de contar para el diagnóstico.{% if c.estado == 'cumplido' %} {{ guardia }} vuelve a revisar el cierre.{% endif %}</span></details>{% endif %}</div>
+    {% else %}<span class="small muted">{% if c.estado == 'cumplido' %}Sin evidencia vigente. Sube la evidencia correcta y {{ guardia }} revisará el cierre.{% else %}Aún no hay archivos. Sube la captura, el documento, el correo o el folio que demuestre lo hecho.{% endif %}</span>{% endfor %}
+    {% if c.evidencias_retiradas %}<details class="ev-hist"><summary class="small">Evidencias retiradas ({{ c.evidencias_retiradas|length }})</summary>
+      {% for ev in c.evidencias_retiradas %}<div class="evi retirada"><div class="col" style="gap:2px;min-width:0"><a href="/evidencias/{{ ev.id }}">{{ icon('clip', 14) }} <s>{{ ev.nombre }}</s></a>
+        <span class="small muted">Retirada {{ hora_local(ev.retirada_en) }} por {{ ev.retiro.nombre if ev.retiro else '—' }} · {{ ev.retirada_motivo }}</span></div></div>{% endfor %}</details>{% endif %}
+    {% if d.historial %}<details class="ev-hist"><summary class="small">Revisiones anteriores de {{ guardia }} ({{ d.historial|length }})</summary>
+      {% for h in d.historial|reverse %}<div class="small" style="padding:6px 0;border-bottom:1px solid var(--line)"><b>{{ {'concluido':'Consistente','dudoso':'Con sospecha','no_corresponde':'No corresponde'}.get(h.veredicto, h.veredicto) }}</b>{% if h.verificado_en %} · {{ h.verificado_en[:16]|replace('T', ' ') }} UTC{% endif %}{% if h.motivo %} — {{ h.motivo }}{% endif %}</div>{% endfor %}</details>{% endif %}
     {% if puede and c.estado in ('abierto', 'cumplido') %}<form method="post" action="/compromisos/{{ c.id }}/evidencias" enctype="multipart/form-data" data-subidas="evidencia" class="col" style="gap:8px">
       <div class="drop"><input type="file" name="archivos" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.txt,.csv,.md,.eml,.docx,.xlsx,.pptx" aria-label="Archivos de evidencia" required></div>
       <span class="small muted">PDF, imagen, Word, Excel, PowerPoint o texto · sin límite de tamaño cada uno.</span>

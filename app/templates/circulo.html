@@ -18,6 +18,8 @@
   <div class="stat"><span class="ico" style="background:var(--mint);color:var(--teal)">{{ icon('idea') }}</span><span style="font-weight:600">Ideas del equipo</span><b>{{ an.fuentes.ideas }}</b></div>
   <div class="stat"><span class="ico" style="background:var(--mint);color:var(--teal)">{{ icon('users') }}</span><span style="font-weight:600">Hallazgos de clientes</span><b>{{ an.fuentes.hallazgos }}</b></div>
   <div class="stat"><span class="ico" style="background:var(--mint);color:var(--teal)">{{ icon('target') }}</span><span style="font-weight:600">Objeciones</span><b>{{ an.fuentes.objeciones }}</b></div>
+  {% if an.fuentes.quejas is defined %}<div class="stat"><span class="ico" style="background:var(--mint);color:var(--teal)">{{ icon('alert') }}</span><span style="font-weight:600">Quejas y tareas de clientes</span><b>{{ an.fuentes.quejas }}</b></div>
+  <div class="stat"><span class="ico" style="background:var(--mint);color:var(--teal)">{{ icon('briefcase') }}</span><span style="font-weight:600">Benchmark</span><b>{{ an.fuentes.benchmark }}</b></div>{% endif %}
   <div class="stat"><span class="ico" style="background:#FFE9C2;color:#7A4600">{{ icon('ia') }}</span><span style="font-weight:600">Iniciativas</span><b>{{ c.iniciativas|length }}</b></div></div>{% endif %}
 {% if an.lectura %}<div class="cint"><span class="ic">{{ icon('ia') }}</span><span style="flex:1 1 420px"><b>Lectura estratégica de la IA:</b> {{ an.lectura }}</span></div>{% endif %}
 <div class="grid2" style="grid-template-columns:1.3fr 1fr">
@@ -37,7 +39,7 @@
     <div class="row between" style="flex-wrap:nowrap;align-items:flex-start"><div class="row" style="flex-wrap:nowrap;align-items:flex-start"><span style="width:30px;height:30px;border-radius:50%;background:{{ col }};color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;flex:none">{{ ini.orden }}</span><h3 style="line-height:1.3;margin-top:4px">{{ ini.titulo }}</h3></div>
       <span class="tag" style="border-color:{{ col }};color:{{ col }};background:#fff">{{ ini.cuadrante }}</span></div>
     <p class="small" style="margin:0">{{ ini.descripcion }}</p>
-    <div class="row small" style="gap:8px"><span class="pill">{{ icon('idea', 14) }}{{ ini.fuentes.ideas|length }} ideas</span><span class="pill">{{ icon('users', 14) }}{{ ini.fuentes.hallazgos|length }} hallazgos</span><span class="pill">{{ icon('target', 14) }}{{ ini.fuentes.objeciones|length }} objeciones</span></div>
+    <div class="row small" style="gap:8px"><span class="pill">{{ icon('idea', 14) }}{{ ini.fuentes.ideas|length }} ideas</span><span class="pill">{{ icon('users', 14) }}{{ ini.fuentes.hallazgos|length }} hallazgos</span><span class="pill">{{ icon('target', 14) }}{{ ini.fuentes.objeciones|length }} objeciones</span>{% if ini.fuentes.quejas %}<span class="pill">{{ icon('alert', 14) }}{{ ini.fuentes.quejas|length }} quejas/tareas</span>{% endif %}{% if ini.fuentes.benchmark %}<span class="pill">{{ icon('briefcase', 14) }}{{ ini.fuentes.benchmark|length }} benchmark</span>{% endif %}</div>
     {% if ini.cita %}<div class="quote small">«{{ ini.cita[:220] }}»</div>{% endif %}
     <div class="small muted">Impacto {{ ini.impacto }}/5 · esfuerzo {{ ini.esfuerzo }}/5{% if ini.mci %} · mueve: {{ ini.mci.nombre }}{% endif %}</div>
     <div class="row between" style="border-top:1px solid #EEF1F4;padding-top:12px">

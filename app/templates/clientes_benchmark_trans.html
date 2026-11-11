@@ -1,0 +1,7 @@
+{% extends "base.html" %}{% from "_ui.html" import icon with context %}
+{% block title %}Transcripción · {{ s.competidor.nombre }}{% endblock %}
+{% block content %}
+<div class="top"><div class="col" style="gap:4px"><span class="muted small"><a href="/clientes/benchmark/sesiones/{{ s.id }}">{{ s.competidor.nombre }} · {{ fmt_fecha(s.fecha) }}</a></span>
+  <h1 style="font-size:22px">Transcripción{% if s.titulo %} · {{ s.titulo }}{% endif %}</h1><span class="muted small">{{ s.palabras }} palabras · consulta registrada en la auditoría</span></div></div>
+<section class="card pad"><pre class="transcripcion">{{ texto }}</pre></section>
+{% endblock %}

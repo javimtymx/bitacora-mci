@@ -1,0 +1,96 @@
+{% extends "base.html" %}{% from "_ui.html" import icon, ai_badge with context %}
+{% block title %}{{ p.folio }} · {{ p.titulo }}{% endblock %}
+{% set d = p.verificacion or {} %}
+{% block content %}
+<div class="top">
+  <div class="col" style="gap:4px"><span class="muted small"><a href="/clientes/pendientes">Pendientes de clientes</a> · {{ p.folio }} · {{ cliente }}</span>
+    <h1 style="font-size:24px">{{ p.titulo }}</h1>
+    <div class="row" style="gap:8px"><span class="tag {{ 'r' if p.tipo == 'queja' else 'b' }}">{{ tipos[p.tipo] }}</span><span class="prio {{ p.severidad }}">{{ p.severidad }}</span>
+      <span class="tag n">{{ estados[p.estado] }}</span>{% if vence[0] %}<span class="sla {{ vence[1] }}">{{ vence[0] }}</span>{% endif %}
+      {% if p.asignado %}<span class="muted">Asignado a <b>{{ p.asignado.nombre }}</b>{% if p.fecha_compromiso %} · compromiso {{ fmt_fecha(p.fecha_compromiso) }}{% endif %}</span>{% endif %}</div></div>
+  {% if atiende and p.estado in ('pendiente','en_curso','revision') %}<div class="row">
+    {% for e, et in (('pendiente','Por atender'),('en_curso','En curso'),('revision','En revisión')) if e != p.estado %}
+    <form method="post" action="/clientes/pendientes/{{ p.id }}/mover"><input type="hidden" name="estado" value="{{ e }}"><button class="btn soft">→ {{ et }}</button></form>{% endfor %}</div>{% endif %}
+</div>
+
+<div class="grid2" style="grid-template-columns:1.3fr 1fr;align-items:start">
+<div class="col" style="gap:16px">
+  <section class="card pad">
+    <h3>Qué pidió o reclamó el cliente</h3>
+    {% if p.detalle %}<p style="margin:0;line-height:1.55">{{ p.detalle }}</p>{% endif %}
+    {% if p.cita %}<div class="quote">«{{ p.cita }}»</div>{% endif %}
+    <div class="row small" style="gap:10px;flex-wrap:wrap">
+      {% if p.agenda %}<a class="lnk" href="/clientes/agenda/{{ p.agenda_id }}">{{ icon('cal', 15) }}Sesión del {{ fmt_fecha(p.agenda.fecha) }}</a>{% endif %}
+      {% if p.sesion and ve_sesion %}<a class="lnk" href="/sesiones/{{ p.sesion_id }}">{{ icon('eye', 15) }}Análisis de la sesión</a>{% endif %}{% if p.sesion and (u.es_direccion or p.sesion.autor_id == u.id) %}<a class="lnk" href="/sesiones/{{ p.sesion_id }}/transcripcion">{{ icon('doc', 15) }}Transcripción</a>{% endif %}
+      <span class="muted">Origen: {{ 'transcripción de la sesión (' ~ guardia ~ ')' if p.origen == 'sesion' else 'captura manual' }}{% if p.autor %} · {{ p.autor.nombre }}{% endif %}</span></div>
+  </section>
+
+  {% if p.estado == 'propuesta' and lider %}
+  <section class="card pad" id="confirmar"><h3>Confirmar y asignar</h3>
+    <form method="post" action="/clientes/pendientes/{{ p.id }}/confirmar" class="col" style="gap:10px">
+      <div class="field"><label for="cf-t">Título</label><input class="input" id="cf-t" name="titulo" value="{{ p.titulo }}" maxlength="200"></div>
+      <div class="grid2"><div class="field"><label for="cf-tp">Tipo</label><select class="input" id="cf-tp" name="tipo">{% for k, t in tipos.items() %}<option value="{{ k }}" {{ 'selected' if k == p.tipo }}>{{ t }}</option>{% endfor %}</select></div>
+        <div class="field"><label for="cf-s">Severidad</label><select class="input" id="cf-s" name="severidad">{% for k in ('alta','media','baja') %}<option value="{{ k }}" {{ 'selected' if k == p.severidad }}>{{ k|capitalize }}</option>{% endfor %}</select></div>
+        <div class="field"><label for="cf-a">Asignar a</label><select class="input" id="cf-a" name="asignado_id" required><option value="">Elige…</option>{% for g in gente %}<option value="{{ g.id }}">{{ g.nombre }}{% if g.area %} · {{ g.area.nombre }}{% endif %}</option>{% endfor %}</select></div>
+        <div class="field"><label for="cf-f">Fecha compromiso</label><input class="input" type="date" id="cf-f" name="fecha_compromiso" required></div></div>
+      <div class="row" style="gap:8px"><button class="btn yellow">{{ icon('ok') }}Confirmar</button></div></form>
+    <details class="ev-ret"><summary class="btn sm ghost">Descartar esta propuesta</summary>
+      <form method="post" action="/clientes/pendientes/{{ p.id }}/descartar" class="ev-ret-f"><input class="input" name="motivo" required minlength="5" placeholder="¿Por qué no aplica?" aria-label="Motivo"><button class="btn sm red">Descartar</button></form></details>
+  </section>
+  {% elif p.estado == 'propuesta' %}<div class="cint"><span class="ic">{{ icon('ia') }}</span><span>Esta propuesta espera que un líder la confirme y asigne.</span></div>{% endif %}
+
+  {% if p.estado == 'resuelto' %}
+  <section class="card pad"><div class="row between"><h3>Resolución</h3>{{ ai_badge() }}</div>
+    <p style="margin:0;line-height:1.55">{{ p.resolucion }}</p>
+    <span class="small muted">Resuelto {{ hora_local(p.resuelto_en) if p.resuelto_en }}</span>
+    {% if p.veredicto == 'verificando' %}<div class="verif neutro" role="status" data-auto-refresh="6"><div class="row" style="gap:10px"><span class="spin"></span><b>{{ guardia }} está revisando la evidencia…</b></div></div>
+    {% elif p.veredicto == 'concluido' %}<div class="verif ok"><b>{{ icon('ok', 15) }} Evidencia consistente con lo que pidió el cliente</b>{% if d.motivo %}<span>{{ d.motivo }}</span>{% endif %}</div>
+    {% elif p.veredicto in ('dudoso','no_corresponde') %}<div class="verif mal"><b>{{ icon('alert', 15) }} Resuelto con sospecha: {{ 'la evidencia no corresponde' if p.veredicto == 'no_corresponde' else 'no se ve resuelto satisfactoriamente' }}</b>
+      {% if d.motivo %}<span>{{ d.motivo }}</span>{% endif %}{% if d.falta %}<span><b>Falta demostrar:</b> {{ d.falta|join('; ') }}</span>{% endif %}{% if d.cumple %}<span><b>Sí se ve:</b> {{ d.cumple|join('; ') }}</span>{% endif %}
+      <span class="small">Si retiras la evidencia equivocada y subes la correcta, {{ guardia }} vuelve a revisarlo.</span></div>
+    {% elif p.veredicto == 'sin_verificar' %}<div class="verif neutro"><b>Sin verificar por la IA.</b>{% if d.error %}<span>{{ d.error }}</span>{% endif %}</div>{% endif %}
+    {% if lider %}<details class="ev-ret"><summary class="btn sm ghost">Reabrir</summary><form method="post" action="/clientes/pendientes/{{ p.id }}/reabrir" class="ev-ret-f"><input class="input" name="motivo" required minlength="5" placeholder="¿Por qué se reabre?" aria-label="Motivo"><button class="btn sm red">Reabrir</button></form></details>{% endif %}
+  </section>
+  {% elif atiende and p.estado in ('pendiente','en_curso','revision') %}
+  <section class="card pad" id="resolver"><h3>Resolver</h3>
+    <form method="post" action="/clientes/pendientes/{{ p.id }}/resolver" enctype="multipart/form-data" data-subidas="evidencia" class="col" style="gap:10px">
+      <div class="field"><label for="rs-t">¿Cómo se resolvió?</label><textarea class="input" id="rs-t" name="resolucion" rows="3" required minlength="10" placeholder="Ej. Se corrigió el reporte y se envió al cliente; confirmó por correo"></textarea></div>
+      <div class="field"><label for="rs-a">{{ 'Agregar más evidencia (opcional)' if p.evidencias else 'Evidencia de la resolución (obligatoria)' }}</label>
+        <div class="drop"><input type="file" id="rs-a" name="archivos" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.txt,.csv,.md,.eml,.docx,.xlsx,.pptx" {{ 'required' if not p.evidencias }}></div></div>
+      <button class="btn yellow" style="align-self:flex-start">{{ icon('ok') }}Marcar como resuelto</button>
+      <span class="small muted">{{ guardia }} revisa que la evidencia demuestre que se atendió lo que pidió el cliente; si tiene dudas, queda marcado con sospecha.</span></form>
+  </section>
+  {% endif %}
+
+  <section class="card pad"><h3>Evidencias</h3>
+    {% for ev in p.evidencias %}<div class="evi"><div class="col" style="gap:2px;min-width:0"><a href="/clientes/pendientes/archivos/{{ ev.id }}">{{ icon('clip', 14) }} {{ ev.nombre }}</a>
+        <span class="small muted">{{ tamano(ev.bytes) }} · {{ ev.autor.nombre }} · {{ hora_local(ev.creado) }}</span></div>
+      {% if atiende or ev.subido_por == u.id %}<details class="ev-ret"><summary class="btn sm ghost">{{ icon('x', 14) }}Retirar</summary>
+        <form method="post" action="/clientes/pendientes/archivos/{{ ev.id }}/retirar" class="ev-ret-f"><input class="input" name="motivo" required minlength="5" placeholder="¿Por qué se retira?" aria-label="Motivo"><button class="btn sm red">Retirar</button></form>
+        <span class="small muted">No se borra: queda en el historial y deja de contar para la verificación.</span></details>{% endif %}</div>
+    {% else %}<span class="small muted">Aún no hay evidencias.</span>{% endfor %}
+    {% if p.evidencias_retiradas %}<details class="ev-hist"><summary class="small">Evidencias retiradas ({{ p.evidencias_retiradas|length }})</summary>
+      {% for ev in p.evidencias_retiradas %}<div class="evi retirada"><div class="col" style="gap:2px"><a href="/clientes/pendientes/archivos/{{ ev.id }}">{{ icon('clip', 14) }} <s>{{ ev.nombre }}</s></a>
+        <span class="small muted">Retirada {{ hora_local(ev.retirada_en) }} por {{ ev.retiro.nombre if ev.retiro else '—' }} · {{ ev.retirada_motivo }}</span></div></div>{% endfor %}</details>{% endif %}
+    {% if atiende and p.estado not in ('propuesta','descartado') %}
+    <form method="post" action="/clientes/pendientes/{{ p.id }}/evidencias" enctype="multipart/form-data" data-subidas="evidencia" class="col" style="gap:8px">
+      <div class="drop"><input type="file" name="archivos" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.txt,.csv,.md,.eml,.docx,.xlsx,.pptx" aria-label="Archivos de evidencia" required></div>
+      <button class="btn soft sm" style="align-self:flex-start">{{ icon('upload', 15) }}Subir evidencia</button></form>{% endif %}
+  </section>
+</div>
+
+<div class="col" style="gap:16px">
+  {% if lider and p.estado in ('pendiente','en_curso','revision') %}
+  <section class="card pad"><h3>Asignación</h3>
+    <form method="post" action="/clientes/pendientes/{{ p.id }}/asignar" class="col" style="gap:8px">
+      <select class="input" name="asignado_id" required aria-label="Asignado">{% for g in gente %}<option value="{{ g.id }}" {{ 'selected' if g.id == p.asignado_id }}>{{ g.nombre }}</option>{% endfor %}</select>
+      <input class="input" type="date" name="fecha_compromiso" required value="{{ p.fecha_compromiso.isoformat() if p.fecha_compromiso }}" aria-label="Fecha compromiso">
+      <input class="input" name="motivo" placeholder="Motivo (obligatorio si cambias la fecha)" aria-label="Motivo">
+      <button class="btn soft sm" style="align-self:flex-start">Guardar</button></form></section>{% endif %}
+  <section class="card pad"><h3>Bitácora</h3>
+    {% if atiende and p.estado not in ('descartado',) %}<form method="post" action="/clientes/pendientes/{{ p.id }}/nota" class="row" style="gap:8px;flex-wrap:nowrap"><input class="input" name="texto" placeholder="Agregar nota de avance" maxlength="600" aria-label="Nota"><button class="btn soft sm">Agregar</button></form>{% endif %}
+    {% for h in (p.historial or [])|reverse %}<div class="small" style="padding:6px 0;border-bottom:1px solid var(--line)"><b>{{ h.por }}</b> · {{ h.en[:16]|replace('T', ' ') }} UTC{% if h.nota %} · <span class="tag n">nota</span>{% endif %}<div>{{ h.texto }}</div></div>
+    {% else %}<span class="small muted">Sin movimientos.</span>{% endfor %}</section>
+</div>
+</div>
+{% endblock %}

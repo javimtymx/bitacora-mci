@@ -1,8 +1,28 @@
-{% extends "base.html" %}
+{% extends "base.html" %}{% from "_ui.html" import icon with context %}
 {% block title %}Fuentes · {{ ini.titulo }}{% endblock %}
+{% macro origen(s, etiqueta) %}{% if s %}<span class="cf-src">{{ etiqueta }} · {{ fmt_fecha(s.fecha) }}
+  {% if ve_sesion(s) %}<a href="/sesiones/{{ s.id }}">{{ icon('eye', 13) }}Análisis</a>{% endif %}{% if u.es_direccion or s.autor_id == u.id %}<a href="/sesiones/{{ s.id }}/transcripcion">{{ icon('doc', 13) }}Transcripción</a>{% elif not ve_sesion(s) %}<span class="muted">· el análisis lo ven Dirección y el líder del área</span>{% endif %}</span>{% endif %}{% endmacro %}
 {% block content %}
-<div class="top"><div class="col" style="gap:4px"><span class="muted small"><a href="/circulo/{{ ini.circulo_id }}">{{ ini.circulo.nombre }}</a> · iniciativa #{{ ini.orden }}</span><h1 style="font-size:22px">{{ ini.titulo }}</h1></div></div>
-<section class="card pad"><h2>Ideas del equipo ({{ ideas|length }})</h2>{% for i in ideas %}<div style="padding:8px 0;border-bottom:1px solid var(--line)"><b>{{ i.titulo }}</b> <span class="muted small">· {{ i.autor.nombre }} · {{ i.estado }}</span><div class="small">{{ i.problema }}</div></div>{% else %}<span class="muted small">Ninguna.</span>{% endfor %}</section>
-<section class="card pad"><h2>Voz del cliente ({{ hall|length }})</h2>{% for h in hall %}<div style="padding:8px 0;border-bottom:1px solid var(--line)"><b>{{ h.tema }}</b> <span class="muted small">· {{ h.cuadrante }} · {{ fmt_fecha(h.sesion.fecha) }}</span><div class="quote small">«{{ h.cita }}»</div></div>{% else %}<span class="muted small">Ninguno.</span>{% endfor %}</section>
-<section class="card pad"><h2>Objeciones ({{ objs|length }})</h2>{% for o in objs %}<div style="padding:8px 0;border-bottom:1px solid var(--line)"><span class="tag n">{{ o.tipo }}</span> <span class="muted small">{{ fmt_fecha(o.sesion.fecha) }}</span><div class="quote small">«{{ o.cita }}»</div></div>{% else %}<span class="muted small">Ninguna.</span>{% endfor %}</section>
+<div class="top"><div class="col" style="gap:4px"><span class="muted small"><a href="/circulo/{{ ini.circulo_id }}">{{ ini.circulo.nombre }}</a> · iniciativa #{{ ini.orden }}</span><h1 style="font-size:22px">{{ ini.titulo }}</h1>
+  <span class="muted small">De dónde salió: cada fuente lleva a su idea, sesión o transcripción para consolidar con evidencia.</span></div></div>
+
+<section class="card pad"><h2>Ideas del equipo ({{ ideas|length }})</h2>{% for i in ideas %}<div class="cf-it"><a href="/ideas?filtro=todas#idea-{{ i.id }}"><b>{{ i.titulo }}</b></a> <span class="muted small">· {{ i.autor.nombre }} · {{ i.estado }}</span><div class="small">{{ i.problema }}</div>
+  {% if i.sesion_id %}<span class="cf-src">Nació de una sesión con cliente <a href="/sesiones/{{ i.sesion_id }}">{{ icon('eye', 13) }}Ver sesión</a></span>{% endif %}</div>{% else %}<span class="muted small">Ninguna.</span>{% endfor %}</section>
+
+<section class="card pad"><h2>Voz del cliente ({{ hall|length }})</h2>{% for h in hall %}<div class="cf-it"><b>{{ h.tema }}</b> <span class="muted small">· {{ h.cuadrante }}</span><div class="quote small">«{{ h.cita }}»</div>
+  {{ origen(h.sesion, 'Sesión de la agenda de clientes' if h.sesion.tipo == 'agenda' else 'Sesión con cliente') }}</div>{% else %}<span class="muted small">Ninguno.</span>{% endfor %}</section>
+
+<section class="card pad"><h2>Objeciones ({{ objs|length }})</h2>{% for o in objs %}<div class="cf-it"><span class="tag n">{{ o.tipo }}</span><div class="quote small">«{{ o.cita }}»</div>{{ origen(o.sesion, 'Sesión comercial') }}</div>{% else %}<span class="muted small">Ninguna.</span>{% endfor %}</section>
+
+<section class="card pad"><h2>Quejas y tareas de clientes ({{ quejas|length }})</h2>{% for q in quejas %}<div class="cf-it">
+  <span class="tag {{ 'r' if q.tipo == 'queja' else 'b' }}">{{ 'Queja' if q.tipo == 'queja' else 'Tarea' }}</span> <a href="/clientes/pendientes/{{ q.id }}"><b>{{ q.folio }} · {{ q.titulo }}</b></a> <span class="muted small">· {{ nombre_cliente(u, q) }}</span>
+  {% if q.cita %}<div class="quote small">«{{ q.cita }}»</div>{% elif q.detalle %}<div class="small">{{ q.detalle }}</div>{% endif %}
+  {% if q.agenda %}<span class="cf-src">Sesión de la agenda · <a href="/clientes/agenda/{{ q.agenda_id }}">{{ icon('cal', 13) }}{{ fmt_fecha(q.agenda.fecha) }}</a>{% if q.sesion and ve_sesion(q.sesion) %}<a href="/sesiones/{{ q.sesion_id }}">{{ icon('eye', 13) }}Análisis</a>{% endif %}{% if q.sesion and (u.es_direccion or q.sesion.autor_id == u.id) %}<a href="/sesiones/{{ q.sesion_id }}/transcripcion">{{ icon('doc', 13) }}Transcripción</a>{% endif %}</span>{% endif %}
+  </div>{% else %}<span class="muted small">Ninguna.</span>{% endfor %}</section>
+
+<section class="card pad"><h2>Benchmark de competidores ({{ bench|length }})</h2>{% for b in bench %}<div class="cf-it">
+  <span class="tag {{ {'oportunidad':'o','suyo':'r','crear':'g','incrementar':'b'}.get(b.tipo, 'n') }}">{{ {'oportunidad':'Oportunidad','suyo':'Diferenciador del competidor','crear':'Crear','incrementar':'Incrementar'}.get(b.tipo, b.tipo) }}</span> <b>{{ b.titulo }}</b>
+  {% if b.detalle %}<div class="small">{{ b.detalle }}</div>{% endif %}{% if b.cita %}<div class="quote small">«{{ b.cita }}»</div>{% endif %}
+  <span class="cf-src">{{ b.sesion.competidor.nombre }} · {{ fmt_fecha(b.sesion.fecha) }}{% if u.es_lider %}<a href="/clientes/benchmark/sesiones/{{ b.sesion_id }}">{{ icon('eye', 13) }}Análisis</a>{% if u.es_direccion or b.sesion.autor_id == u.id %}<a href="/clientes/benchmark/sesiones/{{ b.sesion_id }}/transcripcion">{{ icon('doc', 13) }}Transcripción</a>{% endif %}{% endif %}</span>
+  </div>{% else %}<span class="muted small">Ninguna.</span>{% endfor %}</section>
 {% endblock %}

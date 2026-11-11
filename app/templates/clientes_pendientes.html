@@ -1,0 +1,105 @@
+{% extends "base.html" %}{% from "_ui.html" import icon with context %}
+{% block title %}Pendientes de clientes{% endblock %}
+{% macro inic(n) %}{{ n.split()|map('first')|join('')|upper|truncate(2, True, '') }}{% endmacro %}
+{% block content %}
+<div class="top">
+  <div class="col" style="gap:4px"><span class="muted small">Clientes · Operaciones</span><h1>Pendientes de clientes</h1></div>
+  <div class="row">
+    <form method="get" class="row" style="gap:8px">
+      <select class="input" name="tipo" onchange="this.form.submit()" aria-label="Tipo" style="width:auto"><option value="">Quejas y tareas</option>{% for k, t in tipos.items() %}<option value="{{ k }}" {{ 'selected' if tipo == k }}>Solo {{ t|lower }}s</option>{% endfor %}</select>
+      <select class="input" name="persona" onchange="this.form.submit()" style="width:auto;min-width:190px" aria-label="Persona"><option value="">Todo el equipo</option>{% for g in gente %}<option value="{{ g.id }}" {{ 'selected' if persona == g.id }}>{{ g.nombre }}</option>{% endfor %}</select></form>
+    <button class="btn yellow" type="button" data-open="nuevo">{{ icon('plus') }}Nuevo pendiente</button>
+  </div>
+</div>
+<div class="tb-pulso card"><div class="tb-pulso-fila">
+  <span class="tb-mini {{ 'r' if n_quejas }}">{{ icon('alert', 13) }}<b>{{ n_quejas }}</b> quejas abiertas</span>
+  <span class="tb-mini">{{ icon('check', 13) }}<b>{{ n_tareas }}</b> tareas abiertas</span>
+  <span class="tb-mini {{ 'r' if n_vencidos }}">{{ icon('clock', 13) }}<b>{{ n_vencidos }}</b> vencidos</span>
+  <span class="tb-mini {{ 'o' if columnas[0][2] }}">{{ icon('ia', 13) }}<b>{{ columnas[0][2]|length }}</b> propuestas por confirmar</span>
+  {% if n_sospecha %}<span class="tb-mini o">{{ icon('alert', 13) }}<b>{{ n_sospecha }}</b> resueltos con sospecha</span>{% endif %}
+</div></div>
+<span class="muted small">Arrastra las tarjetas entre columnas. Las propuestas de {{ guardia }} salen de las transcripciones de la agenda: un líder las confirma y asigna. Para pasar a <b>Resuelto</b> se describe la solución y se sube la evidencia; {{ guardia }} la verifica.</span>
+<div class="kan kan5" id="kan">
+{% for clave, titulo, lista in columnas %}
+  <div class="kcolum" data-estado="{{ clave }}" aria-label="{{ titulo }}"><h3><span>{{ titulo }}{% if clave == 'resuelto' %} <span class="muted small" style="font-weight:600">· 30 días</span>{% endif %}</span><span class="muted">{{ lista|length }}</span></h3>
+  {% for p in lista %}{% set v = vence(p) %}
+    <div class="tkc pc-{{ p.tipo }}" draggable="{{ 'true' if clave in ('pendiente','en_curso','revision') else 'false' }}" data-id="{{ p.id }}" data-estado="{{ p.estado }}">
+      <a href="/clientes/pendientes/{{ p.id }}" style="color:var(--ink);text-decoration:none;display:flex;flex-direction:column;gap:6px" draggable="false">
+        <span class="row between" style="gap:6px"><span class="fol">{{ p.folio }} · <span class="pc-t">{{ tipos[p.tipo] }}</span></span><span class="prio {{ p.severidad }}">{{ p.severidad }}</span></span>
+        <b style="font-weight:700">{{ p.titulo }}</b>
+        <span class="muted">{{ nombre_cliente(u, p) }}</span></a>
+      {% if clave == 'propuesta' and p.cita %}<span class="quote small" style="margin:0">«{{ p.cita[:140] }}{{ '…' if p.cita|length > 140 }}»</span>{% endif %}
+      {% if clave == 'resuelto' %}{% if p.veredicto == 'verificando' %}<span class="tag n" style="align-self:flex-start">{{ guardia }} verificando…</span>
+        {% elif p.veredicto in ('dudoso','no_corresponde') %}<span class="tt-sosp" style="align-self:flex-start">{{ icon('alert', 12) }}Sospecha</span>
+        {% elif p.veredicto == 'concluido' %}<span class="tag g" style="align-self:flex-start">Evidencia verificada</span>{% endif %}{% endif %}
+      <div class="ft"><span class="row" style="gap:6px">{% if p.asignado %}<span class="av" title="{{ p.asignado.nombre }}">{{ inic(p.asignado.nombre) }}</span>{% endif %}
+        {% if p.evidencias %}<span class="muted" title="Evidencias">{{ icon('clip', 13) }}{{ p.evidencias|length }}</span>{% endif %}
+        {% if p.origen == 'sesion' %}<span class="muted" title="Salió de una sesión con cliente">{{ icon('doc', 13) }}</span>{% endif %}</span>
+        {% if v[0] %}<span class="sla {{ v[1] }}">{{ v[0] }}</span>{% endif %}</div>
+      {% if clave == 'propuesta' and lider %}<a class="btn sm yellow" href="/clientes/pendientes/{{ p.id }}#confirmar" style="height:28px">Revisar y confirmar</a>{% endif %}
+      {% if clave in ('pendiente','en_curso','revision') %}
+      <div class="row" style="gap:4px">{% for e, et in (('pendiente','Por atender'),('en_curso','En curso'),('revision','Revisión')) if e != clave %}
+        <button class="btn sm ghost kmov" type="button" data-a="{{ e }}" style="height:26px;padding:0 8px;font-size:11.5px" title="Mover a {{ et }}">→ {{ et }}</button>{% endfor %}
+        <a class="btn sm ghost" href="/clientes/pendientes/{{ p.id }}#resolver" style="height:26px;padding:0 8px;font-size:11.5px">✓ Resolver</a></div>
+      {% endif %}
+    </div>
+  {% else %}<span class="muted small vacio" style="padding:4px">Nada aquí.</span>{% endfor %}
+  </div>
+{% endfor %}
+</div>
+{% endblock %}
+
+{% block modals %}
+<div class="overlay" id="nuevo"><form class="modal" method="post" action="/clientes/pendientes" role="dialog" aria-modal="true" aria-labelledby="t-nuevo" style="max-width:720px">
+  <div class="mh"><h2 id="t-nuevo">Nuevo pendiente de cliente</h2><button class="btn ghost" type="button" data-close aria-label="Cerrar" style="width:42px;padding:0">{{ icon('x') }}</button></div>
+  <div class="sec" style="border-top:0">
+    <div class="grid2">
+      <div class="field"><label for="np-t">Tipo</label><select class="input" id="np-t" name="tipo">{% for k, t in tipos.items() %}<option value="{{ k }}">{{ t }}</option>{% endfor %}</select></div>
+      <div class="field"><label for="np-s">Severidad</label><select class="input" id="np-s" name="severidad"><option value="alta">Alta</option><option value="media" selected>Media</option><option value="baja">Baja</option></select></div>
+    </div>
+    <div class="field"><label for="np-ti">¿Qué hay que resolver?</label><input class="input" id="np-ti" name="titulo" required minlength="5" maxlength="200" placeholder="Ej. Corregir el reporte de descargos de octubre"></div>
+    <div class="field"><label for="np-d">Detalle</label><textarea class="input" id="np-d" name="detalle" rows="3" maxlength="2000"></textarea></div>
+    <div class="grid2">
+      {% if agendas %}<div class="field"><label for="np-a">Sesión de origen (opcional)</label><select class="input" id="np-a" name="agenda_id"><option value="">Ninguna</option>{% for a in agendas %}<option value="{{ a.id }}">{{ a.fecha.strftime('%d/%m') }} · {{ nombre_cliente(u, a) }}</option>{% endfor %}</select></div>{% endif %}
+      {% if catalogo %}<div class="field"><label for="np-c">Cliente {{ icon('lock', 13) }}</label><select class="input" id="np-c" name="cliente"><option value="">Elige el cliente</option>{% for rfc, n in catalogo %}<option value="{{ rfc }}|{{ n }}">{{ n }}</option>{% endfor %}</select></div>{% endif %}
+      <div class="field"><label for="np-cn">{{ 'Cliente que no está en el catálogo' if catalogo else 'Cliente' }} {{ icon('lock', 13) }}</label><input class="input" id="np-cn" name="cliente_nombre" maxlength="255"></div>
+    </div>
+    {% if lider %}<div class="grid2">
+      <div class="field"><label for="np-as">Asignar a</label><select class="input" id="np-as" name="asignado_id"><option value="">Dejar como propuesta</option>{% for g in gente %}<option value="{{ g.id }}">{{ g.nombre }}{% if g.area %} · {{ g.area.nombre }}{% endif %}</option>{% endfor %}</select></div>
+      <div class="field"><label for="np-f">Fecha compromiso</label><input class="input" type="date" id="np-f" name="fecha_compromiso"></div></div>
+    {% else %}<span class="small muted">Queda como propuesta hasta que un líder lo confirme y asigne.</span>{% endif %}
+  </div>
+  <div class="mf"><button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn yellow">{{ icon('plus') }}Crear</button></div></form></div>
+{% endblock %}
+
+{% block scripts %}<script>
+(function () {
+  var kan = document.getElementById("kan"), arr = null;
+  function mover(card, estado) {
+    if (estado === card.dataset.estado) return;
+    if (estado === "resuelto") { location.href = "/clientes/pendientes/" + card.dataset.id + "#resolver"; return; }
+    if (estado === "propuesta") return;
+    var fd = new FormData(); fd.append("estado", estado);
+    card.style.opacity = ".5";
+    fetch("/clientes/pendientes/" + card.dataset.id + "/mover", { method: "POST", body: fd, headers: { Accept: "application/json" } })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.ok) { location.reload(); return; }
+        card.style.opacity = "";
+        if (d.resolver) { location.href = "/clientes/pendientes/" + card.dataset.id + "#resolver"; return; }
+        alert(d.mensaje || "No se pudo mover.");
+      }).catch(function () { card.style.opacity = ""; });
+  }
+  kan.addEventListener("dragstart", function (e) {
+    var c = e.target.closest && e.target.closest(".tkc[draggable=true]"); if (!c) return;
+    arr = c; c.classList.add("arrastrando"); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", c.dataset.id);
+  });
+  kan.addEventListener("dragend", function () { if (arr) arr.classList.remove("arrastrando"); arr = null; kan.querySelectorAll(".drop-on").forEach(function (x) { x.classList.remove("drop-on"); }); });
+  kan.addEventListener("dragover", function (e) {
+    var col = e.target.closest(".kcolum"); if (!col || !arr || col.dataset.estado === "propuesta") return;
+    e.preventDefault(); kan.querySelectorAll(".drop-on").forEach(function (x) { if (x !== col) x.classList.remove("drop-on"); }); col.classList.add("drop-on");
+  });
+  kan.addEventListener("drop", function (e) { var col = e.target.closest(".kcolum"); if (!col || !arr) return; e.preventDefault(); col.classList.remove("drop-on"); mover(arr, col.dataset.estado); });
+  kan.addEventListener("click", function (e) { var b = e.target.closest(".kmov"); if (b) mover(b.closest(".tkc"), b.dataset.a); });
+})();
+</script>{% endblock %}

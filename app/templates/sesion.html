@@ -2,7 +2,7 @@
 {% block title %}Sesión con cliente{% endblock %}
 {% block content %}
 {% set r = s.resultado %}
-<div class="top"><div class="col" style="gap:4px"><span class="muted small">{{ tipos.get(s.tipo, s.tipo) }} · {{ fmt_dia(s.fecha) }} · {{ s.palabras }} palabras · cargó {{ s.autor.nombre }}{% if s.compromiso %} · <a href="/compromisos/{{ s.compromiso.id }}">CMP-{{ '%04d' % s.compromiso.id }}</a>{% endif %}</span>
+<div class="top"><div class="col" style="gap:4px"><span class="muted small">{{ tipos.get(s.tipo, s.tipo) }} · {{ fmt_dia(s.fecha) }} · {{ s.palabras }} palabras · cargó {{ s.autor.nombre }}{% if s.compromiso %} · <a href="/compromisos/{{ s.compromiso.id }}">CMP-{{ '%04d' % s.compromiso.id }}</a>{% endif %}{% if agenda %} · <a href="/clientes/agenda/{{ agenda.id }}">Sesión de la agenda #{{ '%04d' % agenda.id }}</a>{% endif %}</span>
   <h1 style="font-size:24px">{{ cliente }}</h1></div>
   <div class="row">{{ ai_badge() }}{% if u.es_direccion or s.autor_id==u.id %}<a class="btn soft sm" href="/sesiones/{{ s.id }}/transcripcion">{{ icon('doc', 16) }}Transcripción</a>{% endif %}
   <form method="post" action="/sesiones/{{ s.id }}/analizar"><button class="btn soft sm">{{ icon('refresh', 16) }}Analizar de nuevo</button></form></div></div>

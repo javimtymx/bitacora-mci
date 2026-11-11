@@ -12,14 +12,15 @@ import logging
 import sys
 
 from .db import SessionLocal
-from .services import acciones, agente, cfdi, diagnostico, parametros
+from .services import acciones, agente, agenda_avisos, cfdi, diagnostico, parametros
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("bitacora.jobs")
 
 TAREAS = {
     "informe-diario": lambda db: f"informe {agente.informe_diario(db).id}",
-    "recordatorios": lambda db: f"{agente.recordatorios(db)} recordatorios",
+    "recordatorios": lambda db: (f"{agente.recordatorios(db)} recordatorios; "
+                                 f"{agenda_avisos.recordatorios(db)} recordatorios de sesiones con cliente"),
     "ejecutar-acciones": lambda db: f"{acciones.ejecutar_pendientes(db)} acciones ejecutadas",
     "sync-cfdi": lambda db: f"{cfdi.sincronizar(db)} comprobantes leídos",
     "diagnostico-semanal": lambda db: (f"{diagnostico.semanal_todas(db)} diagnósticos generados"

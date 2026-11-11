@@ -1,0 +1,76 @@
+{% extends "base.html" %}{% from "_ui.html" import icon, ai_badge with context %}{% from "_lienzo.html" import lienzo with context %}
+{% block title %}Benchmark de competidores{% endblock %}
+{% set ins = con.insights %}
+{% block content %}
+<div class="top">
+  <div class="col" style="gap:4px"><span class="muted small">Clientes · Inteligencia competitiva</span><h1>Benchmark</h1>
+    <span class="muted">Propuesta de valor, lienzo estratégico y matriz ERIC a partir de las juntas con competidores</span></div>
+  <div class="row">{{ ai_badge() }}<button class="btn yellow" type="button" data-open="nueva">{{ icon('upload') }}Cargar junta con competidor</button></div>
+</div>
+
+<div class="tb-pulso card"><div class="tb-pulso-fila">
+  <span class="tb-mini"><b>{{ con.competidores|length }}</b> competidores</span>
+  <span class="tb-mini"><b>{{ con.sesiones|length }}</b> juntas analizadas o en proceso</span>
+  <span class="tb-mini g">{{ icon('up', 13) }}<b>{{ ins.nuestro|length }}</b> diferenciadores nuestros</span>
+  <span class="tb-mini r">{{ icon('dn', 13) }}<b>{{ ins.suyo|length }}</b> diferenciadores suyos</span>
+  <span class="tb-mini o">{{ icon('idea', 13) }}<b>{{ ins.oportunidad|length }}</b> oportunidades de servicio</span>
+  <a class="tb-diag" href="/circulo">{{ icon('idea', 14) }}<span>Van al Círculo de innovación</span><span class="chev">›</span></a>
+</div></div>
+
+<section class="card pad">
+  <div class="row between"><h2>Lienzo estratégico</h2><span class="small muted">Última junta analizada de cada competidor · OneCore: promedio de lo calificado</span></div>
+  {{ lienzo(svg) }}
+  <span class="small muted">Dónde las líneas se separan está la diferenciación; dónde se empalman competimos igual (océano rojo).</span>
+</section>
+
+<section class="card pad">
+  <div class="row between"><h2>Matriz ERIC para OneCore</h2><span class="small muted">Qué cambiar en nuestra propuesta de valor y servicios · últimos 6 meses</span></div>
+  <div class="bm-eric">
+  {% for k, t, c in (('eliminar','Eliminar','r'),('reducir','Reducir','o'),('incrementar','Incrementar','b'),('crear','Crear','g')) %}
+    <div class="bm-eric-c {{ c }}"><h3>{{ t }}</h3>
+      {% for i in ins[k][:6] %}<div class="bm-it"><b>{{ i.titulo }}</b>{% if i.detalle %}<span class="small">{{ i.detalle }}</span>{% endif %}
+        <span class="bm-fuentes">{% for s in i.fuentes %}<a class="small muted" href="/clientes/benchmark/sesiones/{{ s.id }}">{{ s.competidor.nombre }} · {{ fmt_fecha(s.fecha) }}</a>{% endfor %}</span></div>
+      {% else %}<span class="small muted">Sin propuestas.</span>{% endfor %}</div>
+  {% endfor %}
+  </div>
+</section>
+
+<div class="grid2" style="grid-template-columns:repeat(3,1fr);align-items:start">
+{% for k, titulo, c in (('nuestro','Diferenciadores nuestros','g'),('suyo','Diferenciadores del competidor','r'),('oportunidad','Oportunidades de servicio','o')) %}
+  <section class="card pad bm-col {{ c }}"><h3>{{ titulo }}</h3>
+    {% for i in ins[k][:8] %}<div class="bm-it"><div class="row between" style="gap:6px"><b>{{ i.titulo }}</b><span class="prio {{ i.impacto }}">{{ i.impacto }}</span></div>
+      {% if i.detalle %}<span class="small">{{ i.detalle }}</span>{% endif %}
+      {% if i.cita %}<span class="quote small">«{{ i.cita }}»</span>{% endif %}
+      <span class="bm-fuentes">{% if i.fuentes|length > 1 %}<span class="tag n">{{ i.fuentes|length }} competidores</span>{% endif %}{% for s in i.fuentes %}<a class="small muted" href="/clientes/benchmark/sesiones/{{ s.id }}">{{ s.competidor.nombre }} · {{ fmt_fecha(s.fecha) }}</a>{% endfor %}</span></div>
+    {% else %}<span class="small muted">Aún no hay.</span>{% endfor %}
+  </section>
+{% endfor %}
+</div>
+
+<section class="card pad"><h2>Juntas con competidores</h2>
+  <div class="tbl"><table><thead><tr><th>Fecha</th><th>Competidor</th><th>Junta</th><th>Propuesta de valor del competidor</th><th class="num">Insights</th><th>Estado</th></tr></thead><tbody>
+  {% for s in con.sesiones %}<tr><td>{{ fmt_fecha(s.fecha) }}</td><td><b>{{ s.competidor.nombre }}</b></td><td><a href="/clientes/benchmark/sesiones/{{ s.id }}">{{ s.titulo or 'Junta #%04d'|format(s.id) }}</a></td>
+    <td class="small">{{ (s.resultado or {}).get('propuesta_competidor', '') }}</td><td class="num">{{ s.insights|length }}</td>
+    <td><span class="tag {{ {'analizada':'g','analizando':'n','error':'r'}.get(s.estado, 'n') }}">{{ {'analizada':'Analizada','analizando':'Analizando','error':'Error','cargada':'Cargada'}.get(s.estado, s.estado) }}</span></td></tr>
+  {% else %}<tr><td colspan="6" class="muted">Carga la transcripción de la primera junta con un competidor.</td></tr>{% endfor %}
+  </tbody></table></div></section>
+{% endblock %}
+
+{% block modals %}
+<div class="overlay" id="nueva"><form class="modal" method="post" action="/clientes/benchmark/sesiones" enctype="multipart/form-data" data-subidas="transcripcion" role="dialog" aria-modal="true" aria-labelledby="t-bm" style="max-width:760px">
+  <div class="mh"><h2 id="t-bm">Junta con competidor</h2><button class="btn ghost" type="button" data-close aria-label="Cerrar" style="width:42px;padding:0">{{ icon('x') }}</button></div>
+  <div class="sec" style="border-top:0">
+    <div class="grid2">
+      <div class="field"><label for="bm-c">Competidor</label><select class="input" id="bm-c" name="competidor_id"><option value="">Nuevo competidor…</option>{% for c in con.competidores %}<option value="{{ c.id }}">{{ c.nombre }}</option>{% endfor %}</select></div>
+      <div class="field"><label for="bm-n">Nombre (si es nuevo)</label><input class="input" id="bm-n" name="competidor_nuevo" maxlength="160"></div>
+      <div class="field"><label for="bm-f">Fecha de la junta</label><input class="input" type="date" id="bm-f" name="fecha" required value="{{ hoy.isoformat() }}" max="{{ hoy.isoformat() }}"></div>
+      <div class="field"><label for="bm-t">Título</label><input class="input" id="bm-t" name="titulo" maxlength="200" placeholder="Ej. Demo de su módulo de anexo 24"></div>
+    </div>
+    <div class="field"><label for="bm-x">Contexto <span class="muted" style="font-weight:500">· quién convocó, con qué objetivo, qué se quería saber</span></label><textarea class="input" id="bm-x" name="contexto" rows="2" maxlength="3000"></textarea></div>
+    <div class="field"><label for="bm-p">Participantes</label><input class="input" id="bm-p" name="participantes" maxlength="300"></div>
+    <div class="field"><label for="bm-a">Transcripción de la junta (.txt) · la fuente principal</label><div class="drop"><input type="file" id="bm-a" name="archivo" accept=".txt,.vtt,.srt,.md,text/plain" required></div></div>
+    <div class="field"><label for="bm-s">Pantallas (opcional) · imágenes o PDF, hasta 8</label><div class="drop"><input type="file" id="bm-s" name="pantallas" multiple accept=".png,.jpg,.jpeg,.webp,.gif,.pdf"></div></div>
+    <span class="small muted">{{ guardia }} arma el lienzo de propuesta de valor, el lienzo estratégico (océano azul) y la matriz ERIC, con citas textuales. La transcripción completa solo la ven Dirección y quien la carga.</span>
+  </div>
+  <div class="mf"><button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn aibtn">{{ icon('ia') }}<span>Cargar y analizar con Guard<span class="gia">IA</span></span></button></div></form></div>
+{% endblock %}

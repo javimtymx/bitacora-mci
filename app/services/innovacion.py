@@ -14,6 +14,9 @@ from ..models import (
     EstrategiaEvento,
     Hallazgo,
     Idea,
+    InsightBenchmark,
+    PendienteCliente,
+    SesionCompetidor,
     Iniciativa,
     Mci,
     Objecion,
@@ -37,7 +40,12 @@ def fuentes(db: Session) -> dict:
     hall = list(db.scalars(select(Hallazgo).join(SesionCliente).where(SesionCliente.fecha >= desde,
                                                                        Hallazgo.sentimiento != "positivo")))
     objs = list(db.scalars(select(Objecion).join(SesionCliente).where(SesionCliente.fecha >= desde)))
-    return {"ideas": ideas, "hallazgos": hall, "objeciones": objs,
+    # quejas y tareas de clientes (agenda mensual) que un líder confirmó; y conclusiones del benchmark de competidores
+    quejas = list(db.scalars(select(PendienteCliente).where(PendienteCliente.estado.notin_(("propuesta", "descartado")),
+                                                            PendienteCliente.creado >= desde)))
+    bench = list(db.scalars(select(InsightBenchmark).join(SesionCompetidor).where(
+        SesionCompetidor.fecha >= desde, InsightBenchmark.tipo.in_(("oportunidad", "suyo", "crear", "incrementar")))))
+    return {"ideas": ideas, "hallazgos": hall, "objeciones": objs, "quejas": quejas, "benchmark": bench,
             "aprobadas": sum(1 for i in ideas if i.estado in ("validada", "en_curso"))}
 
 
@@ -48,11 +56,17 @@ def consolidar(db: Session, c: CirculoInnovacion, usuario: Usuario) -> CirculoIn
                    for i in f["ideas"][:80]) or "- (ninguna)"
     lh = "\n".join(f"- H{h.id} | {h.cuadrante} | {h.tema} | «{h.cita[:160]}»" for h in f["hallazgos"][:150]) or "- (ninguno)"
     lo = "\n".join(f"- O{o.id} | {o.tipo} | «{o.cita[:160]}»" for o in f["objeciones"][:80]) or "- (ninguna)"
+    lq = "\n".join(f"- Q{q.id} | {q.tipo} | {q.severidad} | {q.titulo} | «{(q.cita or q.detalle)[:160]}»"
+                   for q in f["quejas"][:80]) or "- (ninguna)"
+    lb = "\n".join(f"- B{b.id} | {b.tipo} | {b.sesion.competidor.nombre} | {b.titulo} | {b.detalle[:160]}"
+                   for b in f["benchmark"][:80]) or "- (ninguno)"
     lm = "\n".join(f"- {m.clave} | {m.area.nombre} | {m.nombre}" for m in mcis)
     area = db.scalar(select(Area).where(Area.clave == "innovacion"))
     p = diagnostico.prompt_vigente(db, area) if area else None
     prompt = f"""Prepara el análisis para el Círculo de Innovación mensual de OneCore.
-Consolida ideas del equipo (I), hallazgos de la voz del cliente (H) y objeciones de ventas (O) en iniciativas: una
+Consolida ideas del equipo (I), hallazgos de la voz del cliente (H), objeciones de ventas (O), quejas y tareas de
+clientes de la agenda mensual (Q) y conclusiones del benchmark de competidores (B: oportunidades de servicio,
+diferenciadores del competidor y lo que conviene crear o incrementar) en iniciativas: una
 iniciativa junta todo lo que habla del MISMO problema. No inventes iniciativas sin fuentes. Cada iniciativa:
 título corto, descripción (qué se haría), impacto 1-5 y esfuerzo 1-5 (justificados por la evidencia), la MCI que más
 mueve (clave de la lista) y las fuentes que la sostienen. Elige como cita el código H u O más representativo.
@@ -68,15 +82,21 @@ Voz del cliente:
 {lh}
 Objeciones:
 {lo}
+Quejas y tareas de clientes:
+{lq}
+Benchmark de competidores:
+{lb}
 </datos>
 
 JSON: {{"lectura":"5-7 frases","iniciativas":[{{"titulo":"...","descripcion":"...","impacto":4,"esfuerzo":2,"mci":"clave",
-"fuentes":{{"ideas":["I1"],"hallazgos":["H3"],"objeciones":["O2"]}},"cita":"H3"}}],"sueltas":[{{"idea":"I7","motivo":"..."}}]}}
+"fuentes":{{"ideas":["I1"],"hallazgos":["H3"],"objeciones":["O2"],"quejas":["Q4"],"benchmark":["B2"]}},"cita":"H3"}}],"sueltas":[{{"idea":"I7","motivo":"..."}}]}}
 Máximo 8 iniciativas, ordenadas de mayor a menor evidencia."""
     res, meta = ia.cliente().pedir_json(prompt, max_tokens=4000, system=diagnostico.system_area(p))
     ids_i = {i.id for i in f["ideas"]}
     ids_h = {h.id: h for h in f["hallazgos"]}
     ids_o = {o.id: o for o in f["objeciones"]}
+    ids_q = {q.id: q for q in f["quejas"]}
+    ids_b = {b.id: b for b in f["benchmark"]}
     por_clave = {m.clave: m for m in mcis}
 
     def codigos(lista, pref, validos):
@@ -101,7 +121,8 @@ Máximo 8 iniciativas, ordenadas de mayor a menor evidencia."""
             continue
         fu = it.get("fuentes") if isinstance(it.get("fuentes"), dict) else {}
         fs = {"ideas": codigos(fu.get("ideas"), "I", ids_i), "hallazgos": codigos(fu.get("hallazgos"), "H", ids_h),
-              "objeciones": codigos(fu.get("objeciones"), "O", ids_o)}
+              "objeciones": codigos(fu.get("objeciones"), "O", ids_o), "quejas": codigos(fu.get("quejas"), "Q", ids_q),
+              "benchmark": codigos(fu.get("benchmark"), "B", ids_b)}
         if not any(fs.values()):
             continue
         cita = ""
@@ -110,6 +131,10 @@ Máximo 8 iniciativas, ordenadas de mayor a menor evidencia."""
             cita = ids_h[int(ct[1:])].cita
         elif ct.startswith("O") and ct[1:].isdigit() and int(ct[1:]) in ids_o:
             cita = ids_o[int(ct[1:])].cita
+        elif ct.startswith("Q") and ct[1:].isdigit() and int(ct[1:]) in ids_q:
+            cita = ids_q[int(ct[1:])].cita or ids_q[int(ct[1:])].titulo
+        elif ct.startswith("B") and ct[1:].isdigit() and int(ct[1:]) in ids_b:
+            cita = ids_b[int(ct[1:])].cita or ids_b[int(ct[1:])].titulo
         elif fs["hallazgos"]:
             cita = ids_h[fs["hallazgos"][0]].cita
         imp = max(1, min(5, int(it.get("impacto") or 3)))
@@ -127,7 +152,7 @@ Máximo 8 iniciativas, ordenadas de mayor a menor evidencia."""
                 sueltas.append({"idea_id": n[0], "motivo": str(s.get("motivo") or "")[:300]})
     c.analisis = {"lectura": str(res.get("lectura") or "")[:3000], "sueltas": sueltas, "modelo": meta.get("modelo"),
                   "fuentes": {"ideas": len(f["ideas"]), "aprobadas": f["aprobadas"], "hallazgos": len(f["hallazgos"]),
-                              "objeciones": len(f["objeciones"])}}
+                              "objeciones": len(f["objeciones"]), "quejas": len(f["quejas"]), "benchmark": len(f["benchmark"])}}
     c.estado = "votacion" if orden else "preparacion"
     auditar(db, "consolidar", "circulo", c.id, usuario.id, iniciativas=orden)
     db.commit()
@@ -183,7 +208,9 @@ def decidir(db: Session, c: CirculoInnovacion, u: Usuario, decisiones: dict[int,
                                                                           + ini.titulo)[:200],
                              descripcion=ini.descripcion, hipotesis=f"Decidida en {c.nombre} con evidencia de "
                              f"{len(ini.fuentes.get('ideas', []))} ideas, {len(ini.fuentes.get('hallazgos', []))} "
-                             f"hallazgos de clientes y {len(ini.fuentes.get('objeciones', []))} objeciones.",
+                             f"hallazgos de clientes, {len(ini.fuentes.get('objeciones', []))} objeciones, "
+                             f"{len(ini.fuentes.get('quejas', []))} quejas o tareas de clientes y "
+                             f"{len(ini.fuentes.get('benchmark', []))} conclusiones de benchmark.",
                              responsable_id=ini.responsable_id, seguimiento="semanal", creado_por=u.id)
             db.add(est)
             db.flush()

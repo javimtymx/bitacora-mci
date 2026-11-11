@@ -277,7 +277,19 @@ def socio_guardar(pid: int, request: Request, narrativa: str = Form(""), accion:
 
 @router.get("/perfil")
 def perfil(request: Request, u: Usuario = Depends(usuario_actual)):
-    return render(request, "perfil.html", u, "")
+    from ..models import PUESTOS
+    return render(request, "perfil.html", u, "", puestos=PUESTOS)
+
+
+@router.post("/perfil/avisos")
+def perfil_avisos(request: Request, avisos_agenda: bool = Form(False), db: Session = Depends(get_db),
+                  u: Usuario = Depends(usuario_actual)):
+    if u.recibe_agenda != avisos_agenda:
+        auditar(db, "avisos_agenda", "usuario", u.id, u.id, antes=u.recibe_agenda, despues=avisos_agenda)
+    u.avisos_agenda = avisos_agenda
+    db.commit()
+    flash(request, "Avisos de la agenda de clientes " + ("activados." if avisos_agenda else "desactivados."))
+    return ir("/perfil")
 
 
 @router.post("/perfil/password")

@@ -178,7 +178,8 @@ JSON: {{"evidencia":{{"corresponde":true,"motivo":"..."}},"resumen":"3 frases","
 
 
 TIPOS_SESION = {"retencion": "1:1 de retención", "objeciones": "Sesión comercial con objeciones",
-                "venta_nueva": "Venta nueva · encaje de propuesta de valor"}
+                "venta_nueva": "Venta nueva · encaje de propuesta de valor", "agenda": "Sesión de la agenda de clientes"}
+TIPOS_CARGA = {k: v for k, v in TIPOS_SESION.items() if k != "agenda"}  # la de agenda se carga desde su sesión planeada
 
 # Portafolio contra el que se evalúa el encaje. Ajustable aquí mientras no viva en el Catálogo.
 PORTAFOLIO = [
@@ -281,6 +282,8 @@ OBJETIVO_SINTESIS = {
     "objeciones": "objeciones del prospecto y cómo respondió el vendedor, dolor, impacto, quién decide y siguiente paso",
     "venta_nueva": "lo que valora el cliente, frustraciones, necesidades, productos que le interesaron, lo que se le ofreció, "
                    "precio, competencia y siguiente paso",
+    "agenda": "cada punto de la agenda y si se trató, quejas, tareas que OneCore se comprometió a hacer, necesidades, "
+              "riesgo de baja, acuerdos con fecha y quién participó",
 }
 
 
@@ -350,8 +353,13 @@ def analizar(db: Session, s: SesionCliente) -> SesionCliente:
     proceso["modelo_analisis"] = getattr(s_cfg, "ia_modelo", "")
     comp_txt = s.compromiso.texto if s.compromiso else ""
     temas = _temas_existentes(db, s.area_id)
-    fn = {"objeciones": _prompt_objeciones, "venta_nueva": _prompt_venta_nueva}.get(s.tipo, _prompt_retencion)
-    prompt = fn(s, para_analizar, comp_txt, temas) + ("\nCitas: fragmentos exactos y breves (máximo 40 palabras cada una); "
+    if s.tipo == "agenda":
+        from . import clientes
+        prompt = clientes.prompt_agenda(db, s, para_analizar, temas)
+    else:
+        fn = {"objeciones": _prompt_objeciones, "venta_nueva": _prompt_venta_nueva}.get(s.tipo, _prompt_retencion)
+        prompt = fn(s, para_analizar, comp_txt, temas)
+    prompt = prompt + ("\nCitas: fragmentos exactos y breves (máximo 40 palabras cada una); "
                                               "frases cortas en todo lo demás.")
     res, meta = ia.cliente().pedir_json(prompt, max_tokens=8000)
     tn = _norm(texto)
@@ -426,6 +434,9 @@ def analizar(db: Session, s: SesionCliente) -> SesionCliente:
         "proceso": proceso,
         "modelo": meta.get("modelo"), "prompt_version": PROMPT_VERSION,
     }
+    if s.tipo == "agenda":
+        from . import clientes
+        descartadas += clientes.aplicar_analisis(db, s, res, tn)
     s.riesgo_baja = rb if rb in ("alto", "medio", "bajo") else ""
     s.citas_descartadas = descartadas
     s.evidencia_verificada = bool(ev.get("corresponde")) and s.consentimiento
@@ -492,6 +503,9 @@ def analizar_en_fondo(sid: int) -> None:
             db.rollback()
             s = db.get(SesionCliente, sid)
             s.estado = "error"
+            if s.tipo == "agenda":
+                from . import clientes
+                clientes.error_analisis(db, s)
             s.resultado = {**(s.resultado or {}), "error": str(e)[:300] if isinstance(e, (ia.IANoDisponible, ValueError))
                            else "Ocurrió un error inesperado al analizar. Intenta de nuevo."}
             auditar(db, "analizar_error", "sesion_cliente", s.id, s.autor_id, error=str(e)[:300])

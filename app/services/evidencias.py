@@ -102,6 +102,31 @@ def borrar_archivo(ev: EvidenciaArchivo) -> None:
     almacen.borrar(ev.ruta)
 
 
+def retirar(db: Session, c: Compromiso, ev: EvidenciaArchivo, u: Usuario, motivo: str) -> None:
+    """La evidencia sale del cierre y del diagnóstico, pero el archivo y su registro se conservan."""
+    ev.retirada, ev.retirada_en, ev.retirada_por, ev.retirada_motivo = True, utcnow(), u.id, motivo.strip()[:1000]
+    db.flush()
+    db.expire(c, ["evidencias", "evidencias_retiradas"])
+    auditar(db, "retirar_evidencia", "compromiso", c.id, u.id, archivo=ev.nombre, sha256=ev.sha256, motivo=ev.retirada_motivo)
+
+
+def _archivar_verificacion(detalle: dict) -> dict:
+    """Antes de una verificación nueva, la anterior pasa al historial del cierre (no se pierde el diagnóstico previo)."""
+    previo = {k: detalle.get(k) for k in ("veredicto", "confianza", "motivo", "falta", "cumple", "verificado_en") if detalle.get(k)}
+    if previo:
+        detalle["historial"] = (detalle.get("historial") or [])[-9:] + [previo]
+    for k in ("veredicto", "confianza", "motivo", "falta", "cumple", "error", "modelo"):
+        detalle.pop(k, None)
+    return detalle
+
+
+def esperar_evidencia(c: Compromiso) -> None:
+    """Cumplido sin evidencia vigente: queda pendiente de la evidencia correcta."""
+    d = _archivar_verificacion(dict(c.cierre_detalle or {}))
+    d["error"] = "Se retiró la evidencia del cierre. Sube la evidencia correcta y GuardIA la revisará."
+    c.cierre_veredicto, c.cierre_detalle = "sin_verificar", d
+
+
 # ---------------------------------------------------------------- lectura de contenido para la IA
 
 def _xml_texto(z: zipfile.ZipFile, patron: str) -> str:
@@ -215,7 +240,7 @@ def verificar_en_fondo(cid: int) -> None:
         c = db.get(Compromiso, cid)
         if not c:
             return
-        detalle = dict(c.cierre_detalle or {})
+        detalle = _archivar_verificacion(dict(c.cierre_detalle or {}))
         try:
             r = verificar(db, c)
             c.cierre_veredicto = r["veredicto"]

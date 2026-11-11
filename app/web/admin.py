@@ -52,7 +52,8 @@ def _area_valida(db: Session, clave: str) -> str | None:
 @router.get("/usuarios")
 def usuarios(request: Request, ver: str = "activos", db: Session = Depends(get_db), u: Usuario = Depends(requiere_direccion)):
     q = select(Usuario).where(Usuario.activo.is_(ver == "activos"))
-    return render(request, "admin_usuarios.html", u, "admin", lista=list(db.scalars(q.order_by(Usuario.nombre))),
+    from ..models import PUESTOS
+    return render(request, "admin_usuarios.html", u, "admin", puestos=PUESTOS, lista=list(db.scalars(q.order_by(Usuario.nombre))),
                   areas=_areas(db), roles=ROLES, ver=ver, menus=accesos.MENUS, grupos={**dict((g, t) for g, t, _ in accesos.GRUPOS), "configurar": "Configurar"},
                   por_rol=accesos.por_rol, areas_u=_areas_usuario(db),
                   activos=list(db.scalars(select(Usuario).where(Usuario.activo.is_(True)).order_by(Usuario.nombre))))
@@ -103,7 +104,8 @@ def editar_usuario(uid: int, request: Request, nombre: str = Form(...), rol: str
                    recibe_correos: bool = Form(False), menus: list[str] = Form([]), menus_form: str = Form(""),
                    en_indicador_personas: bool = Form(False), jefe_id: OptInt = Form(None),
                    costo_hora: str = Form("__sin_cambio__"), area_ticket: str = Form("__sin_cambio__"),
-                   avisos_triage: bool = Form(False), db: Session = Depends(get_db), u: Usuario = Depends(requiere_direccion)):
+                   avisos_triage: bool = Form(False), puesto: str = Form("__sin_cambio__"), avisos_agenda: bool = Form(False),
+                   db: Session = Depends(get_db), u: Usuario = Depends(requiere_direccion)):
     x = db.get(Usuario, uid)
     if not x or rol not in ROLES:
         raise HTTPException(400)
@@ -116,6 +118,14 @@ def editar_usuario(uid: int, request: Request, nombre: str = Form(...), rol: str
         if x.avisos_triage != avisos_triage:
             cambios["avisos_triage"] = (x.avisos_triage, avisos_triage)
         x.avisos_triage = avisos_triage
+        if puesto != "__sin_cambio__":
+            from ..models import PUESTOS
+            nuevo_p = puesto if puesto in PUESTOS else None
+            cambios["puesto"] = (x.puesto, nuevo_p)
+            x.puesto = nuevo_p
+        if avisos_agenda != x.recibe_agenda:
+            cambios["avisos_agenda"] = (x.recibe_agenda, avisos_agenda)
+            x.avisos_agenda = avisos_agenda
         if jefe_id:
             j, vistos = db.get(Usuario, jefe_id), {x.id}
             while j is not None:  # sin ciclos: nadie puede ser jefe de su propio jefe

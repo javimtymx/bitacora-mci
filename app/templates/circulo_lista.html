@@ -10,6 +10,8 @@
   <div class="stat"><span class="ico" style="background:var(--mint);color:var(--teal)">{{ icon('idea') }}</span><span style="font-weight:600">Ideas disponibles</span><b>{{ n_ideas }}</b></div>
   <div class="stat"><span class="ico" style="background:var(--mint);color:var(--teal)">{{ icon('users') }}</span><span style="font-weight:600">Hallazgos de clientes</span><b>{{ n_hall }}</b></div>
   <div class="stat"><span class="ico" style="background:var(--mint);color:var(--teal)">{{ icon('target') }}</span><span style="font-weight:600">Objeciones</span><b>{{ n_obj }}</b></div>
+  <div class="stat"><span class="ico" style="background:var(--mint);color:var(--teal)">{{ icon('alert') }}</span><span style="font-weight:600">Quejas y tareas de clientes</span><b>{{ n_quejas }}</b></div>
+  <div class="stat"><span class="ico" style="background:var(--mint);color:var(--teal)">{{ icon('briefcase') }}</span><span style="font-weight:600">Benchmark</span><b>{{ n_bench }}</b></div>
 </div>
 <section class="card pad"><div class="tbl"><table><thead><tr><th>Sesión</th><th>Estado</th><th class="num">Iniciativas</th><th>Creada</th><th></th></tr></thead><tbody>
 {% for c in circulos %}<tr><td><b>{{ c.nombre }}</b></td><td><span class="tag {{ 'b' if c.estado=='votacion' else 'o' if c.estado=='decisiones' else 'g' if c.estado=='cerrado' else 'n' }}">{{ c.estado }}</span></td><td class="num">{{ c.iniciativas|length }}</td><td>{{ fmt_fecha(c.creado) }}</td><td><a class="lnk" href="/circulo/{{ c.id }}">Abrir</a></td></tr>

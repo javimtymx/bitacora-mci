@@ -60,24 +60,33 @@ def _html(cuerpo: str, enlace: str | None, boton: str = "Abrir la bitácora", pi
 
 
 def enviar(destinatarios: list[str], asunto: str, cuerpo: str, enlace: str | None = None, *,
-           boton: str = "Abrir la bitácora", pie: str = PIE, titulo: str = "Bitácora MCI") -> str:
-    """Envía un correo. Devuelve 'enviado' o 'simulado'. Lanza excepción si falla."""
+           boton: str = "Abrir la bitácora", pie: str = PIE, titulo: str = "Bitácora MCI", cc: list[str] | None = None,
+           calendario: tuple[str, str] | None = None) -> str:
+    """Envía un correo. Devuelve 'enviado' o 'simulado'. Lanza excepción si falla.
+    calendario=(método, ics): invitación iCalendar (REQUEST/CANCEL) que Google Calendar y Outlook ofrecen agendar."""
     s = get_settings()
     destinatarios = sorted({d.strip().lower() for d in destinatarios if d and d.strip()})
+    cc = sorted({d.strip().lower() for d in cc or [] if d and d.strip()} - set(destinatarios))
     if not destinatarios:
         raise ValueError("Sin destinatarios con correo")
     ses = (s.correo_proveedor or "").lower() == "ses"
     if s.smtp_dry_run or (not ses and not s.smtp_host):
-        log.info("Correo simulado a %s: %s", destinatarios, asunto)
+        log.info("Correo simulado a %s (cc %s): %s", destinatarios, cc, asunto)
         return "simulado"
     msg = EmailMessage()
     msg["From"] = s.smtp_from
     msg["To"] = ", ".join(destinatarios)
+    if cc:
+        msg["Cc"] = ", ".join(cc)
     msg["Subject"] = asunto
     msg.set_content(cuerpo + (f"\n\n{enlace}" if enlace else ""))
     msg.add_alternative(_html(cuerpo, enlace, boton, pie, titulo), subtype="html")
+    if calendario:
+        metodo, ics = calendario
+        msg.add_alternative(ics, subtype="calendar", params={"method": metodo})
+        msg.add_attachment(ics.encode(), maintype="text", subtype="calendar", filename="invitacion.ics", params={"method": metodo})
     if ses:
-        _cliente_ses().send_raw_email(Source=s.smtp_from, Destinations=destinatarios,
+        _cliente_ses().send_raw_email(Source=s.smtp_from, Destinations=destinatarios + cc,
                                       RawMessage={"Data": msg.as_bytes()})
         log.info("Correo enviado por SES a %s: %s", destinatarios, asunto)
         return "enviado"

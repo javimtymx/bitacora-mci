@@ -9,5 +9,10 @@
   <div class="field"><label>Actual</label><input class="input" type="password" name="actual" required autocomplete="current-password"></div>
   <div class="field"><label>Nueva (mínimo 10 caracteres)</label><input class="input" type="password" name="nueva" required minlength="10" autocomplete="new-password"></div>
   <button class="btn yellow" style="align-self:flex-start">Guardar</button></form>
+<form class="card pad" method="post" action="/perfil/avisos"><h2>Avisos por correo</h2>
+  {% if u.puesto %}<span class="small muted">Puesto: <b>{{ puestos.get(u.puesto, u.puesto) }}</b></span>{% endif %}
+  <label class="check"><input type="checkbox" name="avisos_agenda" value="true" {{ 'checked' if u.recibe_agenda }}><span>Notificarme cada sesión con cliente que se programe en la agenda, con la invitación para Google Calendar y el recordatorio 5 días antes</span></label>
+  <span class="small muted">Comunicación interna. Por omisión lo recibe el responsable de Customer Success. Si eres responsable o invitado de OneCore en una sesión, la invitación te llega siempre.</span>
+  <button class="btn soft" style="align-self:flex-start">Guardar avisos</button></form>
 </div>
 {% endblock %}
