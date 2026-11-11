@@ -121,10 +121,17 @@
     lista.querySelectorAll("li").forEach(function (li) { li.classList.toggle("on", li.dataset.id == a.id); });
     var url = "/evidencias/" + a.id + "?ver=1";
     ver.innerHTML = "";
-    if (/^image\//.test(a.tipo)) { var i = document.createElement("img"); i.src = url; i.alt = a.nombre; ver.appendChild(i); }
+    if (/^image\//.test(a.tipo)) {
+      var i = document.createElement("img"); i.src = url; i.alt = a.nombre; i.title = "Abrir en tamaño real";
+      i.addEventListener("click", function () { window.open(url, "_blank"); });
+      ver.appendChild(i);
+    }
     else if (a.tipo === "application/pdf") { var f = document.createElement("iframe"); f.src = url; f.title = a.nombre; ver.appendChild(f); }
     else { var p = document.createElement("p"); p.className = "rp-visor-nada"; p.textContent = "Este tipo de archivo no se puede ver aquí."; ver.appendChild(p); }
-    var d = document.createElement("a"); d.href = "/evidencias/" + a.id; d.className = "btn soft sm"; d.textContent = "Descargar " + a.nombre; ver.appendChild(d);
+    var bar = document.createElement("div"); bar.className = "row"; bar.style.gap = "8px";
+    var d = document.createElement("a"); d.href = "/evidencias/" + a.id; d.className = "btn soft sm"; d.textContent = "Descargar " + a.nombre; bar.appendChild(d);
+    if (/^image\//.test(a.tipo) || a.tipo === "application/pdf") { var n = document.createElement("a"); n.href = url; n.target = "_blank"; n.rel = "noopener"; n.className = "btn ghost sm"; n.textContent = "Abrir en otra pestaña"; bar.appendChild(n); }
+    ver.appendChild(bar);
   }
   document.addEventListener("click", function (e) {
     var b = e.target.closest(".rp-evid-btn");
@@ -141,6 +148,7 @@
       li.addEventListener("click", function () { mostrar(a); });
       lista.appendChild(li);
     });
+    document.querySelector(".rp-visor-cuerpo").classList.toggle("uno", arch.length === 1);
     if (arch.length) mostrar(arch[0]);
     dlg.showModal();
   });

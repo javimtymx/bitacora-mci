@@ -491,16 +491,17 @@ td.rp-venc{background:#FAD4C8!important}
 .rp-evid-btn{display:inline-flex;align-items:center;gap:6px;border:1px solid #9CC9C3;background:#E9F4F2;color:#0F5E57;border-radius:999px;padding:3px 12px;font-weight:700;font-size:12.5px;cursor:pointer}
 .rp-evid-btn:hover{background:#D5ECE8}
 .rp-sinev{margin-top:5px;font-size:12px;color:#B45309}
-.rp-visor{border:0;border-radius:14px;padding:0;width:min(1100px,94vw);height:min(760px,90vh);box-shadow:0 20px 60px rgba(0,0,0,.35)}
+.rp-visor{border:0;border-radius:12px;padding:0;width:98vw;height:96vh;max-width:none;max-height:none;margin:auto;box-shadow:0 20px 60px rgba(0,0,0,.35)}
 .rp-visor::backdrop{background:rgba(11,23,32,.55)}
 .rp-visor[open]{display:flex;flex-direction:column}
-.rp-visor-cab{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;padding:16px 20px;border-bottom:1px solid var(--line)}
-.rp-visor-cuerpo{flex:1;display:grid;grid-template-columns:260px minmax(0,1fr);min-height:0}
+.rp-visor-cab{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;padding:10px 16px;border-bottom:1px solid var(--line)}
+.rp-visor-cuerpo{flex:1;display:grid;grid-template-columns:230px minmax(0,1fr);min-height:0}
+.rp-visor-cuerpo.uno{grid-template-columns:minmax(0,1fr)}.rp-visor-cuerpo.uno .rp-visor-lista{display:none}
 .rp-visor-lista{list-style:none;margin:0;padding:10px;border-right:1px solid var(--line);overflow:auto;display:flex;flex-direction:column;gap:6px}
 .rp-visor-lista li{padding:8px 10px;border-radius:8px;cursor:pointer;display:flex;flex-direction:column;gap:2px;font-size:13px;overflow-wrap:anywhere}
 .rp-visor-lista li span{font-size:11.5px;color:var(--ink3)}.rp-visor-lista li.on,.rp-visor-lista li:hover{background:#E9F4F2}
-.rp-visor-ver{display:flex;flex-direction:column;gap:10px;align-items:center;justify-content:center;padding:14px;min-height:0;background:#F4F6F8}
-.rp-visor-ver img{max-width:100%;max-height:calc(100% - 50px);object-fit:contain;border-radius:6px;background:#fff}
+.rp-visor-ver{display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;padding:8px;min-height:0;background:#E9EDF0}
+.rp-visor-ver img{flex:1;min-height:0;width:100%;object-fit:contain;cursor:zoom-in}
 .rp-visor-ver iframe{width:100%;flex:1;border:0;background:#fff;border-radius:6px}
 .rp-visor-nada{color:var(--ink3)}
 @media print{.rp-evid-imp{display:inline}.rp-visor{display:none!important}}
