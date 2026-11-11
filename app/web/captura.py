@@ -24,7 +24,7 @@ from ..models import (
 )
 from ..services import acciones, catalogo, ia, parametros, seguimiento
 from ..services.util import auditar, hoy, semana_iso, semanas_atras, viernes
-from .base import check_password, flash, ir, puede_actuar, render, tocar_acceso, usuario_actual, OptInt
+from .base import check_password, flash, ir, puede_actuar, render, tocar_acceso, usuario_actual, OptDate, OptInt
 
 router = APIRouter()
 
@@ -174,6 +174,17 @@ def crear_compromiso(request: Request, area_id: int = Form(...), predictiva_id: 
                      recomendacion_id: OptInt = Form(None),
                      decision: str = Form("ok"), motivo: str = Form(""), db: Session = Depends(get_db),
                      u: Usuario = Depends(usuario_actual)):
+    try:
+        return _crear_compromiso(request, db, u, area_id, predictiva_id, responsable_id, texto, fecha_limite,
+                                 estrategia_id, revision_id, recomendacion_id, decision, motivo)
+    except HTTPException as e:
+        if "application/json" in request.headers.get("accept", ""):  # alta rápida: el mensaje vuelve a la fila
+            return JSONResponse({"ok": False, "mensaje": e.detail}, status_code=e.status_code)
+        raise
+
+
+def _crear_compromiso(request, db, u, area_id, predictiva_id, responsable_id, texto, fecha_limite, estrategia_id,
+                      revision_id, recomendacion_id, decision, motivo):
     opciones = _opciones_captura(db, u)
     if responsable_id not in [r.id for r in opciones["responsables"]]:
         raise HTTPException(403, "No puedes registrar compromisos para esa persona.")
@@ -200,6 +211,8 @@ def crear_compromiso(request: Request, area_id: int = Form(...), predictiva_id: 
     _registrar_decision(db, rev, decision, motivo, c.id)
     auditar(db, "crear", "compromiso", c.id, u.id, decision=decision)
     db.commit()
+    if "application/json" in request.headers.get("accept", ""):  # alta rápida desde la vista de tablero
+        return {"ok": True, "id": c.id}
     flash(request, "Compromiso guardado.")
     return ir(f"/compromisos/{c.id}")
 
@@ -372,6 +385,66 @@ def quitar_evidencia(eid: int, request: Request, db: Session = Depends(get_db), 
     db.commit()
     flash(request, "Evidencia quitada.")
     return ir(f"/compromisos/{c.id}")
+
+
+# ---------------------------------------------------------------- subtareas (vista de tablero)
+
+def _subtarea_json(x) -> dict:
+    return {"id": x.id, "texto": x.texto, "hecha": x.hecha, "fecha": x.fecha.isoformat() if x.fecha else "",
+            "responsable": x.responsable.nombre if x.responsable else ""}
+
+
+@router.post("/compromisos/{cid}/subtareas")
+def crear_subtarea(cid: int, texto: str = Form(""), responsable_id: OptInt = Form(None), fecha: OptDate = Form(None),
+                   db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+    from ..models import CompromisoSubtarea
+    c = _comp_editable(db, cid, u)
+    if c.estado != "abierto":
+        return JSONResponse({"ok": False, "mensaje": "Solo se agregan subtareas a compromisos abiertos."}, status_code=400)
+    texto = " ".join(texto.split())[:500]
+    if len(texto) < 3:
+        return JSONResponse({"ok": False, "mensaje": "Escribe la subtarea."}, status_code=400)
+    if responsable_id and responsable_id not in [r.id for r in _opciones_captura(db, u)["responsables"]]:
+        return JSONResponse({"ok": False, "mensaje": "No puedes asignar a esa persona."}, status_code=403)
+    x = CompromisoSubtarea(compromiso_id=c.id, texto=texto, responsable_id=responsable_id or None, fecha=fecha,
+                           orden=len(c.subtareas) + 1, creado_por=u.id)
+    db.add(x)
+    db.flush()
+    auditar(db, "crear", "subtarea", x.id, u.id, compromiso=c.id)
+    db.commit()
+    db.refresh(x)
+    return {"ok": True, "subtarea": _subtarea_json(x)}
+
+
+@router.post("/subtareas/{sid}/marcar")
+def marcar_subtarea(sid: int, hecha: bool = Form(...), db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+    from ..models import CompromisoSubtarea
+    x = db.get(CompromisoSubtarea, sid)
+    if not x:
+        raise HTTPException(404)
+    c = _comp_editable(db, x.compromiso_id, u)
+    if c.estado != "abierto":
+        return JSONResponse({"ok": False, "mensaje": "El compromiso ya está cerrado."}, status_code=400)
+    x.hecha, x.hecha_en = hecha, (utcnow() if hecha else None)
+    auditar(db, "marcar", "subtarea", x.id, u.id, hecha=hecha)
+    db.commit()
+    return {"ok": True, "subtarea": _subtarea_json(x)}
+
+
+@router.post("/subtareas/{sid}/quitar")
+def quitar_subtarea(sid: int, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+    from ..models import CompromisoSubtarea
+    x = db.get(CompromisoSubtarea, sid)
+    if not x:
+        raise HTTPException(404)
+    c = _comp_editable(db, x.compromiso_id, u)
+    if c.estado != "abierto" or x.hecha:
+        return JSONResponse({"ok": False, "mensaje": "Solo se quitan subtareas pendientes de compromisos abiertos."},
+                            status_code=400)
+    auditar(db, "quitar", "subtarea", x.id, u.id, compromiso=c.id, texto=x.texto)
+    db.delete(x)
+    db.commit()
+    return {"ok": True}
 
 
 @router.post("/compromisos/{cid}/editar")

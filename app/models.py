@@ -267,6 +267,7 @@ class Compromiso(Base):
     estrategia: Mapped[Estrategia | None] = relationship()
     notas: Mapped[list["CompromisoNota"]] = relationship(order_by="CompromisoNota.creado")
     evidencias: Mapped[list["EvidenciaArchivo"]] = relationship(order_by="EvidenciaArchivo.creado")
+    subtareas: Mapped[list["CompromisoSubtarea"]] = relationship(order_by="CompromisoSubtarea.orden, CompromisoSubtarea.id")
     remediaciones: Mapped[list["Remediacion"]] = relationship(
         back_populates="compromiso", order_by="Remediacion.creado"
     )
@@ -323,6 +324,23 @@ class SolicitudEliminacion(Base):
     compromiso: Mapped["Compromiso"] = relationship()
     solicitante: Mapped[Usuario] = relationship(foreign_keys=[solicitado_por])
     resolutor: Mapped[Usuario | None] = relationship(foreign_keys=[resuelto_por])
+
+
+class CompromisoSubtarea(Base):
+    """Pasos de un compromiso (vista de tablero): se marcan hechos; no cambian solos el avance ni el estado."""
+    __tablename__ = "compromiso_subtareas"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    compromiso_id: Mapped[int] = mapped_column(ForeignKey("compromisos.id"), index=True)
+    texto: Mapped[str] = mapped_column(String(500))
+    responsable_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+    fecha: Mapped[date | None] = mapped_column(Date)
+    hecha: Mapped[bool] = mapped_column(Boolean, default=False)
+    hecha_en: Mapped[datetime | None] = mapped_column(DateTime)
+    orden: Mapped[int] = mapped_column(Integer, default=0)
+    creado_por: Mapped[int] = mapped_column(ForeignKey("usuarios.id"))
+    creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    responsable: Mapped[Usuario | None] = relationship(foreign_keys=[responsable_id])
 
 
 class CompromisoNota(Base):

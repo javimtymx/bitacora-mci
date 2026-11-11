@@ -93,12 +93,56 @@ def _consolidado_area(db: Session, area: Area, sem: str, sems8: list[str]) -> di
     ideas = list(db.scalars(select(Idea).where(Idea.area_id == area.id, Idea.creado >= utcnow() - _td(days=90))
                             .order_by(Idea.actualizado.desc())))
     d = diagnostico.ultimo(db, area.id)
-    return {"ayf": _panel_ayf(db, area), "matriz": matriz, "grupos": grupos, "comps_sem": comps_sem, "sems8": sems8,
+    return {"tablero": _tablero_tareas(db, area, preds, comps, abiertos), "ayf": _panel_ayf(db, area), "matriz": matriz, "grupos": grupos, "comps_sem": comps_sem, "sems8": sems8,
             "abiertos": abiertos, "pendientes_sem": {c.semana for c in abiertos},
             "temas": sorted(temas.items(), key=lambda x: -x[1])[:5], "tipos": sorted(tipos.items(), key=lambda x: -x[1][0]),
             "n_ses": n_ses, "ideas": ideas[:5], "ideas_estado": {k: sum(1 for i in ideas if i.estado == k)
                                                                    for k in ("propuesta", "validada", "en_curso", "implementada")},
             "diag": d}
+
+
+COLORES_GRUPO = ("#579BFC", "#A25DDC", "#00C875", "#FDAB3D", "#E2445C", "#0086C0", "#9D50DD", "#037F4C", "#FF642E",
+                 "#66CCFF")
+
+
+def _resumen_grupo(cs, estados) -> dict:
+    from ..services import reporte_semanal as rs
+    n = len(cs)
+    colores = {}
+    for c in cs:
+        k = estados[c.id].color
+        colores[k] = colores.get(k, 0) + 1
+    fechas = [c.fecha_limite for c in cs]
+    subt = [x for c in cs for x in c.subtareas]
+    return {"n": n, "colores": colores, "avance": round(sum(100 if c.estado == "cumplido" else c.avance for c in cs) / n) if n else None,
+            "desde": min(fechas) if fechas else None, "hasta": max(fechas) if fechas else None,
+            "vencidos": sum(1 for c in cs if rs.dias_vencido(c)), "evidencias": sum(len(c.evidencias) for c in cs),
+            "subt": (sum(1 for x in subt if x.hecha), len(subt))}
+
+
+def _tablero_tareas(db: Session, area: Area, preds, comps, abiertos) -> list[dict]:
+    """Vista de tablero (tipo lista de tareas): MCI › grupo por medida predictiva › compromisos › subtareas.
+    Entran los abiertos de cualquier semana y lo cerrado de las semanas visibles."""
+    from ..services import reporte_semanal as rs
+    excs = seguimiento.excepciones_aprobadas(db)
+    todos = {c.id: c for c in list(abiertos) + [c for c in comps if c.estado != "cancelado"]}
+    estados = {cid: rs.estado(c, excs) for cid, c in todos.items()}
+    orden = lambda c: (0 if c.estado == "abierto" else 1, c.fecha_limite, c.id)
+    out, i = [], 0
+    for m in indicadores.mcis_de(db, area.id):
+        grupos = []
+        for p in [p for p in preds if p.mci_id == m.id]:
+            cs = sorted((c for c in todos.values() if c.predictiva_id == p.id), key=orden)
+            grupos.append({"pred": p, "color": COLORES_GRUPO[i % len(COLORES_GRUPO)], "comps": cs,
+                           "res": _resumen_grupo(cs, estados)})
+            i += 1
+        out.append({"mci": m, "grupos": grupos})
+    ids_pred = {p.id for p in preds}
+    sueltos = sorted((c for c in todos.values() if c.predictiva_id not in ids_pred), key=orden)
+    if sueltos:
+        out.append({"mci": None, "grupos": [{"pred": None, "color": "#C4C4C4", "comps": sueltos,
+                                             "res": _resumen_grupo(sueltos, estados)}]})
+    return {"mcis": out, "estados": estados, "rs": rs}
 
 
 def _panel_ayf(db: Session, area: Area) -> list:

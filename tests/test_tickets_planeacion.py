@@ -529,3 +529,39 @@ def test_rendicion_muestra_evidencias(admin, db):
     r = admin.get(f"/evidencias/{ev.id}?ver=1")
     assert r.status_code == 200 and r.headers["content-disposition"].startswith("inline")
     assert admin.get(f"/evidencias/{ev.id}").headers["content-disposition"].startswith("attachment")
+
+
+def test_tablero_de_tareas_subtareas_y_alta_rapida(admin, db, fake):
+    from app.models import Area, Compromiso, CompromisoSubtarea, Mci, Predictiva
+    from app.services.util import hoy, semana_iso
+    a = db.scalar(select(Area).join(Mci, Mci.area_id == Area.id))
+    p = db.scalar(select(Predictiva).join(Mci).where(Mci.area_id == a.id))
+    jm = _u(db, "jmartinez@onecore.mx")
+    c = Compromiso(semana=semana_iso(hoy()), area_id=a.id, responsable_id=jm.id, autor_id=jm.id, predictiva_id=p.id,
+                   texto="Visitar a tres clientes clave del corredor Monterrey", fecha_limite=hoy() + timedelta(days=2))
+    db.add(c)
+    db.commit()
+    html = admin.get(f"/?area={a.clave}").text
+    assert 'data-vista="tablero"' in html and "Tablero de tareas" in html and f'data-comp="{c.id}"' in html
+    assert "+ Agregar compromiso" in html
+    # subtareas
+    r = admin.post(f"/compromisos/{c.id}/subtareas", data={"texto": "Confirmar agenda con los clientes"})
+    assert r.json()["ok"]
+    sid = r.json()["subtarea"]["id"]
+    assert admin.post(f"/subtareas/{sid}/marcar", data={"hecha": "true"}).json()["subtarea"]["hecha"] is True
+    db.expire_all()
+    assert db.get(CompromisoSubtarea, sid).hecha and c.avance == 0  # la subtarea no cambia el avance
+    assert admin.post(f"/subtareas/{sid}/quitar").status_code == 400  # ya hecha no se quita
+    assert "Confirmar agenda con los clientes" in admin.get(f"/?area={a.clave}").text
+    # alta rápida: mismas reglas que el formulario (con IA activa exige la revisión; si es débil, se rechaza)
+    base = {"area_id": a.id, "predictiva_id": p.id, "responsable_id": jm.id, "fecha_limite": (hoy() + timedelta(days=3)).isoformat()}
+    txt = "Llamar a 3 clientes con riesgo alto y registrar su respuesta"
+    r = admin.post("/compromisos", data={**base, "texto": txt}, headers={"Accept": "application/json"})
+    assert r.status_code == 400 and "revisión" in r.json()["mensaje"]
+    fake.respuestas = [{"veredicto": "ok", "observaciones": []}]
+    rev = admin.post("/api/ia/compromiso", data={**base, "texto": txt}).json()
+    r = admin.post("/compromisos", data={**base, "texto": txt, "revision_id": rev["revision_id"], "decision": "ok"},
+                   headers={"Accept": "application/json"})
+    assert r.json()["ok"]
+    r = admin.post("/compromisos", data={**base, "texto": "seguimiento"}, headers={"Accept": "application/json"})
+    assert r.status_code == 400

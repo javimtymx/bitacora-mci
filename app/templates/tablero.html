@@ -103,7 +103,8 @@
     {% if u.es_lider %}<a class="btn sm soft" href="/indicadores/captura">Capturar valores</a>{% endif %}
     <button class="btn sm yellow" type="button" data-open="nuevo-compromiso" data-fill-nc-area="{{ sel.id }}" data-fill-nc-pred="">{{ icon('plus', 15) }}Nuevo compromiso</button>
   </div></div>
-  <div class="tabs vista-tabs" role="tablist"><button type="button" class="on" data-vista="pred" role="tab">Por medida predictiva</button><button type="button" data-vista="lista" role="tab">Compromisos abiertos ({{ cons.abiertos|length }})</button></div>
+  <div class="tabs vista-tabs" role="tablist"><button type="button" class="on" data-vista="pred" role="tab">Por medida predictiva</button><button type="button" data-vista="lista" role="tab">Compromisos abiertos ({{ cons.abiertos|length }})</button><button type="button" data-vista="tablero" role="tab">Tablero de tareas</button></div>
+  {% include "_tablero_tareas.html" %}
   <div data-vista-panel="lista" hidden>
     <span class="small muted">Todos los compromisos abiertos del área, sin agrupar, ordenados por fecha de vencimiento. Cada uno indica su medida predictiva y su semana.</span>
     <div class="subwrap" style="margin:8px 0 0;padding-left:0;border-left:0">{% for c in cons.abiertos %}{{ comp_item(c, true) }}{% else %}<span class="muted small">No hay compromisos abiertos en el área.</span>{% endfor %}</div>
@@ -174,7 +175,7 @@
   tabs.forEach(function (t) { t.addEventListener("click", function () { ver(t.dataset.vista); }); });
   try { var g = localStorage.getItem("tablero-vista"); if (g) ver(g); } catch (e) {}
 })();
-</script>{% endblock %}
+</script><script src="/static/js/tablero_tareas.js?v=1"></script>{% endblock %}
 {% block modals %}{% if cons %}
 {% include "_modal_compromiso.html" %}
 {% for g in cons.grupos %}{% for p, v, fila in g.filas %}{% for c in fila[:-1] if c.compromisos %}

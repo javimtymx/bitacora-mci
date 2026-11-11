@@ -1,0 +1,78 @@
+{# Vista de tablero (tipo lista de tareas): MCI › grupo por medida predictiva › compromisos › subtareas, con alta rápida. #}
+{% set T = cons.tablero %}{% set rs = T.rs %}
+{% set MES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'] %}
+{% macro fcorta(d) %}{{ d.day }} {{ MES[d.month - 1] }}{% endmacro %}
+{% macro inic(n) %}{{ n.split()|map('first')|join('')|upper|truncate(2, True, '') }}{% endmacro %}
+{% set puede_alta = responsables|length > 0 %}
+<div data-vista-panel="tablero" hidden class="tt" data-area="{{ sel.id }}" data-viernes="{{ viernes.isoformat() if viernes else '' }}" data-yo="{{ u.id }}">
+  <div class="tt-barra">
+    <label class="tt-buscar">{{ icon('search', 15) }}<input type="search" placeholder="Buscar compromiso o subtarea" data-tt-buscar aria-label="Buscar"></label>
+    <select class="input tt-sel" data-tt-persona aria-label="Persona"><option value="">Todas las personas</option>
+      {% for r in responsables %}<option value="{{ r.id }}">{{ r.nombre }}</option>{% endfor %}</select>
+    <select class="input tt-sel" data-tt-estado aria-label="Estatus"><option value="">Abiertos y cerrados</option><option value="abierto">Solo abiertos</option><option value="vencido">Solo vencidos</option><option value="cerrado">Solo cerrados</option></select>
+    <button type="button" class="btn sm soft" data-tt-subs="1">Ver subtareas</button>
+    <button type="button" class="btn sm soft" data-tt-subs="0">Ocultar subtareas</button>
+    <span class="muted small">Entran los abiertos de cualquier semana y lo cerrado de las semanas que muestra el tablero.</span>
+  </div>
+
+  {% for m in T.mcis %}
+  <div class="tt-mci">{% if m.mci %}<span class="tt-k">MCI</span>{{ m.mci.nombre }}{% else %}Compromisos sin medida predictiva{% endif %}</div>
+  {% for g in m.grupos %}{% set res = g.res %}
+  <section class="tt-grupo" style="--c:{{ g.color }}" data-grupo>
+    <header class="tt-gcab"><button type="button" class="tt-colapsar" data-tt-colapsar aria-expanded="true" aria-label="Contraer grupo">▾</button>
+      <b>{{ g.pred.nombre if g.pred else 'Sin medida predictiva' }}</b><span class="tt-gn">{{ res.n }} compromiso{{ 's' if res.n != 1 }}</span></header>
+    <div class="tt-scroll"><table class="tt-t">
+      <colgroup><col style="width:38px"><col><col style="width:175px"><col style="width:150px"><col style="width:120px"><col style="width:130px"><col style="width:112px"><col style="width:70px"><col style="width:90px"></colgroup>
+      <thead><tr><th></th><th>Compromiso</th><th>Responsable</th><th class="c">Estatus</th><th class="c">Avance</th><th class="c">Fecha límite</th><th class="c">Días</th><th class="c">Sem.</th><th class="c">Evidencias</th></tr></thead>
+      <tbody>
+      {% for c in g.comps %}{% set e = T.estados[c.id] %}{% set dv = rs.dias_vencido(c) %}{% set dp = rs.dias_por_vencer(c) %}{% set hechas = c.subtareas|selectattr('hecha')|list|length %}
+        <tr class="tt-fila" data-comp="{{ c.id }}" data-persona="{{ c.responsable_id }}" data-estado="{{ 'cerrado' if c.estado != 'abierto' else ('vencido' if dv else 'abierto') }}"
+            data-abierto="{{ 1 if c.estado == 'abierto' else 0 }}" data-texto="{{ (c.texto ~ ' ' ~ (c.subtareas|map(attribute='texto')|join(' ')))|lower }}">
+          <td class="tt-borde"></td>
+          <td class="tt-txt"><div class="tt-txt-in">
+            <button type="button" class="tt-sub-btn" data-tt-sub="{{ c.id }}" aria-expanded="false" title="Subtareas">{{ '▸' }}<span>{{ hechas }}/{{ c.subtareas|length }}</span></button>
+            <a href="/compromisos/{{ c.id }}" class="tt-link"><span class="tt-fol">CMP-{{ '%04d' % c.id }}</span> {{ c.texto }}</a></div></td>
+          <td><span class="tt-persona"><span class="tt-av">{{ inic(c.responsable.nombre) if c.responsable else '—' }}</span>{{ c.responsable.nombre if c.responsable else '—' }}</span></td>
+          <td class="tt-st st-{{ e.color }}" title="{{ e.texto }}">{{ e.texto|replace('No cumplido · ', '')|replace('Abierto · ', '')|capitalize }}</td>
+          <td class="c"><span class="tt-bar"><i style="width:{{ 100 if c.estado == 'cumplido' else c.avance }}%"></i></span><small>{{ 100 if c.estado == 'cumplido' else c.avance }}%</small></td>
+          <td class="c"><span class="tt-fecha {{ 'venc' if dv else ('ok' if c.estado == 'cumplido' else '') }}">{{ fcorta(c.fecha_limite) }}</span></td>
+          <td class="c {{ 'tt-dias-v' if dv else '' }}">{% if dv %}<b>{{ dv }} d vencido</b>{% elif dp is not none %}{{ 'Hoy' if dp == 0 else 'en %d d'|format(dp) }}{% elif c.cerrado %}<span class="muted">cerrado {{ hora_local(c.cerrado)[:5] }}</span>{% else %}—{% endif %}</td>
+          <td class="c">{{ num_semana(c.semana) }}</td>
+          <td class="c">{% if c.evidencias %}<a class="tt-ev" href="/compromisos/{{ c.id }}#evidencias" title="{{ c.evidencias|map(attribute='nombre')|join(', ') }}">{{ icon('clip', 13) }}{{ c.evidencias|length }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>
+        </tr>
+        {% for x in c.subtareas %}
+        <tr class="tt-sub" data-sub-de="{{ c.id }}" hidden><td class="tt-borde"></td>
+          <td class="tt-sub-txt" colspan="2"><label class="tt-check"><input type="checkbox" data-tt-marcar="{{ x.id }}" {{ 'checked' if x.hecha }} {{ 'disabled' if c.estado != 'abierto' }}><span class="{{ 'hecha' if x.hecha }}">{{ x.texto }}</span></label>
+            {% if c.estado == 'abierto' and not x.hecha %}<button type="button" class="tt-x" data-tt-quitar="{{ x.id }}" title="Quitar subtarea" aria-label="Quitar subtarea">✕</button>{% endif %}</td>
+          <td class="c small">{{ x.responsable.nombre if x.responsable else '' }}</td><td></td>
+          <td class="c small">{{ fcorta(x.fecha) if x.fecha else '' }}</td><td colspan="3"></td></tr>
+        {% endfor %}
+        {% if c.estado == 'abierto' %}
+        <tr class="tt-sub tt-sub-nueva" data-sub-de="{{ c.id }}" hidden><td class="tt-borde"></td>
+          <td colspan="8"><form class="tt-sub-form" data-tt-subform="{{ c.id }}"><input class="tt-in" name="texto" placeholder="+ Agregar subtarea" maxlength="500" aria-label="Nueva subtarea">
+            <input class="tt-in tt-in-f" type="date" name="fecha" aria-label="Fecha de la subtarea"><button class="btn sm soft" type="submit">Agregar</button></form></td></tr>
+        {% endif %}
+      {% endfor %}
+      {% if puede_alta and g.pred %}
+        <tr class="tt-agregar"><td class="tt-borde"></td><td colspan="8">
+          <form class="tt-alta" data-tt-alta data-pred="{{ g.pred.id }}">
+            <input class="tt-in tt-in-txt" name="texto" placeholder="+ Agregar compromiso" maxlength="1000" aria-label="Nuevo compromiso para {{ g.pred.nombre }}" autocomplete="off">
+            <span class="tt-alta-mas">
+              <select class="tt-in" name="responsable_id" aria-label="Responsable">{% for r in responsables %}<option value="{{ r.id }}" {{ 'selected' if r.id == u.id }}>{{ r.nombre }}</option>{% endfor %}</select>
+              <input class="tt-in" type="date" name="fecha_limite" value="{{ viernes.isoformat() if viernes else '' }}" required aria-label="Fecha límite">
+              <button class="btn sm yellow" type="submit">Agregar</button></span>
+            <div class="tt-ia" hidden></div>
+          </form></td></tr>
+      {% endif %}
+      </tbody>
+      <tfoot><tr class="tt-resumen"><td></td><td class="muted small">{% if res.subt[1] %}Subtareas {{ res.subt[0] }}/{{ res.subt[1] }}{% endif %}</td><td></td>
+        <td class="c"><span class="tt-bateria" title="Mezcla de estatus">{% for k, n in res.colores|dictsort %}<i class="st-{{ k }}" style="flex:{{ n }}"></i>{% endfor %}{% if not res.n %}<i class="st-vacio" style="flex:1"></i>{% endif %}</span></td>
+        <td class="c">{% if res.avance is not none %}<span class="tt-bar"><i style="width:{{ res.avance }}%"></i></span><small>{{ res.avance }}%</small>{% endif %}</td>
+        <td class="c">{% if res.desde %}<span class="tt-rango">{{ fcorta(res.desde) }} – {{ fcorta(res.hasta) }}</span>{% endif %}</td>
+        <td class="c">{% if res.vencidos %}<b class="tt-rojo">{{ res.vencidos }} vencido{{ 's' if res.vencidos != 1 }}</b>{% endif %}</td>
+        <td class="c small">{{ res.n }}</td><td class="c small">{{ res.evidencias or '' }}</td></tr></tfoot>
+    </table></div>
+  </section>
+  {% endfor %}
+  {% endfor %}
+</div>
