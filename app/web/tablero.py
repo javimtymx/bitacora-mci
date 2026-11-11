@@ -101,23 +101,12 @@ def _consolidado_area(db: Session, area: Area, sem: str, sems8: list[str]) -> di
             "diag": d}
 
 
-COLORES_GRUPO = ("#579BFC", "#A25DDC", "#00C875", "#FDAB3D", "#E2445C", "#0086C0", "#9D50DD", "#037F4C", "#FF642E",
-                 "#66CCFF")
+from ..services.reporte_semanal import COLORES_GRUPO  # compartidos con la junta semanal
 
 
 def _resumen_grupo(cs, estados) -> dict:
     from ..services import reporte_semanal as rs
-    n = len(cs)
-    colores = {}
-    for c in cs:
-        k = estados[c.id].color
-        colores[k] = colores.get(k, 0) + 1
-    fechas = [c.fecha_limite for c in cs]
-    subt = [x for c in cs for x in c.subtareas]
-    return {"n": n, "colores": colores, "avance": round(sum(100 if c.estado == "cumplido" else c.avance for c in cs) / n) if n else None,
-            "desde": min(fechas) if fechas else None, "hasta": max(fechas) if fechas else None,
-            "vencidos": sum(1 for c in cs if rs.dias_vencido(c)), "evidencias": sum(len(c.evidencias) for c in cs),
-            "subt": (sum(1 for x in subt if x.hecha), len(subt))}
+    return rs.resumen_grupo(cs, estados)
 
 
 def _tablero_tareas(db: Session, area: Area, preds, comps, abiertos) -> list[dict]:

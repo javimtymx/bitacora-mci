@@ -207,3 +207,25 @@ def area_reporte(db: Session, area: Area, sems: list[str] | None, mostrar: str =
         mcis.append(MciMes(mci=m, version=sr.version, mes=sr.actual, racha=sr.racha, dec=indicadores.decimales(m),
                            grupos=[g for g in grupos if g.mci and g.mci.id == m.id]))
     return AreaReporte(area=area, mcis=mcis, grupos=grupos, estados=estados)
+
+
+# ---------------------------------------------------------------- vista tipo tablero de tareas (tablero y junta semanal)
+
+COLORES_GRUPO = ("#579BFC", "#A25DDC", "#00C875", "#FDAB3D", "#E2445C", "#0086C0", "#9D50DD", "#037F4C", "#FF642E",
+                 "#66CCFF")
+
+
+def resumen_grupo(cs, estados) -> dict:
+    """Totales de un grupo: mezcla de estatus, avance promedio, rango de fechas, vencidos, evidencias y subtareas."""
+    n = len(cs)
+    colores: dict[str, int] = {}
+    for c in cs:
+        k = estados[c.id].color
+        colores[k] = colores.get(k, 0) + 1
+    fechas = [c.fecha_limite for c in cs]
+    subt = [x for c in cs for x in c.subtareas]
+    return {"n": n, "colores": colores,
+            "avance": round(sum(100 if c.estado == "cumplido" else c.avance for c in cs) / n) if n else None,
+            "desde": min(fechas) if fechas else None, "hasta": max(fechas) if fechas else None,
+            "vencidos": sum(1 for c in cs if dias_vencido(c)), "evidencias": sum(len(c.evidencias) for c in cs),
+            "subt": (sum(1 for x in subt if x.hecha), len(subt))}

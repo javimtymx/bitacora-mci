@@ -88,7 +88,8 @@ def semanal(request: Request, tipo: str = "semana", semana: str | None = None, m
                   mostrar=mostrar, opciones_mostrar=rs.MOSTRAR, rs=rs,
                   mes=mes_ref, reportes=reportes_, semanas=lista_sem, meses=indicadores.meses_disponibles()[::-1],
                   nombre_mes=indicadores.nombre_mes, areas=todas, area_sel=area or "", desde=desde, hasta=hasta,
-                  generado=utcnow(), seg=seguimiento)
+                  generado=utcnow(), seg=seguimiento,
+                  personas=sorted({c.responsable for r in reportes_ for c in r.comps if c.responsable}, key=lambda x: x.nombre))
 
 
 # ---------------------------------------------------------------- descargas Excel

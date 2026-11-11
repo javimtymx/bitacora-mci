@@ -27,84 +27,106 @@
 </form>
 
 <div class="rp">
-{# ------------------------------------------------ vista general #}
+{% set MES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'] %}
+{% macro fcorta(d) %}{{ d.day }} {{ MES[d.month - 1] }}{% endmacro %}
+{% macro inic(n) %}{{ n.split()|map('first')|join('')|upper|truncate(2, True, '') }}{% endmacro %}
+{% macro bateria(colores, n) %}<span class="tt-bateria" title="Mezcla de estatus">{% for k, v in colores|dictsort %}<i class="st-{{ k }}" style="flex:{{ v }}"></i>{% endfor %}{% if not n %}<i class="st-vacio" style="flex:1"></i>{% endif %}</span>{% endmacro %}
+
+{# ------------------------------------------------ portada: vista general por área #}
 <section class="rp-hoja rp-portada">
   <header class="rp-cab"><div><span class="rp-k">OneCore · Junta 4DX · Rendición de cuentas</span><h2>{{ etiqueta }}</h2></div>
     <img src="/static/logo.svg" alt="" class="rp-logo"></header>
-  <table class="rp-gen">
-    <thead><tr><th>Área</th><th>Resultado del mes (MCI)</th><th class="c">✓ Cumplidos</th><th class="c">✗ No cumplidos</th><th class="c">○ Abiertos</th><th class="c">Cumplimiento</th></tr></thead>
+  <div class="tt-grupo" style="--c:#323338"><div class="tt-scroll"><table class="tt-t tt-full jt-gen">
+    <colgroup><col style="width:8px"><col style="width:17%"><col><col style="width:9%"><col style="width:12%"><col style="width:15%"><col style="width:11%"><col style="width:12%"></colgroup>
+    <thead><tr><th></th><th>Área</th><th>Resultado del mes (MCI)</th><th class="c">✓ Cumplidos</th><th class="c">✗ No cumplidos</th><th class="c">○ Abiertos</th><th class="c">Cumplimiento</th><th class="c">Mezcla</th></tr></thead>
     <tbody>
-    {% for r in reportes %}<tr>
-      <td><b class="rp-area">{{ r.area.nombre }}</b><br>{{ ver_tag(r.veredicto) }}</td>
+    {% for r in reportes %}{% set res = rs.resumen_grupo(r.comps, r.estados) %}<tr class="tt-fila">
+      <td class="tt-borde" style="--c:{{ rs.COLORES_GRUPO[loop.index0 % rs.COLORES_GRUPO|length] }}"></td>
+      <td><b class="rp-area">{{ r.area.nombre }}</b><div style="margin-top:4px">{{ ver_tag(r.veredicto) }}</div></td>
       <td>{% for x in r.mcis %}<div>{{ mci_linea(x) }}</div>{% endfor %}</td>
       <td class="c rp-num g">{{ r.cumplidos }}</td>
-      <td class="c rp-num {{ 'r' if r.no_cumplidos }}">{{ r.no_cumplidos }}{% if r.sin_remediacion %}<div class="rp-sm r">{{ r.sin_remediacion }} sin remediación</div>{% endif %}</td>
-      <td class="c rp-num">{{ r.abiertos }}{% if r.vencidos %}<div class="rp-sm r">{{ r.vencidos }} vencido{{ 's' if r.vencidos > 1 }} · el más atrasado {{ r.max_dias_vencido }} día{{ 's' if r.max_dias_vencido != 1 }}</div>{% endif %}</td>
-      <td class="c">{% if r.pct is none %}<span class="tag n">s/d</span>{% else %}<span class="tag {{ 'g' if r.pct >= 85 else ('o' if r.pct >= 65 else 'r') }} rp-pct">{{ '%.0f'|format(r.pct) }}%</span>{% endif %}</td></tr>
-    {% else %}<tr><td colspan="6" class="rp-muted">No hay áreas con MCI.</td></tr>{% endfor %}
-    </tbody></table>
-  <p class="rp-nota">Cumplimiento = cumplidos ÷ (cumplidos + no cumplidos); los abiertos no cuentan hasta cerrarse. Los días vencidos se cuentan desde la fecha límite hasta hoy. Después, el informe de cada área por MCI y medida predictiva: primero lo no cumplido, luego lo abierto y al final lo cumplido.</p>
+      <td class="c"><span class="rp-num {{ 'r' if r.no_cumplidos }}">{{ r.no_cumplidos }}</span>{% if r.sin_remediacion %}<div class="rp-sm r">{{ r.sin_remediacion }} sin remediación</div>{% endif %}</td>
+      <td class="c"><span class="rp-num">{{ r.abiertos }}</span>{% if r.vencidos %}<div class="rp-sm r">{{ r.vencidos }} vencido{{ 's' if r.vencidos > 1 }} · el más atrasado {{ r.max_dias_vencido }} día{{ 's' if r.max_dias_vencido != 1 }}</div>{% endif %}</td>
+      {% if r.pct is none %}<td class="tt-st st-n">s/d</td>{% else %}<td class="tt-st st-{{ 'g' if r.pct >= 85 else ('o' if r.pct >= 65 else 'r') }} jt-pct">{{ '%.0f'|format(r.pct) }}%</td>{% endif %}
+      <td class="c">{{ bateria(res.colores, res.n) }}</td></tr>
+    {% else %}<tr><td class="tt-borde"></td><td colspan="7" class="rp-muted">No hay áreas con MCI.</td></tr>{% endfor %}
+    </tbody></table></div></div>
+  <p class="rp-nota">Cumplimiento = cumplidos ÷ (cumplidos + no cumplidos); los abiertos no cuentan hasta cerrarse. Los días vencidos se cuentan desde la fecha límite hasta hoy. Después, el tablero de cada área por MCI y medida predictiva: primero lo no cumplido, luego lo abierto y al final lo cumplido.</p>
 </section>
 
-{# ------------------------------------------------ informe: área › MCI › medida predictiva › compromisos #}
-{% macro fila(c, r) %}{% set rem = c.remediacion %}{% set nota = (c.notas|selectattr('texto')|list)[-1] if c.notas else none %}
-<tr class="rp-c st-{{ r.estados[c.id].color }}">
-  <td class="rp-fol">CMP-{{ '%04d' % c.id }}</td>
-  <td class="c">{{ num_semana(c.semana) }}</td>
-  <td>{{ estado_comp(c, seg) }}{% if c.cierre_veredicto in ("dudoso", "no_corresponde") %}<div style="margin-top:4px">{{ visor.boton_sospecha(c) }}</div>{% endif %}</td>
-  <td>{{ c.responsable.nombre if c.responsable else '—' }}</td>
-  <td class="rp-txt"><span class="pl">{{ c.texto }}</span>
+{# ------------------------------------------------ filtros rápidos en pantalla (no salen en el PDF) #}
+<div class="tt-barra noprint jt-barra">
+  <label class="tt-buscar">{{ icon('search', 15) }}<input type="search" placeholder="Buscar compromiso, nota o causa" data-jt-buscar aria-label="Buscar"></label>
+  <select class="input tt-sel" data-jt-persona aria-label="Persona"><option value="">Todas las personas</option>
+    {% for p in personas %}<option value="{{ p.id }}">{{ p.nombre }}</option>{% endfor %}</select>
+  <select class="input tt-sel" data-jt-color aria-label="Estatus"><option value="">Todos los estatus</option><option value="r">Rojos: no cumplido o vencido</option><option value="b">Abiertos en tiempo</option><option value="g">Cumplidos</option></select>
+  <button type="button" class="btn sm soft" data-jt-plegar="1">Contraer grupos</button>
+  <span class="muted small">Lo que filtres aquí es lo que sale en el PDF.</span>
+</div>
+
+{# ------------------------------------------------ tablero por área: MCI › medida predictiva (grupo) › compromisos #}
+{% macro fila(c, r) %}{% set e = r.estados[c.id] %}{% set rem = c.remediacion %}{% set nota = (c.notas|selectattr('texto')|list)[-1] if c.notas else none %}
+{% set dv = rs.dias_vencido(c) %}{% set dp = rs.dias_por_vencer(c) %}{% set dt = rs.dias_tarde_cierre(c) %}
+<tr class="tt-fila" data-persona="{{ c.responsable_id }}" data-color="{{ e.color }}"
+    data-texto="{{ (c.texto ~ ' ' ~ (rem.causa ~ ' ' ~ rem.accion if rem else '') ~ ' ' ~ (nota.texto if nota else ''))|lower }}">
+  <td class="tt-borde"></td>
+  <td class="jt-txt"><a href="/compromisos/{{ c.id }}" class="jt-link"><span class="tt-fol">CMP-{{ '%04d' % c.id }}</span> <span class="pl">{{ c.texto }}</span></a>{{ visor.boton_sospecha(c) }}
     {% if rem %}<div class="rp-rem"><b>Causa:</b> <span class="pl">{{ rem.causa }}</span><br><b>Acción:</b> <span class="pl">{{ rem.accion }}</span> · <b>Nueva fecha:</b> {{ fecha(rem.nueva_fecha) }}</div>
     {% elif c.estado == 'no_cumplido' %}<div class="rp-rem r"><b>Sin remediación registrada.</b></div>{% endif %}
-    {% if c.evidencias %}<div class="rp-evid">
-      {{ visor.boton_evidencias(c) }}
-      <span class="rp-evid-imp">Evidencias: {% for e in c.evidencias %}{{ e.nombre }}{{ ', ' if not loop.last }}{% endfor %}</span></div>
-    {% elif c.estado != 'abierto' or c.avance %}<div class="rp-sinev">Sin evidencias cargadas</div>{% endif %}
-    {% if nota %}<div class="rp-notav"><b>Nota {{ hora_local(nota.creado)[:10] }} · {{ nota.usuario.nombre if nota.usuario else '' }}:</b> <span class="pl">{{ nota.texto }}</span></div>{% endif %}</td>
-  {% set dv = rs.dias_vencido(c) %}{% set dp = rs.dias_por_vencer(c) %}{% set dt = rs.dias_tarde_cierre(c) %}
-  <td class="rp-vence {{ 'rp-venc' if dv }}">{{ fecha(c.fecha_limite) }}
-    {% if dv %}<div class="rp-dias">Vencido hace {{ dv }} día{{ 's' if dv != 1 }}</div>
-    {% elif dp is not none %}<div class="rp-sm">{{ 'Vence hoy' if dp == 0 else 'Faltan %d día%s'|format(dp, '' if dp == 1 else 's') }}</div>
-    {% elif c.cerrado and c.estado in ('cumplido','no_cumplido') %}<div class="rp-sm">{{ 'Cumplido' if c.estado == 'cumplido' else 'Cerrado' }} {{ hora_local(c.cerrado)[:10] }}{% if dt %} · <b class="rp-tarde">{{ dt }} día{{ 's' if dt != 1 }} tarde</b>{% endif %}</div>{% endif %}</td>
-  <td class="rp-av"><span class="rp-bar"><i style="width:{{ 100 if c.estado == 'cumplido' else c.avance }}%" class="{{ r.estados[c.id].color }}"></i></span><span>{{ 100 if c.estado == 'cumplido' else c.avance }}%</span></td>
+    {% if nota %}<div class="rp-notav"><b>Nota {{ hora_local(nota.creado)[:10] }} · {{ nota.usuario.nombre if nota.usuario else '' }}:</b> <span class="pl">{{ nota.texto }}</span></div>{% endif %}
+    {% if c.evidencias %}<div class="rp-evid-imp">Evidencias: {% for ev in c.evidencias %}{{ ev.nombre }}{{ ', ' if not loop.last }}{% endfor %}</div>
+    {% elif c.estado != 'abierto' or c.avance %}<div class="rp-sinev">Sin evidencias cargadas</div>{% endif %}</td>
+  <td><span class="tt-persona"><span class="tt-av">{{ inic(c.responsable.nombre) if c.responsable else '—' }}</span>{{ c.responsable.nombre if c.responsable else '—' }}</span></td>
+  <td class="tt-st st-{{ e.color }}" title="{{ e.texto }}">{{ e.texto|replace('No cumplido · ', '')|replace('Abierto · ', '')|capitalize }}</td>
+  <td class="c"><span class="tt-bar"><i class="st-{{ e.color }}" style="width:{{ 100 if c.estado == 'cumplido' else c.avance }}%"></i></span><small>{{ 100 if c.estado == 'cumplido' else c.avance }}%</small></td>
+  <td class="c"><span class="tt-fecha {{ 'venc' if dv else ('ok' if c.estado == 'cumplido' else '') }}">{{ fcorta(c.fecha_limite) }}</span></td>
+  <td class="c {{ 'tt-dias-v rp-venc' if dv }}">{% if dv %}<b>Vencido hace {{ dv }} día{{ 's' if dv != 1 }}</b>
+    {% elif dp is not none %}{{ 'Vence hoy' if dp == 0 else 'Faltan %d día%s'|format(dp, '' if dp == 1 else 's') }}
+    {% elif c.cerrado and c.estado in ('cumplido','no_cumplido') %}<span class="small">{{ 'Cumplido' if c.estado == 'cumplido' else 'Cerrado' }} {{ hora_local(c.cerrado)[:5] }}</span>{% if dt %}<div class="rp-tarde small"><b>{{ dt }} día{{ 's' if dt != 1 }} tarde</b></div>{% endif %}
+    {% else %}—{% endif %}</td>
+  <td class="c">{{ num_semana(c.semana) }}</td>
+  <td class="c">{% if c.evidencias %}{{ visor.boton_evidencias(c, 'tt-ev') }}{% else %}<span class="muted">—</span>{% endif %}</td>
 </tr>{% endmacro %}
 
+{% macro grupo(g, r, color, titulo) %}{% set res = rs.resumen_grupo(g.comps, r.estados) %}
+<section class="tt-grupo jt-grupo" style="--c:{{ color }}" data-grupo>
+  <header class="tt-gcab"><button type="button" class="tt-colapsar noprint" data-jt-colapsar aria-expanded="true" aria-label="Contraer grupo">▾</button>
+    <b>{{ titulo }}</b><span class="tt-gn">{{ res.n }} compromiso{{ 's' if res.n != 1 }} · {{ g.cumplidos }} cumplido{{ 's' if g.cumplidos != 1 }}</span>
+    {% if g.predictiva %}<span class="jt-gdat">{% if g.version and g.version.meta_semanal is not none %}<span>Meta semanal {{ valor(g.version.meta_semanal, g.version.unidad) }}</span>{% endif %}
+      {% for cel in g.celdas %}<span class="rp-cel {{ cel.estado }}">S{{ num_semana(cel.semana) }}: {{ valor(cel.valor, g.version.unidad if g.version else '') if cel.valor is not none else 'sin captura' }}</span>{% endfor %}</span>{% endif %}</header>
+  <div class="tt-scroll"><table class="tt-t tt-full">
+    <colgroup><col style="width:8px"><col><col style="width:140px"><col style="width:132px"><col style="width:104px"><col style="width:96px"><col style="width:118px"><col style="width:52px"><col style="width:150px"></colgroup>
+    <thead><tr><th></th><th>Compromiso</th><th>Responsable</th><th class="c">Estatus</th><th class="c">Avance</th><th class="c">Fecha límite</th><th class="c">Días</th><th class="c">Sem.</th><th class="c">Evidencias</th></tr></thead>
+    <tbody>{% for c in g.comps %}{{ fila(c, r) }}{% else %}<tr><td class="tt-borde"></td><td colspan="8" class="rp-muted">Sin compromisos en el periodo.</td></tr>{% endfor %}</tbody>
+    {% if res.n %}<tfoot><tr class="tt-resumen"><td></td><td class="muted small">{% if res.subt[1] %}Subtareas {{ res.subt[0] }}/{{ res.subt[1] }}{% endif %}</td><td></td>
+      <td class="c">{{ bateria(res.colores, res.n) }}</td>
+      <td class="c">{% if res.avance is not none %}<span class="tt-bar"><i style="width:{{ res.avance }}%"></i></span><small>{{ res.avance }}%</small>{% endif %}</td>
+      <td class="c">{% if res.desde %}<span class="tt-rango">{{ fcorta(res.desde) }} – {{ fcorta(res.hasta) }}</span>{% endif %}</td>
+      <td class="c">{% if res.vencidos %}<b class="tt-rojo">{{ res.vencidos }} vencido{{ 's' if res.vencidos != 1 }}</b>{% endif %}</td>
+      <td class="c small">{{ res.n }}</td><td class="c small">{{ res.evidencias or '' }}</td></tr></tfoot>{% endif %}
+  </table></div>
+</section>{% endmacro %}
+
 {% for r in reportes %}
-<section class="rp-hoja rp-areah">
-  <table class="rp-t">
-    <colgroup><col style="width:7.5%"><col style="width:4.5%"><col style="width:12%"><col style="width:11%"><col><col style="width:9%"><col style="width:11%"></colgroup>
-    <thead>
-      <tr><th colspan="7" class="rp-th-area">
-        <div class="rp-cab rp-cab-area"><div><span class="rp-k">{{ etiqueta }}</span><h2>{{ r.area.nombre }} {{ ver_tag(r.veredicto) }}</h2></div>
-          <div class="rp-totales"><span class="g"><b>{{ r.cumplidos }}</b>cumplidos</span><span class="{{ 'r' if r.no_cumplidos }}"><b>{{ r.no_cumplidos }}</b>no cumplidos</span><span><b>{{ r.abiertos }}</b>abiertos</span>
-            {% if r.pct is not none %}<span><b>{{ '%.0f'|format(r.pct) }}%</b>cumplimiento</span>{% endif %}</div></div></th></tr>
-      <tr class="rp-cols"><th>Folio</th><th class="c">Sem.</th><th>Estatus</th><th>Responsable</th><th>Compromiso</th><th>Vence</th><th>Avance</th></tr>
-    </thead>
-    <tbody>
-    {% for x in r.mcis %}
-      <tr class="rp-mci"><td colspan="7"><div class="rp-mci-in">
-        <div><span class="rp-k2">MCI</span> <b>{{ x.mci.nombre }}</b></div>
-        <div class="rp-mci-dat"><span>Resultado del mes: <b>{% if x.mes and x.mes.valor is not none %}{{ valor(x.mes.valor, x.version.unidad if x.version else '', x.dec) }}{% else %}sin captura{% endif %}</b>
-          <span class="rp-muted">/ meta {{ valor(x.mes.objetivo, x.version.unidad if x.version else '', x.dec) if x.mes and x.mes.objetivo is not none else '—' }}</span></span>{{ ver_tag('ganando' if x.racha[0] in ('ganando','en_meta') else ('perdiendo' if x.racha[0] == 'perdiendo' else ('en_curso' if x.racha[0] == 'en_curso' else 'sin_datos'))) }}
-          <span><b>{{ x.comps|selectattr('estado','equalto','cumplido')|list|length }} de {{ x.comps|length }}</b> cumplidos</span></div></div></td></tr>
-      {% for g in x.grupos %}
-      <tr class="rp-grp"><td colspan="7"><div class="rp-grp-in">
-        <div><span class="rp-k2">Medida predictiva</span> <b>{{ g.predictiva.nombre }}</b></div>
-        <div class="rp-grp-dat">{% if g.version and g.version.meta_semanal is not none %}<span>Meta semanal {{ valor(g.version.meta_semanal, g.version.unidad) }}</span>{% endif %}
-          {% for c in g.celdas %}<span class="rp-cel {{ c.estado }}">S{{ num_semana(c.semana) }}: {{ valor(c.valor, g.version.unidad if g.version else '') if c.valor is not none else 'sin captura' }}</span>{% endfor %}
-          <span><b>{{ g.cumplidos }} de {{ g.comps|length }}</b> cumplidos</span></div></div></td></tr>
-        {% for c in g.comps %}{{ fila(c, r) }}{% else %}<tr class="rp-c"><td colspan="7" class="rp-muted rp-vacio">Sin compromisos en el periodo.</td></tr>{% endfor %}
-      {% endfor %}
-    {% endfor %}
-    {% if r.sueltos %}
-      <tr class="rp-grp"><td colspan="7"><div class="rp-grp-in rp-sin"><div><b>Compromisos sin medida predictiva</b></div>
-        <div class="rp-grp-dat"><span><b>{{ r.sueltos.cumplidos }} de {{ r.sueltos.comps|length }}</b> cumplidos</span></div></div></td></tr>
-      {% for c in r.sueltos.comps %}{{ fila(c, r) }}{% endfor %}
-    {% endif %}
-    </tbody></table>
+<section class="rp-hoja rp-areah jt-area">
+  <header class="rp-cab rp-cab-area"><div><span class="rp-k">{{ etiqueta }}</span><h2>{{ r.area.nombre }} {{ ver_tag(r.veredicto) }}</h2></div>
+    <div class="jt-tot"><span class="g"><b>{{ r.cumplidos }}</b> cumplidos</span><span class="{{ 'r' if r.no_cumplidos }}"><b>{{ r.no_cumplidos }}</b> no cumplidos</span>
+      <span class="{{ 'r' if r.vencidos }}"><b>{{ r.abiertos }}</b> abiertos{% if r.vencidos %} · {{ r.vencidos }} vencidos{% endif %}</span>
+      {% if r.pct is not none %}<span class="jt-pctc st-{{ 'g' if r.pct >= 85 else ('o' if r.pct >= 65 else 'r') }}"><b>{{ '%.0f'|format(r.pct) }}%</b> Cumplimiento</span>{% endif %}</div></header>
+  {% set ns = namespace(i=0) %}
+  {% for x in r.mcis %}
+    <div class="tt-mci"><span class="tt-k">MCI</span>{{ x.mci.nombre }}
+      <span class="jt-mci-dat">Resultado del mes: <b>{% if x.mes and x.mes.valor is not none %}{{ valor(x.mes.valor, x.version.unidad if x.version else '', x.dec) }}{% else %}sin captura{% endif %}</b>
+        <span class="rp-muted">/ meta {{ valor(x.mes.objetivo, x.version.unidad if x.version else '', x.dec) if x.mes and x.mes.objetivo is not none else '—' }}</span>
+        {{ ver_tag('ganando' if x.racha[0] in ('ganando','en_meta') else ('perdiendo' if x.racha[0] == 'perdiendo' else ('en_curso' if x.racha[0] == 'en_curso' else 'sin_datos'))) }}
+        <span><b>{{ x.comps|selectattr('estado','equalto','cumplido')|list|length }} de {{ x.comps|length }}</b> cumplidos</span></span></div>
+    {% for g in x.grupos %}{{ grupo(g, r, rs.COLORES_GRUPO[ns.i % rs.COLORES_GRUPO|length], g.predictiva.nombre) }}{% set ns.i = ns.i + 1 %}{% endfor %}
+  {% endfor %}
+  {% if r.sueltos %}<div class="tt-mci">Compromisos sin medida predictiva</div>{{ grupo(r.sueltos, r, '#8A949E', 'Sin medida predictiva') }}{% endif %}
 </section>
 {% endfor %}
 {{ visor.dialogo() }}
+<script src="/static/js/junta_semanal.js?v=1" defer></script>
 <div class="rp-pie">Generado {{ hora_local(generado) }} · Bitácora MCI OneCore</div>
 </div>
 {% endblock %}
