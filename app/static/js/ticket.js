@@ -53,10 +53,19 @@
       });
     });
   }
+  // En un combo solo se pone un valor que exista en la lista (sin importar mayúsculas ni acentos).
+  const sinAcentos = (t) => (t || "").toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  function opcionDe(el, v) {
+    if (el.tagName !== "SELECT") return v;
+    const o = Array.from(el.options).find((x) => x.value && (sinAcentos(x.value) === sinAcentos(v) || sinAcentos(x.textContent) === sinAcentos(v)));
+    return o ? o.value : null;
+  }
   function llenar(nuevos) {
     Object.entries(nuevos || {}).forEach(([k, v]) => {
       const el = campo(k);
       if (!el || !v) return;
+      v = opcionDe(el, v);
+      if (v === null) return;
       if (k === "titulo" && st.tituloManual) return;
       if (k === "titulo" || !el.value.trim() || el.dataset.auto === "1") {
         el.dataset.auto = "1";
@@ -378,7 +387,7 @@
   function guardarBorrador() { try { localStorage.setItem(BORRADOR, JSON.stringify(valores())); } catch (e) { /* sin almacenamiento */ } }
   try {
     const b = JSON.parse(localStorage.getItem(BORRADOR) || "null");
-    if (b) CAMPOS.forEach((n) => { if (b[n]) campo(n).value = b[n]; });
+    if (b) CAMPOS.forEach((n) => { const v = b[n] ? opcionDe(campo(n), b[n]) : null; if (v) campo(n).value = v; });
   } catch (e) { /* sin almacenamiento */ }
   cascada();
   clienteDesdeRFC();

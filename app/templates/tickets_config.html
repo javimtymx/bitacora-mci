@@ -84,11 +84,29 @@
   <span class="muted small">Un tipo nuevo empieza sin datos requeridos: márcalos arriba en «Datos requeridos por tipo». La prioridad del impacto es la que se usa cuando GuardIA no responde.</span>
 </section>
 
+<form class="card pad" method="post" action="/tickets-config/opciones/producto" id="productos">
+  <div class="row between"><h2>Productos</h2><span class="muted small">Alta: escribe el nombre en una fila nueva. Baja: desmarca «Activo». Cambio: corrige el nombre.</span></div>
+  <span class="muted small">Es la lista que eligen los usuarios al levantar un ticket. Al dar de baja un producto deja de ofrecerse, pero sus tickets lo conservan.
+    Al cambiarle el nombre se actualizan sus tickets y sus pantallas, para que los informes no lo partan en dos.</span>
+  <div class="tbl"><table><thead><tr><th style="width:70px">Orden</th><th>Nombre</th><th>Activo</th><th class="num">Tickets</th></tr></thead><tbody>
+  {% for o in op_producto %}{% set i = loop.index0 %}<tr class="{{ '' if o.activo else 'muted' }}">
+    <td><input type="hidden" name="id_{{ i }}" value="{{ o.id }}"><input class="input" name="orden_{{ i }}" value="{{ o.orden }}" inputmode="numeric" style="width:60px" aria-label="Orden"></td>
+    <td><input class="input" name="etiqueta_{{ i }}" value="{{ o.etiqueta }}" maxlength="80" required aria-label="Nombre del producto"></td>
+    <td><label class="check"><input type="checkbox" name="activo_{{ i }}" value="1" {{ 'checked' if o.activo }}><span>{{ 'Sí' if o.activo else 'Dado de baja' }}</span></label></td>
+    <td class="num small">{{ uso_producto.get(o.clave, 0) }}</td></tr>{% endfor %}
+  {% set base = op_producto|length %}{% for k in range(3) %}{% set i = base + k %}<tr>
+    <td><input class="input" name="orden_{{ i }}" value="{{ 90 + k }}" inputmode="numeric" style="width:60px" aria-label="Orden"></td>
+    <td><input class="input" name="etiqueta_{{ i }}" maxlength="80" placeholder="Nuevo producto (opcional)" aria-label="Nuevo producto"></td>
+    <td class="muted small">Nuevo</td><td></td></tr>{% endfor %}
+  </tbody></table></div>
+  <button class="btn dark" type="submit" style="align-self:flex-start">{{ icon('ok') }}Guardar productos</button>
+</form>
+
 <form class="card pad" method="post" action="/tickets-config/catalogo" id="catalogo">
-  <div class="row between"><h2>Catálogo de producto › menú › pantalla</h2><span class="muted small">Una línea por pantalla</span></div>
+  <div class="row between"><h2>Menús y pantallas por producto</h2><span class="muted small">Una línea por pantalla: Producto › Menú › Pantalla</span></div>
   <textarea class="input" name="catalogo" style="padding:12px;min-height:220px;font:500 13px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace"
     placeholder="SAFE › Validación › Pedimentos por validar&#10;Smart Files › Expedientes › Búsqueda">{{ catalogo_txt }}</textarea>
-  <div class="row between"><span class="muted small">El usuario elige de esta lista al levantar el ticket y GuardIA la usa para ubicar el problema. Lo que quites deja de ofrecerse; los tickets viejos no cambian.</span>
+  <div class="row between"><span class="muted small">El usuario elige de esta lista al levantar el ticket y GuardIA la usa para ubicar el problema. Lo que quites deja de ofrecerse; los tickets viejos no cambian. Si escribes un producto que no existe, se da de alta en «Productos».</span>
     <button class="btn dark" type="submit">{{ icon('ok') }}Guardar catálogo</button></div>
 </form>
 {% endblock %}

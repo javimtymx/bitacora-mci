@@ -14,7 +14,8 @@
   <div class="row between"><h2>Lo indispensable</h2><span class="muted small"><span class="ast">*</span> Obligatorio</span></div>
   <div class="grid3">
     <div class="field"><label for="tk-producto">Producto <span class="ast">*</span></label>
-      <input class="input" id="tk-producto" name="producto" list="tk-l-producto" required maxlength="80" placeholder="Ej. SAFE"></div>
+      <select class="input" id="tk-producto" name="producto" required><option value="">Elige…</option>
+        {% for p in catalogo %}<option value="{{ p }}">{{ p }}</option>{% endfor %}</select></div>
     <div class="field"><label for="tk-tipo">Tipo <span class="ast">*</span></label>
       <select class="input" id="tk-tipo" name="tipo" required><option value="">Elige…</option>
         {% for k, v in tipos.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></div>
@@ -22,7 +23,6 @@
       <select class="input" id="tk-impacto" name="impacto" required><option value="">Elige…</option>
         {% for k, v in impactos.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></div>
   </div>
-  <datalist id="tk-l-producto">{% for p in catalogo %}<option value="{{ p }}">{% endfor %}</datalist>
   <datalist id="tk-l-menu"></datalist><datalist id="tk-l-pantalla"></datalist>
   <div class="field" data-req="descripcion">
     <label for="tk-descripcion">Describe qué pasa <span class="ast">*</span></label>
@@ -84,4 +84,4 @@
 </div>
 <script type="application/json" id="tk-datos">{{ {"catalogo": catalogo, "requeridos": requeridos, "campos": campos_req, "prompt_version": prompt_version, "ia": ia_ok} | tojson }}</script>
 {% endblock %}
-{% block scripts %}<script src="/static/js/ticket.js?v=8"></script>{% endblock %}
+{% block scripts %}<script src="/static/js/ticket.js?v=9"></script>{% endblock %}

@@ -181,17 +181,19 @@ def aprobar_regla(db: Session, u: Usuario, r: TicketRegla, texto: str | None = N
 
 
 def catalogo(db: Session) -> dict[str, dict[str, list[str]]]:
-    """{producto: {menú: [pantallas]}}. Si está vacío, carga los productos de OneCore para empezar."""
-    filas = db.scalars(select(TicketCatalogo).where(TicketCatalogo.activo.is_(True))
-                       .order_by(TicketCatalogo.producto, TicketCatalogo.menu, TicketCatalogo.pantalla)).all()
-    if not filas and not db.scalar(select(func.count(TicketCatalogo.id))):
+    """{producto: {menú: [pantallas]}} con los productos activos del catálogo de productos."""
+    if not db.scalar(select(func.count(TicketCatalogo.id))) and not db.scalar(
+            select(func.count(TicketOpcion.id)).where(TicketOpcion.catalogo == "producto")):
         for prod in PRODUCTOS_INICIALES:
             db.add(TicketCatalogo(producto=prod, menu="", pantalla=""))
         db.flush()
-        return catalogo(db)
-    out: dict[str, dict[str, list[str]]] = {}
+    out: dict[str, dict[str, list[str]]] = {p: {} for p in productos(db)}
+    filas = db.scalars(select(TicketCatalogo).where(TicketCatalogo.activo.is_(True))
+                       .order_by(TicketCatalogo.producto, TicketCatalogo.menu, TicketCatalogo.pantalla)).all()
     for f in filas:
-        menus = out.setdefault(f.producto, {})
+        if f.producto not in out:
+            continue  # producto dado de baja
+        menus = out[f.producto]
         if f.menu:
             pantallas = menus.setdefault(f.menu, [])
             if f.pantalla:
@@ -214,7 +216,14 @@ def guardar_catalogo(db: Session, u: Usuario, texto: str) -> int:
         partes = [p.strip()[:160] for p in re.split(r"\s*(?:›|>|\|)\s*", linea.strip()) if p.strip()]
         if not partes:
             continue
-        clave = (partes[0][:80], partes[1][:120] if len(partes) > 1 else "", partes[2] if len(partes) > 2 else "")
+        prod = partes[0][:80]
+        for p in productos(db, True):  # se escribe igual que en el catálogo de productos
+            if _norm(p) == _norm(prod):
+                prod = p
+                break
+        else:
+            guardar_opciones(db, u, "producto", [{"etiqueta": prod, "orden": 99, "activo": True}])
+        clave = (prod, partes[1][:120] if len(partes) > 1 else "", partes[2] if len(partes) > 2 else "")
         vistos.add(clave)
     existentes = {(f.producto, f.menu, f.pantalla): f for f in db.scalars(select(TicketCatalogo))}
     for clave, f in existentes.items():
@@ -235,6 +244,21 @@ def opciones(db: Session, catalogo: str, todas: bool = False) -> list[TicketOpci
     """Opciones del combo. `todas` incluye las desactivadas (para mostrar tickets viejos con su nombre)."""
     filas = list(db.scalars(select(TicketOpcion).where(TicketOpcion.catalogo == catalogo)
                             .order_by(TicketOpcion.orden, TicketOpcion.id)))
+    if not filas and catalogo == "producto":  # se arranca con los productos del catálogo de pantallas y de los tickets
+        nombres = list(dict.fromkeys(
+            [n for n in db.scalars(select(TicketCatalogo.producto).order_by(TicketCatalogo.id)) if n]
+            + [n for n in db.scalars(select(Ticket.producto).distinct()) if n]))
+        nombres = nombres or list(PRODUCTOS_INICIALES)
+        vistos, usadas = set(), set()
+        for i, n in enumerate(nombres, 1):
+            if n.strip().lower() in vistos:
+                continue
+            vistos.add(n.strip().lower())
+            clave = _clave(n, usadas)
+            usadas.add(clave)
+            db.add(TicketOpcion(catalogo="producto", clave=clave, etiqueta=n.strip()[:120], orden=i, activo=True))
+        db.flush()
+        return opciones(db, catalogo, todas)
     if not filas and catalogo == "area":  # se arranca con las áreas de la empresa
         from ..models import Area
         areas = list(db.scalars(select(Area).order_by(Area.id)))
@@ -263,6 +287,25 @@ def impactos(db: Session, todas: bool = False) -> dict[str, str]:
     return {o.clave: o.etiqueta for o in opciones(db, "impacto", todas)}
 
 
+def productos(db: Session, todas: bool = False) -> list[str]:
+    """Nombres de los productos del catálogo (ABC en Configurar GuardIA Ticket)."""
+    return [o.etiqueta for o in opciones(db, "producto", todas)]
+
+
+def producto_valido(db: Session, nombre: str) -> str:
+    """Regresa el nombre del catálogo (sin importar mayúsculas o acentos) o falla si no está activo."""
+    n = _norm(nombre)
+    for p in productos(db):
+        if _norm(p) == n:
+            return p
+    raise TicketInvalido("Elige el producto de la lista. Si no aparece, pide que lo den de alta en el catálogo.")
+
+
+def _norm(t: str) -> str:
+    t = unicodedata.normalize("NFKD", (t or "").strip().lower())
+    return " ".join("".join(c for c in t if not unicodedata.combining(c)).split())
+
+
 def areas_usuario(db: Session, todas: bool = False) -> dict[str, str]:
     """Catálogo «área del usuario» (para tickets e informes); al quitar un área se conserva en el histórico."""
     return {o.clave: o.etiqueta for o in opciones(db, "area", todas)}
@@ -280,11 +323,14 @@ def _clave(etiqueta: str, usadas: set[str]) -> str:
 
 def guardar_opciones(db: Session, u: Usuario, catalogo: str, filas: list[dict]) -> int:
     """filas: [{id|None, etiqueta, orden, activo, prioridad, menor}]. Nunca borra: desactiva."""
-    if catalogo not in ("tipo", "impacto", "area"):
+    if catalogo not in ("tipo", "impacto", "area", "producto"):
         raise TicketInvalido("Catálogo inválido.")
     existentes = {o.id: o for o in opciones(db, catalogo, todas=True)}
     usadas = {o.clave for o in existentes.values()}
     cambios = 0
+    nombres = [_norm(f.get("etiqueta")) for f in filas if (f.get("etiqueta") or "").strip()]
+    if len(nombres) != len(set(nombres)):
+        raise TicketInvalido("Hay dos opciones con el mismo nombre.")
     for f in filas:
         etiqueta = (f.get("etiqueta") or "").strip()[:120]
         prio = f.get("prioridad") if f.get("prioridad") in ("P1", "P2", "P3", "P4") else None
@@ -292,6 +338,8 @@ def guardar_opciones(db: Session, u: Usuario, catalogo: str, filas: list[dict]) 
         if o:
             if not etiqueta:
                 raise TicketInvalido("Cada opción necesita un nombre; para quitarla, desmarca «Activa».")
+            if catalogo == "producto" and etiqueta != o.etiqueta:
+                _renombrar_producto(db, u, o.etiqueta, etiqueta)
             o.etiqueta, o.orden, o.activo = etiqueta, int(f.get("orden") or 0), bool(f.get("activo"))
             if catalogo == "impacto":
                 o.prioridad = prio or o.prioridad
@@ -312,7 +360,23 @@ def guardar_opciones(db: Session, u: Usuario, catalogo: str, filas: list[dict]) 
     return cambios
 
 
+def _renombrar_producto(db: Session, u: Usuario, antes: str, despues: str) -> None:
+    """Un cambio de nombre es el mismo producto: se actualizan sus tickets y su catálogo de pantallas."""
+    from sqlalchemy import update
+    n = db.execute(update(Ticket).where(Ticket.producto == antes).values(producto=despues)).rowcount
+    for f in db.scalars(select(TicketCatalogo).where(TicketCatalogo.producto == antes)):
+        if db.scalar(select(TicketCatalogo.id).where(TicketCatalogo.producto == despues, TicketCatalogo.menu == f.menu,
+                                                     TicketCatalogo.pantalla == f.pantalla)):
+            f.activo = False  # ya existe con el nombre nuevo
+        else:
+            f.producto = despues
+    auditar(db, "ticket_producto_renombrado", "ticket_opciones", None, u.id, antes=antes, despues=despues, tickets=n)
+
+
 def en_uso(db: Session, catalogo: str) -> dict[str, int]:
+    if catalogo == "producto":
+        por_nombre = dict(db.execute(select(Ticket.producto, func.count(Ticket.id)).group_by(Ticket.producto)).all())
+        return {o.clave: por_nombre.get(o.etiqueta, 0) for o in opciones(db, "producto", True)}
     col = Ticket.tipo if catalogo == "tipo" else Ticket.impacto
     return dict(db.execute(select(col, func.count(Ticket.id)).group_by(col)).all())
 
@@ -745,7 +809,7 @@ def planear(db: Session, u: Usuario, t: Ticket, *, horas, fecha_entrega, asignad
         raise TicketInvalido("Las horas estimadas deben ser mayores a 0.")
     if not isinstance(fecha_entrega, _date):
         raise TicketInvalido("Indica la fecha de entrega.")
-    if fecha_entrega < t.creado.date():
+    if fecha_entrega < (t.creado - timedelta(hours=6)).date():  # fecha del ticket en hora del centro
         raise TicketInvalido("La fecha de entrega no puede ser anterior a la fecha del ticket.")
     ingeniero = asignado or t.asignado
     if ingeniero is None:

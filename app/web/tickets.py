@@ -145,6 +145,7 @@ async def api_nuevo(request: Request, bg: BackgroundTasks, descripcion: str = Fo
     except (json.JSONDecodeError, TypeError):
         falt, conv = [], []
     try:
+        campos["producto"] = tk.producto_valido(db, producto) if producto.strip() else ""
         subidos = [subidas_srv.recibir(x, u.id, "ticket") for x in subidas]
         t = tk.crear(db, u, campos, await _archivos(archivos), validacion=validacion, faltantes=falt,
                      conversacion=[{"de": str(h.get("de"))[:2], "t": str(h.get("t", ""))[:2000]} for h in conv],
@@ -404,7 +405,7 @@ def triage_regenerar(tid: int, request: Request, bg: BackgroundTasks, db: Sessio
 def config(request: Request, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
     p = tk.prompt_vigente(db)
     tk.catalogo(db)
-    tk.tipos(db), tk.impactos(db)  # en una instalación nueva crea las opciones iniciales antes de guardar
+    tk.tipos(db), tk.impactos(db), tk.productos(db)  # en una instalación nueva crea las opciones iniciales
     db.commit()
     versiones = db.scalars(select(TicketPrompt).order_by(TicketPrompt.version.desc()).limit(20)).all()
     reglas = db.scalars(select(TicketRegla).where(TicketRegla.estado == "pendiente").order_by(TicketRegla.creado)).all()
@@ -412,6 +413,7 @@ def config(request: Request, db: Session = Depends(get_db), u: Usuario = Depends
                   tipos=tk.tipos(db), campos_req=tk.CAMPOS_REQ, catalogo_txt=tk.catalogo_texto(db),
                   op_tipo=tk.opciones(db, "tipo", True), op_impacto=tk.opciones(db, "impacto", True),
                   uso_tipo=tk.en_uso(db, "tipo"), uso_impacto=tk.en_uso(db, "impacto"),
+                  op_producto=tk.opciones(db, "producto", True), uso_producto=tk.en_uso(db, "producto"),
                   metricas=tk.regresados_por_version(db))
 
 
@@ -448,11 +450,12 @@ async def config_opciones(catalogo: str, request: Request, db: Session = Depends
     try:
         n = tk.guardar_opciones(db, u, catalogo, filas)
         db.commit()
-        flash(request, f"Catálogo de {'tipos' if catalogo == 'tipo' else 'impactos'} guardado ({n} opción(es)).")
+        nombre = {"tipo": "tipos", "impacto": "impactos", "producto": "productos"}.get(catalogo, catalogo)
+        flash(request, f"Catálogo de {nombre} guardado ({n} opción(es)).")
     except tk.TicketInvalido as e:
         db.rollback()
         flash(request, str(e), "error")
-    return ir("/tickets-config#opciones")
+    return ir("/tickets-config#" + ("productos" if catalogo == "producto" else "opciones"))
 
 
 @router.post("/tickets-config/catalogo")

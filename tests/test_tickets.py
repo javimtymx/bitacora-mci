@@ -139,7 +139,9 @@ def test_pantallas_y_menus(admin, manuel, db):
     assert "SAFE" in admin.get("/tickets-config").text  # catálogo inicial
     r = admin.post("/tickets-config/catalogo", data={"catalogo": "SAFE › Validación › Pedimentos por validar\nCIVA > Reportes"})
     assert "SAFE › Validación › Pedimentos por validar" in tk.catalogo_texto(db)
-    assert tk.catalogo(db) == {"CIVA": {"Reportes": []}, "SAFE": {"Validación": ["Pedimentos por validar"]}}
+    cat = tk.catalogo(db)  # los productos vienen de su catálogo (ABC); las pantallas, del texto
+    assert cat["CIVA"] == {"Reportes": []} and cat["SAFE"] == {"Validación": ["Pedimentos por validar"]}
+    assert cat["Smart Files"] == {}
 
 
 def test_transcripcion_y_evidencia_en_s3(db):

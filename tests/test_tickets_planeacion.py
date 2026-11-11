@@ -315,3 +315,53 @@ def test_apagar_aviso_de_triage(admin, db):
     db.expire_all()
     assert jm.avisos_triage is False and jm.recibe_correos
     assert "jmartinez@onecore.mx" not in destinos()
+
+
+def test_catalogo_de_productos_abc(admin, manuel, db):
+    m = _u(db, "mcoronado@onecore.mx")
+    t = _ticket(db, m, producto="CIVA")
+    html = admin.get("/tickets-config").text
+    assert "Productos" in html and "Nuevo producto" in html
+    ops = tk.opciones(db, "producto", True)
+    assert "CIVA" in [o.etiqueta for o in ops]
+
+    def guardar(cambios=None, nuevo=None, baja=()):
+        ops = tk.opciones(db, "producto", True)
+        data = {}
+        for i, o in enumerate(ops):
+            data[f"id_{i}"] = o.id
+            data[f"etiqueta_{i}"] = (cambios or {}).get(o.etiqueta, o.etiqueta)
+            data[f"orden_{i}"] = o.orden
+            if o.etiqueta not in baja:
+                data[f"activo_{i}"] = "1"
+        if nuevo:
+            data[f"etiqueta_{len(ops)}"], data[f"orden_{len(ops)}"] = nuevo, "90"
+        r = admin.post("/tickets-config/opciones/producto", data=data, follow_redirects=False)
+        db.expire_all()
+        return r
+
+    # alta
+    guardar(nuevo="Procesos Productivos")
+    assert "Procesos Productivos" in tk.productos(db)
+    assert "Procesos Productivos" in manuel.get("/tickets/nuevo").text
+    # no se permiten nombres repetidos
+    guardar(nuevo="civa")
+    assert len([p for p in tk.productos(db, True) if p.lower() == "civa"]) == 1
+    # cambio de nombre: se actualizan sus tickets
+    guardar(cambios={"CIVA": "CIVA Certificación"})
+    db.refresh(t)
+    assert t.producto == "CIVA Certificación" and "CIVA Certificación" in tk.catalogo(db)
+    # baja: deja de ofrecerse pero el ticket lo conserva
+    guardar(baja=("CIVA Certificación",))
+    assert "CIVA Certificación" not in tk.productos(db) and "CIVA Certificación" not in tk.catalogo(db)
+    db.refresh(t)
+    assert t.producto == "CIVA Certificación"
+    # al levantar: producto fuera del catálogo se rechaza; sin importar mayúsculas se acepta con el nombre del catálogo
+    base = {"descripcion": "Al timbrar la factura sale error de sello en todas las facturas del día", "tipo": "error",
+            "impacto": "bloquea", "referencia": "ABC010101AAA", "pasos": "1. x", "validacion": "completo"}
+    r = manuel.post("/api/tickets/nuevo", data={**base, "producto": "CIVA Certificación"})
+    assert r.status_code == 400 and "lista" in r.json()["mensaje"]
+    r = manuel.post("/api/tickets/nuevo", data={**base, "producto": "procesos productivos"})
+    assert r.status_code == 200
+    db.expire_all()
+    assert db.scalar(select(Ticket).order_by(Ticket.id.desc())).producto == "Procesos Productivos"
