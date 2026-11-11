@@ -705,6 +705,10 @@ class SesionCliente(Base):
     objeciones: Mapped[list["Objecion"]] = relationship(back_populates="sesion")
 
 
+TIPOS_OPORTUNIDAD = {"producto": "Producto", "servicio": "Servicio", "capacitacion": "Capacitación", "proceso": "Proceso interno",
+                     "precio": "Precio o empaque"}
+
+
 class Hallazgo(Base):
     __tablename__ = "hallazgos"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -716,6 +720,11 @@ class Hallazgo(Base):
     severidad: Mapped[str] = mapped_column(String(10), default="media")
     tipo: Mapped[str] = mapped_column(String(20), default="queja")  # queja | necesidad | elogio | riesgo
     normativo: Mapped[bool] = mapped_column(Boolean, default=False)
+    # propuesta de valor: la frustración convertida en el trabajo del cliente (JTBD) y en lo que OneCore puede hacer
+    trabajo: Mapped[str | None] = mapped_column(Text)            # «Cuando…, quiero…, para…»
+    oportunidad: Mapped[str | None] = mapped_column(Text)        # acción concreta para OneCore (empieza con verbo)
+    tipo_oportunidad: Mapped[str | None] = mapped_column(String(15))  # producto | servicio | capacitacion | proceso | precio
+    idea_id: Mapped[int | None] = mapped_column(ForeignKey("ideas.id"))  # ya se envió a Ideas
     creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     sesion: Mapped[SesionCliente] = relationship(back_populates="hallazgos")

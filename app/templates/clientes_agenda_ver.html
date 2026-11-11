@@ -1,4 +1,4 @@
-{% extends "base.html" %}{% from "_ui.html" import icon, ai_badge with context %}
+{% extends "base.html" %}{% from "_ui.html" import icon, ai_badge with context %}{% import "_hallazgo.html" as hz with context %}
 {% block title %}Sesión {{ cliente }}{% endblock %}
 {% set ej = a.ejecucion or {} %}
 {% block content %}
@@ -115,7 +115,8 @@
     <div class="row between"><div class="row" style="gap:8px"><span class="seg-k inn">Innovación</span><h3>Propuesta de valor</h3></div>
       <a class="lnk" href="/voz-cliente?tipo=agenda">{{ icon('users', 15) }}Voz del Cliente</a></div>
     <span class="small muted">Lo que el cliente nos enseña (necesidades, ideas, lo que valora o le falta). No entra al kanban: alimenta Voz del Cliente y el Círculo de innovación.</span>
-    {% for h in s.hallazgos %}<div class="mn-i"><span class="row" style="gap:6px"><span class="tag n">{{ h.cuadrante }}</span><b>{{ h.tema }}</b><span class="small muted">· {{ h.tipo }}</span></span><span class="quote small">«{{ h.cita }}»</span></div>
+    {% for h in s.hallazgos %}<div class="mn-i"><span class="row" style="gap:6px"><span class="tag n">{{ h.cuadrante }}</span><b>{{ h.tema }}</b><span class="small muted">· {{ h.tipo }}</span></span><span class="quote small">«{{ h.cita }}»</span>
+      {{ hz.propuesta(h, ve_sesion) }}</div>
     {% else %}<span class="small muted">No salieron temas de propuesta de valor en esta sesión.</span>{% endfor %}
   </section>
   {% endif %}

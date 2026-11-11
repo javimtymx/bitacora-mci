@@ -104,7 +104,8 @@ def _nota_json(n) -> dict:
 
 TEMPLATES.env.filters["evid_json"] = _evid_json
 TEMPLATES.env.filters["nota_json"] = _nota_json
-TEMPLATES.env.globals.update(fmt_fecha=util.fmt_fecha, fmt_dia=util.fmt_dia, dias_desde=util.dias_desde,
+from ..models import TIPOS_OPORTUNIDAD as _TIPOS_OP  # noqa: E402
+TEMPLATES.env.globals.update(tipos_oportunidad=_TIPOS_OP, fmt_fecha=util.fmt_fecha, fmt_dia=util.fmt_dia, dias_desde=util.dias_desde,
                              num_semana=util.num_semana, md=md, valor=valor, menu_lateral=accesos.menu_lateral,
                              puede_menu=accesos.puede,
                              hora_local=_hora_local, tamano=_tamano,

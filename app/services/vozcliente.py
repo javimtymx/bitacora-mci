@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
-from ..models import CUADRANTES, TIPOS_OBJECION, Hallazgo, Objecion, SesionCliente
+from ..models import CUADRANTES, TIPOS_OBJECION, TIPOS_OPORTUNIDAD, Hallazgo, Objecion, SesionCliente
 from . import ia
 from .util import auditar, hoy
 
@@ -122,7 +122,10 @@ Parámetros de descubrimiento:
    respuesta, capacitación, acompañamiento), valor (precio, retorno percibido, competencia, renovación).
    Reutiliza un tema de la lista existente si es el mismo asunto; si no, crea uno corto (máx. 8 palabras).
 2. Sentimiento por tema (positivo|neutral|negativo) y severidad (alta|media|baja).
-3. Jobs-to-be-Done en producto: qué trabajo intenta resolver el cliente.
+3. Propuesta de valor (Jobs-to-be-Done): convierte cada frustración, necesidad o riesgo en (a) el TRABAJO que el cliente
+   intenta lograr, redactado «Cuando [situación], quiero [lo que necesita lograr], para [resultado que busca]», y (b) la
+   OPORTUNIDAD: qué podría hacer OneCore, en una frase que empiece con verbo (crear, ajustar, validar, capacitar…), y su
+   tipo producto|servicio|capacitacion|proceso|precio. En un elogio, la oportunidad es cómo reforzarlo o comunicarlo.
 4. Señales de riesgo de baja: justificar costo, mencionar otro proveedor, cambio de patrocinador, baja de uso.
 5. Marca normativo=true si el hallazgo nace de una regla o autoridad (SAT, ANAM, VUCEM, MVE, RGCE, Anexo 24/31).
 6. Cada hallazgo lleva una CITA TEXTUAL copiada exacta de la transcripción (sin parafrasear). Sin cita, no hay hallazgo.
@@ -140,7 +143,8 @@ Transcripción:
 JSON: {{"evidencia":{{"corresponde":true,"motivo":"una frase"}},"resumen":"3-4 frases","riesgo_baja":"alto|medio|bajo",
 "sentimiento":"positivo|neutral|negativo","hallazgos":[{{"cuadrante":"producto|plataforma|servicio|valor","tema":"...",
 "cita":"texto exacto","sentimiento":"...","severidad":"alta|media|baja","tipo":"queja|necesidad|elogio|riesgo","normativo":false,
-"jtbd":"solo en producto: el trabajo que intenta resolver"}}],"acuerdos":[{{"quien":"nosotros|cliente","texto":"...","fecha":"AAAA-MM-DD o vacío"}}]}}
+"jtbd":"solo en producto: el trabajo que intenta resolver","trabajo":"Cuando…, quiero…, para…","oportunidad":"verbo + acción concreta",
+"tipo_oportunidad":"producto|servicio|capacitacion|proceso|precio"}}],"acuerdos":[{{"quien":"nosotros|cliente","texto":"...","fecha":"AAAA-MM-DD o vacío"}}]}}
 Máximo 12 hallazgos."""
 
 
@@ -387,7 +391,10 @@ def analizar(db: Session, s: SesionCliente) -> SesionCliente:
                        sentimiento=sent if sent in ("positivo", "neutral", "negativo") else "neutral",
                        severidad=sev if sev in ("alta", "media", "baja") else "media",
                        tipo=tp if tp in ("queja", "necesidad", "elogio", "riesgo") else "queja",
-                       normativo=bool(h.get("normativo")))
+                       normativo=bool(h.get("normativo")),
+                       trabajo=str(h.get("trabajo") or h.get("jtbd") or "").strip()[:600] or None,
+                       oportunidad=str(h.get("oportunidad") or "").strip()[:600] or None,
+                       tipo_oportunidad=to if (to := str(h.get("tipo_oportunidad") or "").lower()) in TIPOS_OPORTUNIDAD else None)
         db.add(obj)
         hallazgos_out.append({"jtbd": str(h.get("jtbd") or "")[:300], "tema": obj.tema})
     for o in (res.get("objeciones") or [])[:12] if s.tipo == "objeciones" else []:
@@ -594,6 +601,22 @@ def resumen(db: Session, semanas: int = 12, tipo: str | None = None) -> dict:
     for d in lib.values():
         d["mejor"] = max(d["respuestas"].items(), key=lambda x: x[1])[0] if d["respuestas"] else ""
         d["pct"] = d["avanzo"] / d["n"] * 100 if d["n"] else 0
-    return {"sesiones": ses, "n_sesiones": len(ses), "clientes": len({s.cliente_rfc or s.id for s in ses}),
+    trabajos: dict[tuple[str, str], dict] = {}
+    for h in hall:
+        if not h.oportunidad:
+            continue
+        s = por_ses[h.sesion_id]
+        d = trabajos.setdefault((h.cuadrante, h.tema), {"cuadrante": h.cuadrante, "tema": h.tema, "trabajo": h.trabajo,
+                                                        "oportunidad": h.oportunidad, "tipo": h.tipo_oportunidad,
+                                                        "menciones": 0, "clientes": set(), "hallazgo": h, "idea_id": None})
+        d["menciones"] += 1
+        d["clientes"].add(s.cliente_rfc or f"s{s.id}")
+        d["idea_id"] = d["idea_id"] or h.idea_id
+        if s.fecha >= por_ses[d["hallazgo"].sesion_id].fecha:  # la redacción más reciente
+            d.update(trabajo=h.trabajo or d["trabajo"], oportunidad=h.oportunidad, tipo=h.tipo_oportunidad or d["tipo"], hallazgo=h)
+    lista_t = sorted(trabajos.values(), key=lambda x: (-len(x["clientes"]), -x["menciones"]))
+    for d in lista_t:
+        d["n_clientes"] = len(d["clientes"])
+    return {"trabajos": lista_t[:15], "sesiones": ses, "n_sesiones": len(ses), "clientes": len({s.cliente_rfc or s.id for s in ses}),
             "citas": len(hall) + len(objs), "riesgo_alto": len({s.cliente_rfc or s.id for s in ses if s.riesgo_baja == "alto"}),
             "cuadrantes": cuads, "prioridad": lista[:10], "biblioteca": sorted(lib.values(), key=lambda x: -x["n"])}

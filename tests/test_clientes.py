@@ -114,7 +114,9 @@ def test_agenda_transcripcion_confirma_ejecucion_y_propone_pendientes(admin, db,
         "hallazgos": [{"cuadrante": "servicio", "tema": "Avisos de rectificación", "cita": "nadie nos avisó a tiempo",
                        "sentimiento": "negativo", "severidad": "alta", "tipo": "queja"},
                       {"cuadrante": "producto", "tema": "Expediente que ahorra tiempo en auditoría", "tipo": "elogio",
-                       "cita": "el expediente en Smart Files nos ha ahorrado mucho tiempo en la auditoría", "sentimiento": "positivo"}],
+                       "cita": "el expediente en Smart Files nos ha ahorrado mucho tiempo en la auditoría", "sentimiento": "positivo",
+                       "trabajo": "Cuando llega una auditoría, quiero tener el expediente completo a la mano, para responder sin multas",
+                       "oportunidad": "Crear un reporte de expediente listo para auditoría", "tipo_oportunidad": "producto"}],
         "minuta": {"decisiones": [{"texto": "Corregir descargos esta semana", "cita": "Nos comprometemos a corregir el reporte de descargos esta semana"}],
                    "acuerdos": [{"n": 1, "quien": "onecore", "responsable": "Javier", "que": "Corregir el reporte de descargos", "cuando": "",
                                  "cita": "Nos comprometemos a corregir el reporte de descargos esta semana"},
@@ -140,6 +142,19 @@ def test_agenda_transcripcion_confirma_ejecucion_y_propone_pendientes(admin, db,
     assert {p.titulo for p in props} == {"Avisar a tiempo las rectificaciones", "Corregir el reporte de descargos"}  # sin cita, fuera
     # segmentación: la queja es seguimiento (no va a Voz del Cliente); la propuesta de valor sí
     assert [h.tema for h in a.sesion.hallazgos] == ["Expediente que ahorra tiempo en auditoría"]
+    h = a.sesion.hallazgos[0]
+    assert h.trabajo.startswith("Cuando llega una auditoría") and h.tipo_oportunidad == "producto"
+    voz = admin.get("/voz-cliente?tipo=agenda").text
+    assert "Trabajos por hacer" in voz and "Crear un reporte de expediente listo para auditoría" in voz
+    admin.post(f"/hallazgos/{h.id}/idea")
+    db.expire_all()
+    from app.models import Hallazgo, Idea
+    h = db.get(Hallazgo, h.id)
+    idea = db.get(Idea, h.idea_id)
+    assert idea.titulo == "Crear un reporte de expediente listo para auditoría" and "Trabajo del cliente" in idea.problema
+    admin.post(f"/hallazgos/{h.id}/idea")  # no se duplica
+    assert db.query(Idea).filter(Idea.sesion_id == h.sesion_id).count() == 1
+    assert "Ya está en Ideas" in admin.get(f"/sesiones/{h.sesion_id}").text
     mi = a.ejecucion["minuta"]
     assert mi["decisiones"][0]["cita"] and mi["acuerdos"][1]["cita"] == ""  # cita inventada, fuera
     t0 = next(p for p in props if p.tipo == "tarea")

@@ -1,0 +1,9 @@
+{# Hallazgo de voz del cliente como propuesta de valor: frustración → trabajo del cliente → lo que podemos hacer. #}
+{% macro propuesta(h, enviar=true) %}
+{% if h.trabajo or h.oportunidad %}<div class="pv">
+  {% if h.trabajo %}<div class="pv-f"><span class="pv-k">Trabajo del cliente</span><span>{{ h.trabajo }}</span></div>{% endif %}
+  {% if h.oportunidad %}<div class="pv-f pv-op"><span class="pv-k">Lo que podemos hacer{% if h.tipo_oportunidad %} · {{ tipos_oportunidad.get(h.tipo_oportunidad, h.tipo_oportunidad) }}{% endif %}</span><b>{{ h.oportunidad }}</b></div>{% endif %}
+</div>{% endif %}
+{% if enviar and (h.oportunidad or h.cuadrante == 'producto') %}{% if h.idea_id %}<a class="lnk small" href="/ideas?filtro=todas#idea-{{ h.idea_id }}">{{ icon('idea', 15) }}Ya está en Ideas</a>
+{% else %}<form method="post" action="/hallazgos/{{ h.id }}/idea"><button class="btn sm soft">{{ icon('idea', 15) }}Enviar a Ideas</button></form>{% endif %}{% endif %}
+{% endmacro %}

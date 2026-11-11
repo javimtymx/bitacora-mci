@@ -1,4 +1,4 @@
-{% extends "base.html" %}{% from "_ui.html" import icon, ai_badge, qtag with context %}
+{% extends "base.html" %}{% from "_ui.html" import icon, ai_badge, qtag with context %}{% import "_hallazgo.html" as hz with context %}
 {% block title %}Sesión con cliente{% endblock %}
 {% block content %}
 {% set r = s.resultado %}
@@ -64,7 +64,7 @@
   {% for h in s.hallazgos %}<div class="col" style="gap:6px;padding:10px 0;border-bottom:1px solid var(--line)">
     <div class="row between">{{ qtag(h.cuadrante, cuadrantes) }}<span class="small muted">{{ h.tipo }} · {{ h.sentimiento }} · severidad {{ h.severidad }}{{ ' · normativo' if h.normativo }}</span></div>
     <b>{{ h.tema }}</b><div class="quote small">«{{ h.cita }}»</div>
-    {% if h.cuadrante=='producto' %}<form method="post" action="/hallazgos/{{ h.id }}/idea"><button class="btn sm soft">{{ icon('idea', 15) }}Enviar a Ideas</button></form>{% endif %}
+    {{ hz.propuesta(h) }}
   </div>{% else %}<span class="muted small">Sin hallazgos con cita verificable.</span>{% endfor %}
 </section>{% endif %}
 </div>

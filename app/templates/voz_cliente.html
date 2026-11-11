@@ -22,6 +22,13 @@
     <div>{% for t, n in q.temas %}<div class="row between" style="padding:5px 0;border-bottom:1px solid #F1F3F5;flex-wrap:nowrap"><span class="small">{{ t }}</span><b class="small">{{ n }}</b></div>{% else %}<span class="small muted">Sin menciones en el periodo.</span>{% endfor %}</div>
     {% if q.cita %}<div class="quote small">«{{ q.cita.cita }}»</div>{% endif %}
   </article>{% endfor %}</section>
+<section class="card pad pv-tabla"><div class="row between"><h2>Trabajos por hacer · propuesta de valor</h2><span class="small muted">Cada frustración convertida en el trabajo del cliente y en lo que OneCore puede hacer · orden: clientes que lo mencionan</span></div>
+  <div class="tbl"><table><thead><tr><th>Tema</th><th>Trabajo del cliente</th><th>Lo que podemos hacer</th><th class="num">Clientes</th><th></th></tr></thead><tbody>
+  {% for t in r.trabajos %}<tr><td><b>{{ t.tema }}</b><div>{{ qtag(t.cuadrante, cuadrantes) }}</div></td><td class="small">{{ t.trabajo or '—' }}</td>
+    <td><b class="small">{{ t.oportunidad }}</b>{% if t.tipo %}<div><span class="tag n">{{ tipos_oportunidad.get(t.tipo, t.tipo) }}</span></div>{% endif %}</td>
+    <td class="num">{{ t.n_clientes }}<div class="small muted">{{ t.menciones }} menc.</div></td>
+    <td>{% if t.idea_id %}<a class="lnk small" href="/ideas?filtro=todas#idea-{{ t.idea_id }}">{{ icon('idea', 14) }}En Ideas</a>{% else %}<form method="post" action="/hallazgos/{{ t.hallazgo.id }}/idea"><button class="btn sm soft">{{ icon('idea', 14) }}A Ideas</button></form>{% endif %}</td></tr>
+  {% else %}<tr><td colspan="5" class="muted">Aún no hay oportunidades en el periodo. Las sesiones que ya estaban cargadas se convierten al darles «Analizar de nuevo».</td></tr>{% endfor %}</tbody></table></div></section>
 <section class="card pad"><div class="row between"><h2>Prioridad para reenfocar</h2><span class="small muted">Orden: menciones × clientes × (1 + cuentas en riesgo alto)</span></div>
   <div class="tbl"><table><thead><tr><th class="num">#</th><th>Tema</th><th>Cuadrante</th><th class="num">Menciones</th><th class="num">Clientes</th><th class="num">En riesgo</th><th>Marca</th></tr></thead><tbody>
   {% for p in r.prioridad %}<tr><td class="num"><b>{{ loop.index }}</b></td><td><b>{{ p.tema }}</b></td><td>{{ qtag(p.cuadrante, cuadrantes) }}</td><td class="num">{{ p.menciones }}</td><td class="num">{{ p.n_clientes }}</td><td class="num">{{ p.n_riesgo }}</td><td>{% if p.normativo %}<span class="tag b">normativo</span>{% endif %}</td></tr>

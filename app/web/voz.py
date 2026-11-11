@@ -191,15 +191,23 @@ def hallazgo_a_idea(hid: int, request: Request, db: Session = Depends(get_db), u
     h = db.get(Hallazgo, hid)
     if not h or not _puede_ver(u, h.sesion):
         raise HTTPException(404)
+    if h.idea_id and db.get(Idea, h.idea_id):
+        flash(request, "Este hallazgo ya se envió a Ideas.")
+        return ir("/ideas?filtro=todas#idea-%d" % h.idea_id)
     innov = db.scalar(select(Area).where(Area.clave == "innovacion"))
-    i = Idea(autor_id=u.id, area_id=innov.id if innov else h.sesion.area_id, titulo=h.tema[:200],
-             problema=f"Voz del cliente ({CUADRANTES.get(h.cuadrante, h.cuadrante)}): «{h.cita}»",
-             beneficio="", origen="objecion_cliente" if h.sesion.tipo in ("objeciones", "venta_nueva") else "queja",
+    problema = f"Voz del cliente ({CUADRANTES.get(h.cuadrante, h.cuadrante)}): «{h.cita}»"
+    if h.trabajo:
+        problema = f"Trabajo del cliente: {h.trabajo}\n{problema}"
+    i = Idea(autor_id=u.id, area_id=innov.id if innov else h.sesion.area_id, titulo=(h.oportunidad or h.tema)[:200],
+             problema=problema, beneficio=(f"Atiende «{h.tema}»" if h.oportunidad else ""),
+             origen="objecion_cliente" if h.sesion.tipo in ("objeciones", "venta_nueva") else "queja",
              sesion_id=h.sesion_id)
     db.add(i)
+    db.flush()
+    h.idea_id = i.id
     auditar(db, "hallazgo_a_idea", "hallazgo", h.id, u.id)
     db.commit()
-    flash(request, "Hallazgo enviado a Ideas. Complétalo y pásalo por la evaluación de la IA.")
+    flash(request, "Oportunidad enviada a Ideas. Complétala y pásala por la evaluación de la IA.")
     return ir("/ideas?filtro=mias")
 
 

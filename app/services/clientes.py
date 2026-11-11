@@ -159,6 +159,11 @@ B) INNOVACIÓN (bucle externo: lo que el cliente nos enseña sobre nuestra propu
    lo que le falta frente a otras opciones o la competencia, riesgos de valor (justificar costo, baja de uso).
    Cuadrante producto|plataforma|servicio|valor (reutiliza un tema existente si es el mismo asunto), sentimiento,
    severidad, tipo necesidad|elogio|riesgo, normativo (SAT, ANAM, VUCEM, MVE, RGCE, Anexo 24/31) y cita.
+   Convierte cada frustración o necesidad en propuesta de valor (Jobs-to-be-Done):
+   - trabajo: lo que el cliente intenta lograr, «Cuando [situación], quiero [lo que necesita lograr], para [resultado]».
+   - oportunidad: lo que OneCore podría hacer, una frase que empiece con verbo (crear, ajustar, validar, automatizar,
+     capacitar…), concreta y verificable; tipo producto|servicio|capacitacion|proceso|precio.
+   En un elogio, la oportunidad es cómo reforzarlo o comunicarlo como diferenciador.
    Las quejas de atención y las tareas van en A, nunca aquí.
 Toda cita se copia EXACTA de la transcripción; sin cita no hay hallazgo ni pendiente.
 
@@ -180,7 +185,8 @@ JSON: {{"evidencia":{{"corresponde":true,"motivo":"una frase"}},"resumen":"3-4 f
 "minuta":{{"decisiones":[{{"texto":"...","cita":""}}],"acuerdos":[{{"n":1,"quien":"onecore|cliente","responsable":"","que":"...","cuando":"","cita":""}}],
 "riesgos":[{{"texto":"...","cita":""}}],"temas_abiertos":[{{"texto":"..."}}]}},
 "pendientes":[{{"tipo":"queja|tarea","acuerdo":1,"titulo":"...","detalle":"...","severidad":"alta|media|baja","cita":"texto exacto"}}],
-"hallazgos":[{{"cuadrante":"producto","tema":"...","cita":"texto exacto","sentimiento":"neutral","severidad":"media","tipo":"necesidad","normativo":false}}]}}
+"hallazgos":[{{"cuadrante":"producto","tema":"...","cita":"texto exacto","sentimiento":"neutral","severidad":"media","tipo":"necesidad","normativo":false,
+"trabajo":"Cuando…, quiero…, para…","oportunidad":"verbo + acción concreta","tipo_oportunidad":"producto"}}]}}
 Máximo 8 elementos por bloque de la minuta, 10 pendientes y 12 hallazgos."""
 
 
