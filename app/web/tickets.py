@@ -248,8 +248,8 @@ def mover(tid: int, request: Request, bg: BackgroundTasks, estado: str = Form(..
 
 @router.post("/tickets/{tid}/planear")
 def planear(tid: int, request: Request, bg: BackgroundTasks, horas: str = Form(""), fecha_entrega: OptDate = Form(None),
-            asignado_id: OptInt = Form(None), volver: str = Form(""), motivo: str = Form(""), db: Session = Depends(get_db),
-            u: Usuario = Depends(usuario_actual)):
+            asignado_id: OptInt = Form(None), volver: str = Form(""), motivo: str = Form(""), despues: str = Form(""),
+            db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
     _exigir(u, "tickets-tablero")
     t = _ticket(db, tid, u)
     asignado = db.get(Usuario, asignado_id) if asignado_id else None
@@ -258,12 +258,18 @@ def planear(tid: int, request: Request, bg: BackgroundTasks, horas: str = Form("
     antes = t.estado
     try:
         tk.planear(db, u, t, horas=horas, fecha_entrega=fecha_entrega, asignado=asignado, motivo=motivo)
+        if despues in ("en_curso", "revision"):  # se planeó desde el botón «En curso» / «En revisión»
+            tk.mover(db, u, t, despues)
         db.commit()
     except tk.TicketInvalido as e:
+        db.rollback()
         flash(request, str(e), "error")
         return ir(f"/tickets/{tid}#planear")
     _avisar(bg, "etapa", t, u)
-    flash(request, f"{t.folio} {'planeado' if antes != t.estado else 'actualizado'}: entrega {t.fecha_entrega:%d/%m/%Y}.")
+    if despues in ("en_curso", "revision"):
+        flash(request, f"{t.folio} planeado y movido a «{TICKET_ESTADOS[t.estado]}»: entrega {t.fecha_entrega:%d/%m/%Y}.")
+    else:
+        flash(request, f"{t.folio} {'planeado' if antes != t.estado else 'actualizado'}: entrega {t.fecha_entrega:%d/%m/%Y}.")
     return ir("/tickets-tablero" if volver == "tablero" else f"/tickets/{tid}")
 
 

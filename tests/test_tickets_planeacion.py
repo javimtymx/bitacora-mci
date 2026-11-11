@@ -397,3 +397,27 @@ def test_rendicion_de_cuentas_pdf(admin, db):
     assert admin.get("/semanal?tipo=mes").status_code == 200
     r = admin.get(f"/semanal?tipo=rango&desde={hoy() - timedelta(days=10)}&hasta={hoy()}&area={a.clave}")
     assert r.status_code == 200 and "Visitar a tres clientes clave" in r.text
+
+
+def test_botones_en_curso_y_revision_planean_primero(admin, db):
+    jm, m = _u(db, "jmartinez@onecore.mx"), _u(db, "mcoronado@onecore.mx")
+    t = _ticket(db, m)
+    t.estado = "pendiente"
+    db.commit()
+    html = admin.get(f"/tickets/{t.id}").text
+    assert 'data-despues="en_curso"' in html and 'data-despues="revision"' in html
+    # la regla no cambia: sin plan no se mueve
+    admin.post(f"/tickets/{t.id}/mover", data={"estado": "en_curso"})
+    db.refresh(t)
+    assert t.estado == "pendiente"
+    # desde el botón «En curso»: se captura el plan y queda en curso
+    admin.post(f"/tickets/{t.id}/planear", data={"horas": "4", "fecha_entrega": date.today().isoformat(),
+                                                 "asignado_id": jm.id, "despues": "en_curso"})
+    db.refresh(t)
+    assert t.estado == "en_curso" and float(t.horas_estimadas) == 4
+    # con plan, los botones vuelven a ser movimientos directos
+    html = admin.get(f"/tickets/{t.id}").text
+    assert 'name="estado" value="revision"' in html
+    admin.post(f"/tickets/{t.id}/mover", data={"estado": "revision"})
+    db.refresh(t)
+    assert t.estado == "revision"

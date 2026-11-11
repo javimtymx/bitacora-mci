@@ -41,7 +41,7 @@
 
 {% block modals %}
 <div class="overlay" id="planear"><form class="modal" method="post" id="f-planear" role="dialog" aria-modal="true" aria-labelledby="t-pla">
-  <input type="hidden" name="volver" value="tablero">
+  <input type="hidden" name="volver" value="tablero"><input type="hidden" name="despues" id="pla-despues" value="">
   <div class="mh"><div class="row"><h2 id="t-pla">Planear ticket</h2><span class="muted" style="font-weight:600" id="pla-folio"></span></div>
     <button class="btn ghost" type="button" data-close aria-label="Cerrar" style="width:42px;padding:0">{{ icon('x') }}</button></div>
   <div class="sec" style="border-top:0">
@@ -62,8 +62,9 @@
 {% block scripts %}<script>
 (function () {
   var kan = document.getElementById("kan"), arrastrada = null;
-  function planear(card) {
+  function planear(card, despues) {
     var f = document.getElementById("f-planear");
+    document.getElementById("pla-despues").value = despues || "";
     f.action = "/tickets/" + card.dataset.id + "/planear";
     document.getElementById("pla-folio").textContent = card.dataset.folio;
     document.getElementById("pla-h").value = card.dataset.horas || "";
@@ -90,7 +91,7 @@
       .then(function (d) {
         if (d.ok) { location.reload(); return; }
         card.style.opacity = "";
-        if (d.planear) { planear(card); return; }
+        if (d.planear) { planear(card, estado); return; }  // al guardar el plan pasa a la etapa elegida
         alert(d.mensaje || "No se pudo mover.");
       })
       .catch(function () { card.style.opacity = ""; });
