@@ -1,5 +1,5 @@
 {# Vista de tablero (tipo lista de tareas): MCI › grupo por medida predictiva › compromisos › subtareas, con alta rápida. #}
-{% set T = cons.tablero %}{% set rs = T.rs %}
+{% import "_visor_evidencias.html" as visor with context %}{% set T = cons.tablero %}{% set rs = T.rs %}
 {% set MES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'] %}
 {% macro fcorta(d) %}{{ d.day }} {{ MES[d.month - 1] }}{% endmacro %}
 {% macro inic(n) %}{{ n.split()|map('first')|join('')|upper|truncate(2, True, '') }}{% endmacro %}
@@ -38,7 +38,7 @@
           <td class="c"><span class="tt-fecha {{ 'venc' if dv else ('ok' if c.estado == 'cumplido' else '') }}">{{ fcorta(c.fecha_limite) }}</span></td>
           <td class="c {{ 'tt-dias-v' if dv else '' }}">{% if dv %}<b>{{ dv }} d vencido</b>{% elif dp is not none %}{{ 'Hoy' if dp == 0 else 'en %d d'|format(dp) }}{% elif c.cerrado %}<span class="muted">cerrado {{ hora_local(c.cerrado)[:5] }}</span>{% else %}—{% endif %}</td>
           <td class="c">{{ num_semana(c.semana) }}</td>
-          <td class="c">{% if c.evidencias %}<a class="tt-ev" href="/compromisos/{{ c.id }}#evidencias" title="{{ c.evidencias|map(attribute='nombre')|join(', ') }}">{{ icon('clip', 13) }}{{ c.evidencias|length }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>
+          <td class="c">{% if c.evidencias %}{{ visor.boton_evidencias(c, 'tt-ev', c.evidencias|length|string) }}{% else %}<span class="muted">—</span>{% endif %}</td>
         </tr>
         {% for x in c.subtareas %}
         <tr class="tt-sub" data-sub-de="{{ c.id }}" hidden><td class="tt-borde"></td>
@@ -76,3 +76,4 @@
   {% endfor %}
   {% endfor %}
 </div>
+{{ visor.dialogo() }}

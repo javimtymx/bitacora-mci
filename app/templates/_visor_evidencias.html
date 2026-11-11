@@ -1,0 +1,19 @@
+{# Visor de evidencias a pantalla completa, compartido (rendición de cuentas y tablero de tareas). #}
+{% macro boton_evidencias(c, clase='rp-evid-btn', etiqueta=none) -%}
+<button type="button" class="{{ clase }} noprint" data-visor
+  data-evid='{{ {"folio": "CMP-%04d" % c.id, "texto": c.texto, "url": "/compromisos/%d" % c.id,
+                 "responsable": c.responsable.nombre if c.responsable else "", "limite": c.fecha_limite.strftime("%d/%m/%Y"),
+                 "notas": c.notas|selectattr("texto")|map("nota_json")|list} | tojson }}'
+  data-arch='{{ c.evidencias|map("evid_json")|list|tojson }}' title="Ver evidencias y notas">{{ icon('clip', 13) }}{{ etiqueta if etiqueta is not none else 'Ver evidencias (%d)'|format(c.evidencias|length) }}</button>
+{%- endmacro %}
+{% macro dialogo() %}
+<dialog class="rp-visor" id="rp-visor" aria-labelledby="rp-visor-t">
+  <div class="rp-visor-cab"><div class="rp-visor-tit"><div class="row" style="gap:10px;align-items:baseline;flex-wrap:wrap"><b id="rp-visor-t"></b><span class="rp-sm" id="rp-visor-meta" style="margin:0"></span><a class="lnk small" id="rp-visor-abrir" href="#">Abrir compromiso</a></div>
+      <div class="rp-visor-texto" id="rp-visor-sub"></div></div>
+    <button type="button" class="btn ghost" id="rp-visor-x" aria-label="Cerrar" style="width:42px;padding:0">{{ icon('x') }}</button></div>
+  <div class="rp-visor-cuerpo"><div class="rp-visor-izq"><span class="rp-visor-lbl">Evidencias</span><ul class="rp-visor-lista" id="rp-visor-lista"></ul>
+      <span class="rp-visor-lbl" id="rp-visor-lbl-notas">Notas de seguimiento</span><ol class="rp-visor-notas" id="rp-visor-notas"></ol></div>
+    <div class="rp-visor-ver" id="rp-visor-ver"></div></div>
+</dialog>
+<script src="/static/js/visor_evidencias.js?v=1"></script>
+{% endmacro %}

@@ -565,3 +565,24 @@ def test_tablero_de_tareas_subtareas_y_alta_rapida(admin, db, fake):
     assert r.json()["ok"]
     r = admin.post("/compromisos", data={**base, "texto": "seguimiento"}, headers={"Accept": "application/json"})
     assert r.status_code == 400
+
+
+def test_visor_en_tablero_con_texto_completo_y_notas(admin, db):
+    from app.models import Area, Compromiso, CompromisoNota, Mci, Predictiva
+    from app.services import evidencias
+    from app.services.util import hoy, semana_iso
+    a = db.scalar(select(Area).join(Mci, Mci.area_id == Area.id))
+    p = db.scalar(select(Predictiva).join(Mci).where(Mci.area_id == a.id))
+    jm = _u(db, "jmartinez@onecore.mx")
+    largo = "Documentar los acuerdos de cada cuenta en riesgo con su minuta y siguiente paso " * 4
+    c = Compromiso(semana=semana_iso(hoy()), area_id=a.id, responsable_id=jm.id, autor_id=jm.id, predictiva_id=p.id,
+                   texto=largo.strip(), fecha_limite=hoy(), avance=30)
+    db.add(c)
+    db.flush()
+    evidencias.guardar(db, c, "minuta.png", b"\\x89PNG\\r\\n\\x1a\\n" + b"0" * 64, jm)
+    db.add(CompromisoNota(compromiso_id=c.id, usuario_id=jm.id, avance=30, texto="Dos de cinco clientes ya respondieron"))
+    db.commit()
+    for url in (f"/?area={a.clave}", "/semanal?tipo=todo"):
+        html = admin.get(url).text
+        assert 'data-visor' in html and 'id="rp-visor"' in html and "visor_evidencias.js" in html
+        assert "Dos de cinco clientes ya respondieron" in html and largo.strip()[-60:] in html

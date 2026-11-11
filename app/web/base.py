@@ -97,7 +97,13 @@ def _evid_json(e) -> dict:
             "autor": e.autor.nombre if e.autor else "", "tam": _tamano(e.bytes)}
 
 
+def _nota_json(n) -> dict:
+    return {"fecha": _hora_local(n.creado), "autor": n.usuario.nombre if n.usuario else "", "texto": n.texto,
+            "avance": n.avance}
+
+
 TEMPLATES.env.filters["evid_json"] = _evid_json
+TEMPLATES.env.filters["nota_json"] = _nota_json
 TEMPLATES.env.globals.update(fmt_fecha=util.fmt_fecha, fmt_dia=util.fmt_dia, dias_desde=util.dias_desde,
                              num_semana=util.num_semana, md=md, valor=valor, menu_lateral=accesos.menu_lateral,
                              puede_menu=accesos.puede,
