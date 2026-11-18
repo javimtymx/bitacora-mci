@@ -105,7 +105,7 @@ def editar_usuario(uid: int, request: Request, nombre: str = Form(...), rol: str
                    en_indicador_personas: bool = Form(False), jefe_id: OptInt = Form(None),
                    costo_hora: str = Form("__sin_cambio__"), area_ticket: str = Form("__sin_cambio__"),
                    avisos_triage: bool = Form(False), puesto: str = Form("__sin_cambio__"), avisos_agenda: bool = Form(False),
-                   db: Session = Depends(get_db), u: Usuario = Depends(requiere_direccion)):
+                   revisa_tickets: bool = Form(False), db: Session = Depends(get_db), u: Usuario = Depends(requiere_direccion)):
     x = db.get(Usuario, uid)
     if not x or rol not in ROLES:
         raise HTTPException(400)
@@ -123,6 +123,9 @@ def editar_usuario(uid: int, request: Request, nombre: str = Form(...), rol: str
             nuevo_p = puesto if puesto in PUESTOS else None
             cambios["puesto"] = (x.puesto, nuevo_p)
             x.puesto = nuevo_p
+        if bool(x.revisa_tickets) != revisa_tickets:
+            cambios["revisa_tickets"] = (bool(x.revisa_tickets), revisa_tickets)
+        x.revisa_tickets = revisa_tickets
         if avisos_agenda != x.recibe_agenda:
             cambios["avisos_agenda"] = (x.recibe_agenda, avisos_agenda)
             x.avisos_agenda = avisos_agenda

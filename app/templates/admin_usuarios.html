@@ -51,6 +51,8 @@
     <label class="check"><input type="checkbox" name="recibe_correos" value="true" {{ 'checked' if x.recibe_correos }}>Recibe correos de GuardIA OneCore</label>
     <label class="check"><input type="checkbox" name="avisos_triage" value="true" {{ 'checked' if x.avisos_triage is not false }}>Recibe el aviso de cada ticket nuevo por clasificar (triage)</label>
     <span class="muted small" style="margin-top:-6px">Aplica a quien tiene acceso a Triage (los administradores siempre lo tienen). Los demás avisos de tickets (los suyos, los asignados a él o como jefe directo) siguen llegando.</span>
+    <label class="check"><input type="checkbox" name="revisa_tickets" value="true" {{ 'checked' if x.revisa_tickets }}>Revisa tickets de otros: puede cerrar o regresar a «En curso» tickets en revisión</label>
+    <span class="muted small" style="margin-top:-6px">Quien levantó el ticket siempre puede. Con este permiso también lo hace esta persona (por ejemplo, el líder de soporte), con motivo que queda en el historial.</span>
     <div class="field"><label>Puesto (avisos de la agenda de clientes)</label><select class="input" name="puesto"><option value="">—</option>{% for k, t in puestos.items() %}<option value="{{ k }}" {{ 'selected' if x.puesto == k }}>{{ t }}</option>{% endfor %}</select>
       <span class="muted small">Customer Success recibe cada sesión programada; los tres directores reciben copia del recordatorio cuando la preparación está en rojo.</span></div>
     <label class="check"><input type="checkbox" name="avisos_agenda" value="true" {{ 'checked' if x.recibe_agenda }}>Recibe la invitación de cada sesión de la agenda de clientes</label>

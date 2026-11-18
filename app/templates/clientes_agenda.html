@@ -57,8 +57,47 @@
 
 {% block scripts %}<script>
 document.querySelectorAll("[data-rec]").forEach(function (sel) {
-  var fin = document.querySelector("[data-rec-fin]"), inp = fin.querySelector("input");
-  sel.addEventListener("change", function () { fin.hidden = !sel.value; inp.required = !!sel.value; });
+  var form = sel.closest("form"), fin = form.querySelector("[data-rec-fin]"), inp = fin.querySelector("input"),
+      regla = form.querySelector("[data-rec-regla]"), vista = form.querySelector("[data-rec-vista]"),
+      lbl = form.querySelector("[data-lbl-fecha]"), t = null;
+  var esc = function (x) { return String(x).replace(/[&<>"']/g, function (c) { return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); };
+  function mostrar() {
+    var v = sel.value;
+    fin.hidden = !v; inp.required = !!v; regla.hidden = !v;
+    lbl.textContent = v ? "A partir de" : "Fecha";
+    regla.querySelectorAll("[data-solo]").forEach(function (el) {
+      var on = el.dataset.solo === v; el.hidden = !on;
+      el.querySelectorAll("select,input").forEach(function (x) { x.disabled = !on; });
+    });
+    pedir();
+  }
+  function pedir() {
+    clearTimeout(t);
+    t = setTimeout(function () {
+      if (!sel.value || !inp.value || !form.fecha.value) return;
+      var q = new URLSearchParams({ fecha: form.fecha.value, recurrencia: sel.value, fecha_fin: inp.value });
+      if (sel.value === "semanal") q.set("dia_semana", form.dia_semana.value);
+      else {
+        var modo = form.querySelector("[name=modo_mes]:checked").value; q.set("modo_mes", modo);
+        if (modo === "dia") q.set("dia_mes", form.dia_mes.value);
+        else { q.set("nesimo", form.nesimo.value); q.set("dia_semana", form.dia_semana_mes.value); }
+      }
+      fetch("/api/clientes/serie?" + q).then(function (r) { return r.json(); }).then(function (d) {
+        if (!d.ok) { vista.innerHTML = '<span class="small" style="color:var(--red)">' + esc(d.mensaje) + "</span>"; return; }
+        vista.innerHTML = '<b class="small">' + d.fechas.length + " citas · " + esc(d.regla) + "</b><div class=\"rec-chips\">" +
+          d.fechas.map(function (f) { return '<span class="rec-chip' + (f.nota ? " mov" : "") + '" title="' + esc(f.nota) + '">' + esc(f.texto) + (f.nota ? " ⚑" : "") + "</span>"; }).join("") + "</div>";
+      });
+    }, 250);
+  }
+  // en la regla mensual por n-ésimo día, el día de la semana viaja como dia_semana
+  form.addEventListener("submit", function () {
+    if (sel.value === "mensual" && form.querySelector("[name=modo_mes]:checked").value === "nesimo") {
+      var h = document.createElement("input"); h.type = "hidden"; h.name = "dia_semana"; h.value = form.dia_semana_mes.value; form.appendChild(h);
+    }
+  });
+  sel.addEventListener("change", mostrar);
+  form.addEventListener("input", function (e) { if (e.target.closest("[data-rec-regla]") || e.target === inp || e.target === form.fecha) pedir(); });
+  form.addEventListener("change", function (e) { if (e.target.closest("[data-rec-regla]")) pedir(); });
 });
 /* equipo OneCore: se elige de los usuarios activos (su correo es su login) */
 document.querySelectorAll("[data-equipo]").forEach(function (box) {
@@ -86,12 +125,26 @@ document.querySelectorAll("[data-equipo]").forEach(function (box) {
       <div class="field"><label for="ag-resp">Responsable</label><select class="input" id="ag-resp" name="responsable_id">{% for g in gente %}<option value="{{ g.id }}" {{ 'selected' if g.id == u.id }}>{{ g.nombre }}{% if g.area %} · {{ g.area.nombre }}{% endif %}</option>{% endfor %}</select></div>
       {% if catalogo %}<div class="field"><label for="ag-cli">Cliente {{ icon('lock', 13) }}</label><select class="input" id="ag-cli" name="cliente"><option value="">Elige el cliente (o escríbelo abajo)</option>{% for rfc, n in catalogo %}<option value="{{ rfc }}|{{ n }}">{{ n }} · {{ rfc }}</option>{% endfor %}</select></div>{% endif %}
       <div class="field"><label for="ag-clin">{{ 'Cliente que no está en el catálogo' if catalogo else 'Cliente' }} {{ icon('lock', 13) }}</label><input class="input" id="ag-clin" name="cliente_nombre" maxlength="255" placeholder="Ej. Manufacturas del Norte"></div>
-      <div class="field"><label for="ag-f">Fecha</label><input class="input" type="date" id="ag-f" name="fecha" required value="{{ hoy.isoformat() if mes == hoy.strftime('%Y-%m') else mes ~ '-01' }}"></div>
+      <div class="field"><label for="ag-f" data-lbl-fecha>Fecha</label><input class="input" type="date" id="ag-f" name="fecha" required value="{{ hoy.isoformat() if mes == hoy.strftime('%Y-%m') else mes ~ '-01' }}"></div>
       <div class="field"><label for="ag-h">Hora</label><input class="input" type="time" id="ag-h" name="hora"></div>
       <div class="field"><label for="ag-rec">Se repite</label><select class="input" id="ag-rec" name="recurrencia" data-rec>
-        <option value="">Una sola vez</option><option value="semanal">Cada semana</option><option value="mensual">Cada mes (mismo día)</option></select></div>
+        <option value="">Una sola vez</option><option value="semanal">Cada semana</option><option value="mensual">Cada mes</option></select></div>
       <div class="field" data-rec-fin hidden><label for="ag-fin">Hasta</label><input class="input" type="date" id="ag-fin" name="fecha_fin">
-        <span class="muted small">Máximo 12 meses. Cada cita queda en la agenda con su transcripción obligatoria.</span></div>
+        <span class="muted small">Máximo 12 meses.</span></div>
+    </div>
+    <div class="rec-regla" data-rec-regla hidden>
+      <div data-solo="semanal" class="row" style="gap:8px;flex-wrap:wrap"><span class="small"><b>Cada</b></span>
+        <select class="input" name="dia_semana" data-ds style="width:auto">{% for d in ['lunes','martes','miércoles','jueves','viernes'] %}<option value="{{ loop.index0 }}">{{ d }}</option>{% endfor %}</select>
+        <span class="small muted">a la hora indicada arriba</span></div>
+      <div data-solo="mensual" class="col" style="gap:8px">
+        <label class="check"><input type="radio" name="modo_mes" value="dia" checked><span>El día <input class="input" type="number" name="dia_mes" min="1" max="31" value="10" style="width:76px;height:34px;display:inline-block"> de cada mes; si no es hábil, el siguiente día hábil</span></label>
+        <label class="check"><input type="radio" name="modo_mes" value="nesimo"><span>El
+          <select class="input" name="nesimo" style="width:auto;height:34px;display:inline-block"><option value="1">primer</option><option value="2">segundo</option><option value="3">tercer</option><option value="4">cuarto</option><option value="-1">último</option></select>
+          <select class="input" name="dia_semana_mes" style="width:auto;height:34px;display:inline-block">{% for d in ['lunes','martes','miércoles','jueves','viernes'] %}<option value="{{ loop.index0 }}">{{ d }}</option>{% endfor %}</select> de cada mes</span></label></div>
+      <div class="rec-vista" data-rec-vista><span class="small muted">Elige la regla y la fecha fin para ver las fechas.</span></div>
+      <span class="small muted">Fines de semana y festivos oficiales se recorren solos al siguiente día hábil. Después puedes reprogramar cualquier cita de la serie (por ejemplo, un día inhábil de la empresa).</span>
+    </div>
+    <div class="grid2">
       <div class="field"><label for="ag-area">Área</label><select class="input" id="ag-area" name="area_id">{% for a in areas %}<option value="{{ a.id }}" {{ 'selected' if a.id == area_def }}>{{ a.nombre }}</option>{% endfor %}</select></div>
     </div>
     <div class="field"><label for="ag-p">Agenda <span class="muted" style="font-weight:500">· un punto por renglón; con esto {{ guardia }} confirma qué se cubrió</span></label>

@@ -18,7 +18,7 @@ from app.models import (
     SesionCompetidor,
     Usuario,
 )
-from app.services import evidencias, innovacion
+from app.services import clientes as cl_, evidencias, innovacion
 from app.services.util import hoy
 from app.web.base import hash_password
 from conftest import login
@@ -227,7 +227,7 @@ def test_agenda_transcripcion_confirma_ejecucion_y_propone_pendientes(admin, db,
 
 def test_agenda_reprogramar_cancelar_y_copiar_mes(admin, db):
     a = _agenda(admin, db, fecha=(hoy() + timedelta(days=2)).isoformat())
-    admin.post(f"/clientes/agenda/{a.id}/reprogramar", data={"fecha": (hoy() + timedelta(days=4)).isoformat(), "motivo": "Cierre de mes del cliente"})
+    admin.post(f"/clientes/agenda/{a.id}/reprogramar", data={"fecha": cl_.siguiente_habil(hoy() + timedelta(days=4)).isoformat(), "motivo": "Cierre de mes del cliente"})
     db.expire_all()
     a = db.get(AgendaCliente, a.id)
     assert a.estado == "reprogramada" and any("Cierre de mes" in h["texto"] for h in a.historial)

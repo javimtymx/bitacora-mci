@@ -233,11 +233,39 @@ async def comentar(tid: int, request: Request, bg: BackgroundTasks, texto: str =
         flash(request, str(e), "error")
         return ir(f"/tickets/{tid}")
     texto_aviso = texto.strip() or ("Adjuntó: " + ", ".join(n for n, _ in lista_) if lista_ else "")
-    if era_info and t.estado != "info":
+    if era_info and t.estado != "info":  # su respuesta regresa el ticket a atención: es cambio de estatus
         _avisar(bg, "respuesta", t, u, texto=texto_aviso)
-    else:
-        _avisar(bg, "comentario", t, u, texto=texto_aviso)
     return ir(f"/tickets/{tid}#hilo")
+
+
+@router.post("/tickets-img")
+async def subir_imagen(imagen: UploadFile = File(...), ticket_id: OptInt = Form(None), db: Session = Depends(get_db),
+                       u: Usuario = Depends(usuario_actual)):
+    """Imagen pegada o arrastrada dentro del texto: se sube y regresa el código que se inserta en el texto."""
+    t = _ticket(db, ticket_id, u) if ticket_id else None
+    try:
+        img = tk.guardar_imagen(db, u, await imagen.read(), t)
+        db.commit()
+    except tk.TicketInvalido as e:
+        db.rollback()
+        return JSONResponse({"ok": False, "mensaje": str(e)}, status_code=400)
+    url = f"/tickets-img/{img.id}"
+    return JSONResponse({"ok": True, "id": img.id, "url": url, "md": f"![imagen]({url})"})
+
+
+@router.get("/tickets-img/{iid}")
+def ver_imagen(iid: int, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+    from ..models import TicketImagen
+    img = db.get(TicketImagen, iid)
+    if not img or not tk.puede_ver_imagen(db, u, img):
+        raise HTTPException(404, "Imagen no encontrada.")
+    try:
+        contenido = almacen.leer(img.ruta)
+    except almacen.AlmacenError as e:
+        raise HTTPException(404, str(e)) from e
+    return Response(contenido, media_type=img.tipo, headers={
+        "Content-Disposition": "inline", "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "private, max-age=86400", "Content-Security-Policy": "default-src 'none'"})
 
 
 @router.get("/anexos-ticket/{aid}")
@@ -303,7 +331,8 @@ def planear(tid: int, request: Request, bg: BackgroundTasks, horas: str = Form("
         db.rollback()
         flash(request, str(e), "error")
         return ir(f"/tickets/{tid}#planear")
-    _avisar(bg, "etapa", t, u)
+    if t.estado != antes:  # correo solo si cambió de estatus (no por ajustar horas, fecha o ingeniero)
+        _avisar(bg, "etapa", t, u)
     if despues == "revision":  # se planeó desde «En revisión»: ahora se captura la solución
         flash(request, f"{t.folio} planeado. Ahora captura cómo se resolvió para pasarlo a revisión.")
         return ir(f"/tickets/{tid}#cerrar")
@@ -376,22 +405,29 @@ def resolver(tid: int, request: Request, bg: BackgroundTasks, tipo_cierre: str =
     return ir(f"/tickets/{tid}")
 
 
+def _resp_revision(request: Request, tid: int, ok: bool, mensaje: str):
+    if "application/json" in (request.headers.get("accept") or ""):
+        return JSONResponse({"ok": ok, "mensaje": mensaje}, status_code=200 if ok else 400)
+    flash(request, mensaje, "info" if ok else "error")
+    return ir(f"/tickets/{tid}")
+
+
 @router.post("/tickets/{tid}/aceptar")
 def aceptar(tid: int, request: Request, bg: BackgroundTasks, comentario: str = Form(""), db: Session = Depends(get_db),
             u: Usuario = Depends(usuario_actual)):
     t = _ticket(db, tid, u)
     if not tk.puede_aceptar(u, t):
-        raise HTTPException(403, "La revisión la hace quien levantó el ticket.")
+        return _resp_revision(request, tid, False, "Lo cierra quien levantó el ticket o quien tenga el permiso "
+                                                   "«Revisa tickets de otros» en su perfil.")
     try:
         tk.aceptar(db, u, t, comentario)
         tk.sincronizar_pendiente(db, t, u)
         db.commit()
     except tk.TicketInvalido as e:
-        flash(request, str(e), "error")
-        return ir(f"/tickets/{tid}")
-    _avisar(bg, "aceptado", t, u)
-    flash(request, f"{t.folio} cerrado. Gracias por revisarlo.")
-    return ir(f"/tickets/{tid}")
+        db.rollback()
+        return _resp_revision(request, tid, False, str(e))
+    _avisar(bg, "aceptado", t, u, comentario=comentario.strip())
+    return _resp_revision(request, tid, True, f"{t.folio} cerrado." + (" Gracias por revisarlo." if u.id == t.creado_por else ""))
 
 
 @router.post("/tickets/{tid}/rechazar")
@@ -399,17 +435,17 @@ def rechazar(tid: int, request: Request, bg: BackgroundTasks, motivo: str = Form
              u: Usuario = Depends(usuario_actual)):
     t = _ticket(db, tid, u)
     if not tk.puede_aceptar(u, t):
-        raise HTTPException(403, "La revisión la hace quien levantó el ticket.")
+        return _resp_revision(request, tid, False, "Lo regresa quien levantó el ticket o quien tenga el permiso "
+                                                   "«Revisa tickets de otros» en su perfil.")
     try:
         tk.rechazar(db, u, t, motivo)
         tk.sincronizar_pendiente(db, t, u)
         db.commit()
     except tk.TicketInvalido as e:
-        flash(request, str(e), "error")
-        return ir(f"/tickets/{tid}")
+        db.rollback()
+        return _resp_revision(request, tid, False, str(e))
     _avisar(bg, "rechazado", t, u, motivo=motivo.strip())
-    flash(request, f"{t.folio} regresó al ingeniero con tu motivo.")
-    return ir(f"/tickets/{tid}")
+    return _resp_revision(request, tid, True, f"{t.folio} regresó a «En curso» con el ingeniero.")
 
 
 @router.post("/tickets-revision/recordar")
@@ -491,7 +527,8 @@ def tablero(request: Request, persona: OptInt = None, buscar: str = "", cerrados
     n_nuevos = len(db.scalars(select(Ticket.id).where(Ticket.estado == "nuevo")).all())
     return render(request, "tickets_tablero.html", u, "tickets-tablero", columnas=columnas, persona=persona,
                   gente=tk.asignables(db), vence_en=tk.vence_en, n_nuevos=n_nuevos, hoy=date.today(), tipos=tk.tipos(db, True),
-                  buscar=buscar, cerrados=cerrados, dias_revision=tk.dias_en_revision)
+                  buscar=buscar, cerrados=cerrados, dias_revision=tk.dias_en_revision,
+                  puede_revisar=tk.puede_aceptar)
 
 
 # ---------------------------------------------------------------- triage

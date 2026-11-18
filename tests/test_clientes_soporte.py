@@ -24,10 +24,35 @@ def _datos(db, **kw):
     return d
 
 
-def test_fechas_de_serie():
-    assert cl.fechas_serie(date(2026, 1, 31), "mensual", date(2026, 4, 30)) == [date(2026, 1, 31), date(2026, 2, 28),
-                                                                               date(2026, 3, 31), date(2026, 4, 30)]
-    assert len(cl.fechas_serie(date(2026, 1, 1), "semanal", date(2026, 1, 29))) == 5
+def test_fechas_de_serie_con_dias_habiles_y_festivos():
+    f = lambda xs: [x[0] for x in xs]  # noqa: E731
+    # cada 10: el 10/01/2027 es domingo → lunes 11; el 10/04/2027 es sábado → lunes 12
+    r = cl.fechas_serie(date(2027, 1, 1), "mensual", date(2027, 4, 30), modo="dia", dia_mes=10)
+    assert f(r) == [date(2027, 1, 11), date(2027, 2, 10), date(2027, 3, 10), date(2027, 4, 12)]
+    assert "domingo" in r[0][1] and r[1][1] == ""
+    # primer lunes: en febrero es festivo (Día de la Constitución) → martes
+    r = cl.fechas_serie(date(2027, 1, 1), "mensual", date(2027, 3, 31), modo="nesimo", dia_semana=0, nesimo=1)
+    assert f(r) == [date(2027, 1, 4), date(2027, 2, 2), date(2027, 3, 1)] and "Constitución" in r[1][1]
+    # cada 16 de septiembre se recorre; el último viernes también funciona
+    assert f(cl.fechas_serie(date(2027, 9, 1), "mensual", date(2027, 9, 30), dia_mes=16)) == [date(2027, 9, 17)]
+    assert f(cl.fechas_serie(date(2027, 1, 1), "mensual", date(2027, 1, 31), modo="nesimo", dia_semana=4, nesimo=-1)) == [date(2027, 1, 29)]
+    # semanal: cada miércoles a partir de la fecha de inicio
+    r = cl.fechas_serie(date(2027, 1, 4), "semanal", date(2027, 1, 31), dia_semana=2)
+    assert f(r) == [date(2027, 1, 6), date(2027, 1, 13), date(2027, 1, 20), date(2027, 1, 27)]
+    assert cl.inhabil(date(2026, 12, 25)) == "Navidad" and cl.inhabil(date(2030, 10, 1))
+
+
+def test_vista_previa_y_reprogramar_no_habil(admin, db):
+    d = admin.get("/api/clientes/serie", params={"fecha": "2027-01-01", "recurrencia": "mensual", "fecha_fin": "2027-03-31",
+                                                 "modo_mes": "dia", "dia_mes": 10}).json()
+    assert d["ok"] and len(d["fechas"]) == 3 and d["fechas"][0]["nota"] and "cada día 10" in d["regla"]
+    assert not admin.get("/api/clientes/serie", params={"fecha": "2027-01-01", "recurrencia": "mensual"}).json()["ok"]
+    admin.post("/clientes/agenda", data=_datos(db))
+    a = db.scalar(select(AgendaCliente))
+    sabado = hoy() + timedelta(days=(5 - hoy().weekday()) % 7 or 7)
+    admin.post(f"/clientes/agenda/{a.id}/reprogramar", data={"fecha": sabado.isoformat(), "motivo": "Cliente pidió moverla"})
+    db.refresh(a)
+    assert a.estado == "programada"  # no se reprograma a un día inhábil
 
 
 def test_citas_recurrentes_cada_una_con_su_transcripcion(admin, db, monkeypatch):
@@ -35,11 +60,12 @@ def test_citas_recurrentes_cada_una_con_su_transcripcion(admin, db, monkeypatch)
     enviados = []
     monkeypatch.setattr(agenda_avisos, "enviar_en_fondo", lambda aid, tipo: enviados.append((aid, tipo)))
     ini = hoy() + timedelta(days=3)
-    admin.post("/clientes/agenda", data=_datos(db, fecha=ini.isoformat(), recurrencia="mensual",
-                                               fecha_fin=(ini + timedelta(days=150)).isoformat()))
+    admin.post("/clientes/agenda", data=_datos(db, fecha=ini.isoformat(), recurrencia="mensual", modo_mes="dia",
+                                               dia_mes=str(ini.day), fecha_fin=(ini + timedelta(days=150)).isoformat()))
     serie = list(db.scalars(select(AgendaCliente).order_by(AgendaCliente.fecha)))
     assert len(serie) == 5 and len({a.serie_id for a in serie}) == 1 and all(a.recurrencia == "mensual" for a in serie)
     assert len({a.mes for a in serie}) == 5  # una por mes, visibles en la agenda de cada mes
+    assert all(not cl.inhabil(a.fecha) for a in serie)  # siempre en día hábil
     # invitación de calendario solo para las que están a 35 días o menos; las demás las manda el proceso diario
     assert {aid for aid, _ in enviados} == {a.id for a in serie if (a.fecha - hoy()).days <= 35}
     html = admin.get(f"/clientes/agenda/{serie[2].id}").text
@@ -132,7 +158,9 @@ def test_revision_del_solicitante_y_recordatorio(admin, db, monkeypatch):
     assert "mcoronado@onecore.mx" in aviso["para"] and "mpineda@onecore.mx" in aviso["para"]  # solicitante y su jefe
     # el ingeniero no puede cerrarlo por su cuenta ni moverlo: lo revisa quien lo levantó
     eng = login(TestClient(app), "egarza@onecore.mx")
-    assert eng.post(f"/tickets/{t.id}/aceptar").status_code in (403, 404)
+    eng.post(f"/tickets/{t.id}/aceptar")
+    db.refresh(t)
+    assert t.estado == "revision"
     html = login(TestClient(app), "mcoronado@onecore.mx").get(f"/tickets/{t.id}").text
     assert "te toca revisarlo" in html and "Aceptar y cerrar" in html
     tab = admin.get("/tickets-tablero").text

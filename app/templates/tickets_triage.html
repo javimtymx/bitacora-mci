@@ -15,7 +15,7 @@
     <span class="row" style="gap:6px">{% if t.validacion == 'sin_ia' %}<span class="tag o">Sin validar por IA</span>{% elif t.validacion == 'incompleto' %}<span class="tag o">Le faltan datos</span>{% endif %}
       {% if t.anexos %}<span class="tag n">{{ t.anexos|length }} anexo{{ 's' if t.anexos|length > 1 }}</span>{% endif %}</span>
   </div>
-  <div class="small" style="white-space:pre-wrap;max-height:120px;overflow:hidden">{{ t.descripcion }}</div>
+  <div class="small" style="white-space:pre-wrap;max-height:120px;overflow:hidden">{{ t.descripcion|sin_imagenes }}</div>
   {% if t.faltantes %}<div class="small"><b>Se levantó sin:</b> {% for f in t.faltantes %}{{ campos_req.get(f, f)|lower }}{{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}
   {% if s %}
   <div class="tkt-msg g" style="max-width:100%;background:#F4FBFA;border-color:#CFE6E4">

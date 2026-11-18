@@ -21,8 +21,9 @@
 {% for clave, titulo, lista in columnas %}
   <div class="kcolum" data-estado="{{ clave }}" aria-label="{{ titulo }}"><h3><span>{{ titulo }}{% if clave == 'cerrado' and not buscar %} <span class="muted small" style="font-weight:600">· 7 días</span>{% endif %}</span><span class="muted">{{ lista|length }}</span></h3>
   {% if clave == 'revision' and lista %}<form method="post" action="/tickets-revision/recordar"><button class="btn sm soft" style="width:100%" title="Correo a quienes levantaron los tickets y a sus jefes, con la lista y los días que llevan resueltos">{{ icon('mail', 14) }}Recordar revisión</button></form>{% endif %}
-  {% for t in lista %}{% set v = vence_en(t) %}
-    <div class="tkc" draggable="{{ 'true' if clave not in ('cerrado', 'revision', 'nuevo') else 'false' }}" data-id="{{ t.id }}" data-estado="{{ t.estado }}" data-folio="{{ t.folio }}"
+  {% for t in lista %}{% set v = vence_en(t) %}{% set rev_ok = clave == 'revision' and puede_revisar(u, t) %}
+    <div class="tkc" draggable="{{ 'true' if clave not in ('cerrado', 'revision', 'nuevo') or rev_ok else 'false' }}" data-id="{{ t.id }}" data-estado="{{ t.estado }}" data-folio="{{ t.folio }}"
+         data-revisa="{{ ('autor' if t.creado_por == u.id else 'otro') if rev_ok else '' }}" data-autor="{{ t.autor.nombre if t.autor else '' }}"
          data-horas="{{ t.horas_estimadas|float if t.horas_estimadas is not none else '' }}" data-entrega="{{ t.fecha_entrega.isoformat() if t.fecha_entrega else '' }}" data-asignado="{{ t.asignado_id or '' }}" data-original="{{ t.horas_originales|float if t.horas_originales is not none else '' }}">
       <a href="/tickets/{{ t.id }}" style="color:var(--ink);text-decoration:none;display:flex;flex-direction:column;gap:6px" draggable="false">
         <span class="row between" style="gap:6px"><span class="fol">{{ t.folio }} · {{ tipos.get(t.tipo, t.tipo) }}</span>{% if t.prioridad %}<span class="prio {{ t.prioridad }}">{{ t.prioridad }}</span>{% endif %}</span>
@@ -38,6 +39,10 @@
       {% if clave not in ('cerrado', 'revision', 'nuevo') %}
       <div class="row" style="gap:4px">{% for e, et in (('pendiente','Pendiente'),('planeado','Planeado'),('en_curso','En curso'),('revision','Resuelto → Revisión')) if e != clave %}
         <button class="btn sm ghost kmov" type="button" data-a="{{ e }}" style="height:26px;padding:0 8px;font-size:11.5px" title="Mover a {{ et }}">→ {{ et }}</button>{% endfor %}</div>
+      {% endif %}
+      {% if rev_ok %}
+      <div class="row" style="gap:4px"><button class="btn sm ghost kmov" type="button" data-a="cerrado" style="height:26px;padding:0 8px;font-size:11.5px">✓ Aceptar y cerrar</button>
+        <button class="btn sm ghost kmov" type="button" data-a="en_curso" style="height:26px;padding:0 8px;font-size:11.5px">↩ Regresar a En curso</button></div>
       {% endif %}
     </div>
   {% else %}<span class="muted small vacio" style="padding:4px">Nada aquí.</span>{% endfor %}
@@ -64,6 +69,16 @@
     <span class="muted small">Con las horas y la tarifa del ingeniero se calcula el costo del ticket y el pronóstico de pago.</span>
   </div>
   <div class="mf"><button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn yellow">{{ icon('ok') }}Planear</button></div></form></div>
+<div class="overlay" id="revisar"><form class="modal" method="post" id="f-revisar" role="dialog" aria-modal="true" aria-labelledby="t-rev" style="max-width:520px">
+  <div class="mh"><div class="row"><h2 id="t-rev">Revisión</h2><span class="muted" style="font-weight:600" id="rev-folio"></span></div>
+    <button class="btn ghost" type="button" data-close aria-label="Cerrar" style="width:42px;padding:0">{{ icon('x') }}</button></div>
+  <div class="sec" style="border-top:0">
+    <div class="field"><label for="rev-m" id="rev-lbl">Motivo</label>
+      <textarea class="input" id="rev-m" rows="3" maxlength="1000" style="padding:10px 12px"></textarea>
+      <span class="muted small" id="rev-nota"></span></div>
+    <span class="small" id="rev-err" style="color:var(--red)" hidden></span>
+  </div>
+  <div class="mf"><button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn dark" id="rev-ok">Confirmar</button></div></form></div>
 {% endblock %}
 
 {% block scripts %}<script>
@@ -86,8 +101,36 @@
     var b = document.createElement("button"); b.type = "button"; b.dataset.open = "planear"; b.hidden = true;
     document.body.appendChild(b); b.click(); b.remove();
   }
+  function revisar(card, estado) {
+    var cerrar = estado === "cerrado", otro = card.dataset.revisa === "otro";
+    var f = document.getElementById("f-revisar"), m = document.getElementById("rev-m"), err = document.getElementById("rev-err");
+    var url = "/tickets/" + card.dataset.id + (cerrar ? "/aceptar" : "/rechazar");
+    document.getElementById("rev-folio").textContent = card.dataset.folio;
+    document.getElementById("t-rev").textContent = cerrar ? "Aceptar y cerrar" : "Regresar a En curso";
+    document.getElementById("rev-ok").textContent = cerrar ? "Cerrar ticket" : "Regresar al ingeniero";
+    document.getElementById("rev-lbl").textContent = cerrar ? (otro ? "Motivo (lo cierras en lugar de " + card.dataset.autor + ")" : "Comentario (opcional)") : "¿Qué falta o qué sigue sin funcionar?";
+    document.getElementById("rev-nota").textContent = (cerrar && !otro) ? "" : "Mínimo 10 caracteres; queda en el historial del ticket.";
+    m.value = ""; m.required = !cerrar || otro; m.minLength = m.required ? 10 : 0; err.hidden = true;
+    f.onsubmit = function (e) {
+      e.preventDefault();
+      var fd = new FormData(); fd.append(cerrar ? "comentario" : "motivo", m.value);
+      fetch(url, { method: "POST", body: fd, headers: { Accept: "application/json" } })
+        .then(function (r) { return r.json(); })
+        .then(function (d) { if (d.ok) { location.reload(); return; } err.textContent = d.mensaje || "No se pudo."; err.hidden = false; })
+        .catch(function () { err.textContent = "No se pudo conectar."; err.hidden = false; });
+    };
+    var b = document.createElement("button"); b.type = "button"; b.dataset.open = "revisar"; b.hidden = true;
+    document.body.appendChild(b); b.click(); b.remove();
+    setTimeout(function () { m.focus(); }, 50);
+  }
   function mover(card, estado) {
     if (estado === card.dataset.estado) return;
+    if (card.dataset.estado === "revision") {
+      if (!card.dataset.revisa) return;
+      if (estado === "cerrado" || estado === "en_curso") return revisar(card, estado);
+      alert("Desde «En revisión» el ticket se cierra o regresa a «En curso».");
+      return;
+    }
     if (estado === "planeado") return planear(card);
     if (estado === "cerrado") { alert("El cierre lo da quien levantó el ticket al revisarlo. Suéltalo en «En revisión» para capturar cómo se resolvió."); return; }
     if (estado === "revision") { if (!card.dataset.horas) return planear(card, estado); location.href = "/tickets/" + card.dataset.id + "#cerrar"; return; }

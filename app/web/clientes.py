@@ -113,7 +113,9 @@ def crear_agenda(request: Request, fondo: BackgroundTasks, tipo: str = Form(...)
                  responsable_id: int = Form(...), area_id: OptInt = Form(None), cliente: str = Form(""),
                  cliente_nombre: str = Form(""), puntos: str = Form(""), p_nombre: list[str] = Form([]),
                  p_email: list[str] = Form([]), p_lado: list[str] = Form([]), recurrencia: str = Form(""),
-                 fecha_fin: OptDate = Form(None), db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+                 fecha_fin: OptDate = Form(None), modo_mes: str = Form("dia"), dia_semana: OptInt = Form(None),
+                 dia_mes: OptInt = Form(None), nesimo: OptInt = Form(None),
+                 db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
     if tipo not in AGENDA_TIPOS:
         raise HTTPException(400, "Tipo de sesión inválido.")
     rfc, nombre = "", cliente_nombre.strip()[:255]
@@ -126,11 +128,14 @@ def crear_agenda(request: Request, fondo: BackgroundTasks, tipo: str = Form(...)
     if not lista:
         flash(request, "Escribe al menos un punto de la agenda: es contra lo que se confirma la ejecución.", "error")
         return ir(f"/clientes/agenda?mes={fecha:%Y-%m}")
-    fechas = [fecha]
+    fechas = [(fecha, "")]
     serie = None
+    regla = ""
     if recurrencia in ("semanal", "mensual"):
         try:
-            fechas = cl.fechas_serie(fecha, recurrencia, fecha_fin)
+            fechas = cl.fechas_serie(fecha, recurrencia, fecha_fin, modo=modo_mes, dia_semana=dia_semana, dia_mes=dia_mes,
+                                     nesimo=nesimo)
+            regla = cl.describir_serie(recurrencia, modo_mes, dia_semana, dia_mes, nesimo)
         except ValueError as e:
             flash(request, str(e), "error")
             return ir(f"/clientes/agenda?mes={fecha:%Y-%m}")
@@ -139,13 +144,14 @@ def crear_agenda(request: Request, fondo: BackgroundTasks, tipo: str = Form(...)
     ops = _area_operaciones(db)
     invitados = cl.limpiar_invitados(p_nombre, p_email, p_lado)
     creadas = []
-    for i, f in enumerate(fechas, 1):
+    for i, (f, nota) in enumerate(fechas, 1):
         a = AgendaCliente(mes=f"{f:%Y-%m}", tipo=tipo, area_id=area_id or (ops.id if ops else u.area_id),
                           responsable_id=responsable_id, cliente_rfc=rfc[:13], cliente_nombre=nombre[:255], fecha=f,
                           hora=hora[:5], puntos=list(lista), invitados=[dict(x) for x in invitados], creado_por=u.id,
                           historial=[], ejecucion={}, serie_id=serie, recurrencia=recurrencia if serie else None)
         cl.evento(a, u, f"Sesión programada para el {f:%d/%m/%Y}{' a las ' + hora if hora else ''}"
-                  + (f" · cita {i} de {len(fechas)} de la serie {recurrencia}." if serie else "."))
+                  + (f" · cita {i} de {len(fechas)} de la serie ({regla})." if serie else ".") + (f" {nota}" if nota else ""),
+                  **({"festivo": nota} if nota else {}))
         db.add(a)
         creadas.append(a)
     db.flush()
@@ -156,11 +162,27 @@ def crear_agenda(request: Request, fondo: BackgroundTasks, tipo: str = Form(...)
         if (x.fecha - hoy()).days <= agenda_avisos.DIAS_INVITACION:
             fondo.add_task(agenda_avisos.enviar_en_fondo, x.id, "invitacion")
     if serie:
-        flash(request, f"Serie {recurrencia} creada: {len(creadas)} citas hasta el {fechas[-1]:%d/%m/%Y}. Cada una tiene su "
-                       f"transcripción obligatoria; la invitación de calendario sale {agenda_avisos.DIAS_INVITACION} días antes de cada cita.")
+        movidas = sum(1 for _, n in fechas if n)
+        flash(request, f"Serie creada ({regla}): {len(creadas)} citas hasta el {fechas[-1][0]:%d/%m/%Y}."
+                       + (f" {movidas} se recorrieron al siguiente día hábil por fin de semana o festivo." if movidas else "")
+                       + " Cada cita se puede reprogramar sola; su invitación de calendario sale "
+                       f"{agenda_avisos.DIAS_INVITACION} días antes.")
     else:
         flash(request, "Sesión agregada a la agenda del mes. Se envía la invitación de calendario al equipo de OneCore.")
     return ir(f"/clientes/agenda/{a.id}")
+
+
+@router.get("/api/clientes/serie")
+def vista_serie(fecha: date, recurrencia: str, fecha_fin: OptDate = None, modo_mes: str = "dia", dia_semana: OptInt = None,
+                dia_mes: OptInt = None, nesimo: OptInt = None, u: Usuario = Depends(usuario_actual)):
+    """Vista previa de las fechas de la serie (con los días que se recorren por fin de semana o festivo)."""
+    try:
+        fs = cl.fechas_serie(fecha, recurrencia, fecha_fin, modo=modo_mes, dia_semana=dia_semana, dia_mes=dia_mes, nesimo=nesimo)
+    except ValueError as e:
+        return JSONResponse({"ok": False, "mensaje": str(e)})
+    return JSONResponse({"ok": True, "regla": cl.describir_serie(recurrencia, modo_mes, dia_semana, dia_mes, nesimo),
+                         "fechas": [{"fecha": f.isoformat(), "texto": f"{cl.DIAS_SEMANA[f.weekday()][:3]} {f:%d/%m/%Y}", "nota": n}
+                                    for f, n in fs]})
 
 
 @router.post("/clientes/agenda/copiar")
@@ -250,6 +272,9 @@ def reprogramar(aid: int, request: Request, fondo: BackgroundTasks, fecha: date 
         raise HTTPException(403)
     if len(motivo.strip()) < 5:
         flash(request, "Escribe el motivo de la reprogramación.", "error")
+        return ir(f"/clientes/agenda/{a.id}")
+    if (motivo_inh := cl.inhabil(fecha)) and not request.query_params.get("forzar"):
+        flash(request, f"El {fecha:%d/%m/%Y} no es día hábil ({motivo_inh}). Elige otra fecha.", "error")
         return ir(f"/clientes/agenda/{a.id}")
     cl.evento(a, u, f"Reprogramada del {a.fecha:%d/%m/%Y} al {fecha:%d/%m/%Y}. Motivo: {motivo.strip()}", antes=str(a.fecha))
     a.fecha, a.hora, a.mes, a.estado = fecha, hora[:5], f"{fecha:%Y-%m}", "reprogramada"

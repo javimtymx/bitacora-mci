@@ -14,21 +14,24 @@
 
 {% if t.estado == 'revision' %}{% set r = t.resolucion or {} %}
 <section class="card pad tkt-rev">
-  <div class="row between"><h2>{{ icon('ok', 18) }} Resuelto: {{ 'te toca revisarlo' if puede_aceptar else 'en revisión de ' ~ (t.autor.nombre if t.autor else 'quien lo levantó') }}</h2>
+{% set en_nombre = puede_aceptar and u.id != t.creado_por %}
+  <div class="row between"><h2>{{ icon('ok', 18) }} Resuelto: {{ 'te toca revisarlo' if puede_aceptar and not en_nombre else 'en revisión de ' ~ (t.autor.nombre if t.autor else 'quien lo levantó') }}</h2>
     <span class="small muted">Resolvió {{ r.por_nombre or '—' }}{% if r.resuelto_en %} · hace {{ dias_revision }} día{{ 's' if dias_revision != 1 }}{% endif %}</span></div>
   <dl class="tkt-dl" style="grid-template-columns:90px 1fr">
-    <dt>Cómo</dt><dd>{{ cierres.get(r.tipo, r.tipo) }}</dd><dt>Solución</dt><dd>{{ r.solucion }}</dd></dl>
+    <dt>Cómo</dt><dd>{{ cierres.get(r.tipo, r.tipo) if r.tipo else '—' }}</dd><dt>Solución</dt><dd>{{ r.solucion or '—' }}</dd></dl>
   {% if puede_aceptar %}
+  {% if en_nombre %}<span class="small muted">Tienes el permiso «Revisa tickets de otros»: puedes cerrarlo o regresarlo en lugar de {{ t.autor.nombre if t.autor else 'quien lo levantó' }}. Escribe el motivo; queda en el historial.</span>{% endif %}
   <div class="row" style="gap:10px;flex-wrap:wrap;align-items:flex-start">
-    <form method="post" action="/tickets/{{ t.id }}/aceptar" class="row" style="gap:8px"><input class="input" name="comentario" maxlength="1000" placeholder="Comentario (opcional)" aria-label="Comentario" style="min-width:220px">
+    <form method="post" action="/tickets/{{ t.id }}/aceptar" class="row" style="gap:8px;flex-wrap:nowrap"><input class="input" name="comentario" maxlength="1000"
+      {% if en_nombre %}required minlength="10" placeholder="Motivo (ej. confirmó por teléfono que ya funciona)"{% else %}placeholder="Comentario (opcional)"{% endif %} aria-label="Comentario" style="min-width:260px">
       <button class="btn yellow">{{ icon('ok') }}Aceptar y cerrar</button></form>
-    <details class="ev-ret"><summary class="btn soft">No está resuelto</summary>
-      <form method="post" action="/tickets/{{ t.id }}/rechazar" class="ev-ret-f"><input class="input" name="motivo" required minlength="10" placeholder="¿Qué sigue sin funcionar?" aria-label="Motivo"><button class="btn sm red">Regresar al ingeniero</button></form></details>
-  </div>{% else %}<span class="small muted">El responsable en esta etapa es quien levantó el ticket: él lo acepta (se cierra) o lo regresa con el motivo.</span>{% endif %}
+    <details class="ev-ret"><summary class="btn soft">{{ 'Regresar a En curso' if en_nombre else 'No está resuelto' }}</summary>
+      <form method="post" action="/tickets/{{ t.id }}/rechazar" class="ev-ret-f"><input class="input" name="motivo" required minlength="10" placeholder="¿Qué falta o qué sigue sin funcionar?" aria-label="Motivo"><button class="btn sm red">Regresar al ingeniero</button></form></details>
+  </div>{% else %}<span class="small muted">Lo cierra o lo regresa a «En curso» quien levantó el ticket, o quien tenga el permiso «Revisa tickets de otros» en su perfil.</span>{% endif %}
 </section>
 {% endif %}
 {% if pendiente %}<div class="cint"><span class="ic">{{ icon('users') }}</span><span>Viene del pendiente de cliente <a href="/clientes/pendientes/{{ pendiente.id }}"><b>{{ pendiente.folio }}</b></a>: avanza junto con este ticket.</span></div>{% endif %}
-{% if (t.resolucion or {}).rechazos %}<div class="tkt-aviso">{{ icon('alert', 18) }}<span><b>Regresado {{ t.resolucion.rechazos|length }} vez/veces por quien lo levantó.</b> Último motivo: {{ t.resolucion.rechazos[-1].motivo }}</span></div>{% endif %}
+{% if (t.resolucion or {}).rechazos %}<div class="tkt-aviso">{{ icon('alert', 18) }}<span><b>Regresado a «En curso» {{ t.resolucion.rechazos|length }} vez/veces.</b> Último motivo: {{ t.resolucion.rechazos[-1].motivo }}</span></div>{% endif %}
 {% if t.estado == 'info' and u.id == t.creado_por %}
 <div class="tkt-aviso">{{ icon('alert', 18) }}<span><b>El equipo necesita información para seguir.</b> Responde abajo en la conversación (puedes adjuntar archivos). Al responder, tu ticket regresa a atención.</span></div>
 {% endif %}
@@ -41,15 +44,15 @@
         {% if t.validacion == 'sin_ia' %}<span class="tag o" title="GuardIA no respondió al levantarlo">Sin validar por IA</span>
         {% elif t.validacion == 'incompleto' %}<span class="tag o">Se levantó sin: {% for f in t.faltantes %}{{ campos_req.get(f, f)|lower }}{{ ', ' if not loop.last }}{% endfor %}</span>
         {% else %}<span class="tag g">Revisado por GuardIA</span>{% endif %}</span></div>
-    <div style="white-space:pre-wrap;font-size:14.5px;line-height:1.55">{{ t.descripcion }}</div>
+    <div class="tk-texto" style="white-space:pre-wrap;font-size:14.5px;line-height:1.55">{{ t.descripcion|con_imagenes }}</div>
     <dl class="tkt-dl">
       <dt>Dónde</dt><dd>{{ t.producto }}{% if t.menu %} › {{ t.menu }}{% endif %}{% if t.pantalla %} › {{ t.pantalla }}{% endif %}</dd>
       <dt>Tipo · impacto</dt><dd>{{ tipos.get(t.tipo) }} · {{ impactos.get(t.impacto) }}</dd>
       {% if t.cliente %}<dt>Cliente</dt><dd>{{ t.cliente }}</dd>{% endif %}
       {% if t.referencia %}<dt>Referencia</dt><dd>{{ t.referencia }}</dd>{% endif %}
-      {% if t.pasos %}<dt>Pasos</dt><dd>{{ t.pasos }}</dd>{% endif %}
-      {% if t.esperado %}<dt>Esperado</dt><dd>{{ t.esperado }}</dd>{% endif %}
-      {% if t.obtenido %}<dt>Obtenido</dt><dd>{{ t.obtenido }}</dd>{% endif %}
+      {% if t.pasos %}<dt>Pasos</dt><dd class="tk-texto" style="white-space:pre-wrap">{{ t.pasos|con_imagenes }}</dd>{% endif %}
+      {% if t.esperado %}<dt>Esperado</dt><dd class="tk-texto" style="white-space:pre-wrap">{{ t.esperado|con_imagenes }}</dd>{% endif %}
+      {% if t.obtenido %}<dt>Obtenido</dt><dd class="tk-texto" style="white-space:pre-wrap">{{ t.obtenido|con_imagenes }}</dd>{% endif %}
       <dt>Levantado</dt><dd>{{ t.autor.nombre }} · {{ hora_local(t.creado) }}</dd>
     </dl>
     <div class="col" style="gap:8px">
@@ -70,12 +73,12 @@
     <div class="tkt-hilo">
       {% for cm in t.comentarios %}
       <div class="tkt-com {{ cm.tipo }}"><span class="q">{% if cm.tipo == 'sistema' %}Sistema{% else %}{{ cm.autor.nombre if cm.autor else 'GuardIA' }}{% endif %}
-        {% if cm.tipo == 'pedir_info' %} · pidió información{% elif cm.tipo == 'respuesta' %} · respondió{% endif %} · {{ hora_local(cm.creado) }}</span>{{ cm.texto }}</div>
+        {% if cm.tipo == 'pedir_info' %} · pidió información{% elif cm.tipo == 'respuesta' %} · respondió{% endif %} · {{ hora_local(cm.creado) }}</span><span class="tk-texto">{{ cm.texto|con_imagenes }}</span></div>
       {% endfor %}
     </div>
     {% if t.estado != 'cerrado' %}
     <form method="post" action="/tickets/{{ t.id }}/comentar" enctype="multipart/form-data" data-subidas="ticket" class="col" style="gap:10px">
-      <textarea class="input" name="texto" rows="3" style="padding:10px 12px;min-height:84px" maxlength="8000"
+      <textarea class="input" name="texto" rows="3" style="padding:10px 12px;min-height:84px" maxlength="8000" data-imagenes="{{ t.id }}"
         placeholder="{{ 'Responde lo que te piden…' if t.estado == 'info' and u.id == t.creado_por else 'Escribe un comentario…' }}"></textarea>
       <div class="row between"><input type="file" name="archivos" multiple accept="{{ aceptar }}" class="small">
         <button class="btn dark sm" type="submit">{{ icon('send', 15) }}{{ 'Responder' if t.estado == 'info' and u.id == t.creado_por else 'Comentar' }}</button></div>

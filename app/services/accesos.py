@@ -42,7 +42,7 @@ MENUS = (
     Menu("voz", "ia", "Voz del cliente", "Sesiones 1:1 y objeciones", "/voz-cliente", "lider",
          ("/voz-cliente", "/sesiones", "/hallazgos")),
     Menu("clientes-agenda", "clientes", "Agenda de clientes", "Sesiones del mes, asistencia y transcripción", "/clientes/agenda",
-         "colaborador", ("/clientes/agenda", "/clientes")),
+         "colaborador", ("/clientes/agenda", "/clientes", "/api/clientes")),
     Menu("clientes-pendientes", "clientes", "Pendientes de clientes", "Quejas y tareas hasta su resolución",
          "/clientes/pendientes", "colaborador", ("/clientes/pendientes",)),
     Menu("clientes-servicio", "clientes", "Recurrencias de servicio", "Quejas y tareas que se repiten: plan de mejora",

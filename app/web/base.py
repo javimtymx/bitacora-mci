@@ -12,7 +12,7 @@ import bcrypt
 from fastapi import Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
-from markupsafe import Markup
+from markupsafe import Markup, escape
 from sqlalchemy.orm import Session
 
 from ..db import get_db
@@ -102,6 +102,23 @@ def _nota_json(n) -> dict:
             "avance": n.avance}
 
 
+def _con_imagenes(texto) -> Markup:
+    """Texto de ticket con las imágenes pegadas en línea. Todo se escapa; solo el código ![..](/tickets-img/N) se vuelve <img>."""
+    from ..services.tickets import RE_IMG
+    seguro = str(escape(texto or ""))
+    import re as _re
+    linea = _re.compile(r"\n?" + RE_IMG.pattern + r"[ \t]*\n{0,2}")
+    return Markup(linea.sub(lambda m: f'<a class="tk-img" href="/tickets-img/{m.group(2)}" target="_blank" rel="noopener">'
+                                       f'<img src="/tickets-img/{m.group(2)}" alt="{m.group(1) or "imagen"}" loading="lazy"></a>', seguro))
+
+
+def _sin_imagenes(texto) -> str:
+    from ..services.tickets import RE_IMG
+    return RE_IMG.sub("[imagen]", texto or "")
+
+
+TEMPLATES.env.filters["con_imagenes"] = _con_imagenes
+TEMPLATES.env.filters["sin_imagenes"] = _sin_imagenes
 TEMPLATES.env.filters["evid_json"] = _evid_json
 TEMPLATES.env.filters["nota_json"] = _nota_json
 from ..models import TIPOS_OPORTUNIDAD as _TIPOS_OP  # noqa: E402

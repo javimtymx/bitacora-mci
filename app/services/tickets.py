@@ -569,6 +569,66 @@ def similares(db: Session, texto: str, excluir_id: int | None = None, n: int = 3
              "causa": (t.resolucion or {}).get("causa", ""), "puntaje": round(s, 2)} for s, t in puntos[:n]]
 
 
+# ---------------------------------------------------------------- imágenes dentro del texto
+
+IMG_TIPOS = {"image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp"}
+IMG_MAX = 10 * 1024 * 1024
+RE_IMG = re.compile(r"!\[([^\]\n]{0,80})\]\(/tickets-img/(\d+)\)")
+
+
+def _tipo_imagen(contenido: bytes) -> str | None:
+    """Tipo real por la firma del archivo (no se confía en la extensión ni en lo que diga el navegador)."""
+    if contenido.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if contenido.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if contenido[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if contenido[:4] == b"RIFF" and contenido[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def guardar_imagen(db: Session, u: Usuario, contenido: bytes, ticket: Ticket | None = None):
+    """Imagen pegada en la descripción o en un comentario. Regresa la TicketImagen (aún sin ticket si se está levantando)."""
+    import uuid
+    from ..models import TicketImagen
+    if not contenido:
+        raise TicketInvalido("La imagen está vacía.")
+    if len(contenido) > IMG_MAX:
+        raise TicketInvalido("La imagen pasa de 10 MB. Recórtala o usa un anexo.")
+    tipo = _tipo_imagen(contenido)
+    if not tipo:
+        raise TicketInvalido("Solo se pegan imágenes PNG, JPG, GIF o WEBP. Otros archivos van como anexo.")
+    try:
+        ruta = almacen.guardar("tickets/imagenes", f"{uuid.uuid4().hex}.{IMG_TIPOS[tipo]}", contenido, tipo)
+    except almacen.AlmacenError as e:
+        raise TicketInvalido(str(e)) from e
+    img = TicketImagen(ticket_id=ticket.id if ticket else None, ruta=ruta, tipo=tipo, bytes=len(contenido),
+                       sha256=hashlib.sha256(contenido).hexdigest(), subido_por=u.id)
+    db.add(img)
+    db.flush()
+    return img
+
+
+def ligar_imagenes(db: Session, u: Usuario, t: Ticket, *textos: str) -> int:
+    """Liga al ticket las imágenes que el texto referencia y que subió esta persona (las de otro ticket no se tocan)."""
+    from ..models import TicketImagen
+    ids = {int(m.group(2)) for x in textos if x for m in RE_IMG.finditer(x)}
+    n = 0
+    for img in db.scalars(select(TicketImagen).where(TicketImagen.id.in_(ids))) if ids else []:
+        if img.ticket_id is None and img.subido_por == u.id:
+            img.ticket_id, n = t.id, n + 1
+    return n
+
+
+def puede_ver_imagen(db: Session, u: Usuario, img) -> bool:
+    if img.ticket_id is None:
+        return img.subido_por == u.id
+    t = db.get(Ticket, img.ticket_id)
+    return bool(t) and puede_ver(u, t)
+
+
 # ---------------------------------------------------------------- alta
 
 def _seguro(nombre: str) -> str:
@@ -654,6 +714,7 @@ def crear(db: Session, u: Usuario, campos: dict, archivos: list[tuple[str, bytes
         guardar_anexo(db, t, nombre, contenido, u)
     for info in subidos or []:
         registrar_subida(db, t, info, u)
+    ligar_imagenes(db, u, t, c["descripcion"], c["pasos"], c["esperado"], c["obtenido"])
     nota = {"completo": "Levantado con la revisión de GuardIA completa.",
             "incompleto": "Levantado sin: " + ", ".join(CAMPOS_REQ[f].lower() for f in t.faltantes) + ".",
             "sin_ia": "Levantado sin validar por IA (GuardIA no respondió); se completa en segundo plano."}[validacion]
@@ -798,7 +859,7 @@ def mover(db: Session, u: Usuario, t: Ticket, estado: str) -> None:
     if estado == "revision":
         raise TicketInvalido("Para pasarlo a revisión captura cómo se resolvió (resolver): lo revisa quien levantó el ticket.")
     if t.estado == "revision" and estado != "revision":
-        raise TicketInvalido("Está en revisión de quien lo levantó: él lo acepta o lo regresa con motivo.")
+        raise TicketInvalido("Está en revisión: usa «Aceptar y cerrar» o «Regresar a En curso» con el motivo.")
     db.add(TicketComentario(ticket_id=t.id, autor_id=u.id, tipo="sistema",
                             texto=f"Pasó de «{TICKET_ESTADOS[t.estado]}» a «{TICKET_ESTADOS[estado]}»."))
     t.estado, t.actualizado = estado, utcnow()
@@ -886,6 +947,7 @@ def comentar(db: Session, u: Usuario, t: Ticket, texto: str) -> None:
     texto = (texto or "").strip()
     if not texto:
         raise TicketInvalido("Escribe el comentario.")
+    ligar_imagenes(db, u, t, texto)
     responde = t.estado == "info" and u.id == t.creado_por
     db.add(TicketComentario(ticket_id=t.id, autor_id=u.id, tipo="respuesta" if responde else "comentario", texto=texto[:8000]))
     if responde:
@@ -962,21 +1024,37 @@ def resolver(db: Session, u: Usuario, t: Ticket, *, tipo_cierre: str, causa: str
 
 
 def puede_aceptar(u: Usuario, t: Ticket) -> bool:
-    """La revisión la hace quien levantó el ticket (o Dirección si esa persona ya no está activa)."""
-    return u.id == t.creado_por or (u.es_direccion and not (t.autor and t.autor.activo))
+    """Quién cierra o regresa a «En curso» un ticket en revisión: quien lo levantó, las personas a las que Dirección
+    les dio el permiso «Revisa tickets de otros» en su perfil, o Dirección si quien lo levantó ya no está activo."""
+    return (u.id == t.creado_por or bool(getattr(u, "revisa_tickets", False))
+            or (u.es_direccion and not (t.autor and t.autor.activo)))
+
+
+def revisa_en_nombre(u: Usuario, t: Ticket) -> bool:
+    """Lo revisa alguien distinto a quien lo levantó: se pide motivo para dejar rastro."""
+    return u.id != t.creado_por
 
 
 def aceptar(db: Session, u: Usuario, t: Ticket, comentario: str = "") -> None:
     if t.estado != "revision":
         raise TicketInvalido("El ticket no está en revisión.")
+    comentario = (comentario or "").strip()
+    otro = revisa_en_nombre(u, t)
+    if otro and len(comentario) < 10:
+        raise TicketInvalido(f"Lo cierras en lugar de {t.autor.nombre if t.autor else 'quien lo levantó'}: "
+                             "escribe el motivo (ej. «confirmó por teléfono que ya funciona»).")
     ingeniero = db.get(Usuario, t.asignado_id) if t.asignado_id else None
     t.costo_hora = ingeniero.costo_hora if ingeniero else None  # tarifa vigente al cerrar: el costo ya no cambia
     t.estado, t.cerrado_en, t.actualizado = "cerrado", utcnow(), utcnow()
-    t.resolucion = {**(t.resolucion or {}), "aceptado_por": u.id, "aceptado_en": utcnow().isoformat(timespec="seconds")}
-    db.add(TicketComentario(ticket_id=t.id, autor_id=u.id, tipo="sistema",
-                            texto="Solución aceptada por quien levantó el ticket: cerrado."
-                                  + (f" Comentario: {comentario.strip()[:1000]}" if comentario.strip() else "")))
-    auditar(db, "ticket_aceptar", "ticket", t.id, u.id)
+    t.resolucion = {**(t.resolucion or {}), "aceptado_por": u.id, "aceptado_en": utcnow().isoformat(timespec="seconds"),
+                    **({"aceptado_en_nombre": True, "motivo_cierre": comentario[:1000]} if otro else {})}
+    if otro:
+        texto = (f"Cerrado por {u.nombre} en lugar de {t.autor.nombre if t.autor else 'quien lo levantó'}. "
+                 f"Motivo: {comentario[:1000]}")
+    else:
+        texto = "Solución aceptada por quien levantó el ticket: cerrado." + (f" Comentario: {comentario[:1000]}" if comentario else "")
+    db.add(TicketComentario(ticket_id=t.id, autor_id=u.id, tipo="sistema", texto=texto))
+    auditar(db, "ticket_aceptar", "ticket", t.id, u.id, en_nombre=otro)
 
 
 def rechazar(db: Session, u: Usuario, t: Ticket, motivo: str) -> None:
@@ -984,15 +1062,16 @@ def rechazar(db: Session, u: Usuario, t: Ticket, motivo: str) -> None:
         raise TicketInvalido("El ticket no está en revisión.")
     motivo = (motivo or "").strip()
     if len(motivo) < 10:
-        raise TicketInvalido("Explica qué sigue sin funcionar para que el ingeniero lo atienda.")
+        raise TicketInvalido("Explica qué falta o qué sigue sin funcionar para que el ingeniero lo atienda.")
     r = dict(t.resolucion or {})
     r["rechazos"] = (r.get("rechazos") or []) + [{"en": utcnow().isoformat(timespec="seconds"), "por": u.nombre,
                                                   "motivo": motivo[:1000], "solucion": r.get("solucion", "")[:500]}]
     t.resolucion = r
     t.estado, t.actualizado = "en_curso", utcnow()
+    quien = "No está resuelto" if not revisa_en_nombre(u, t) else f"{u.nombre} lo regresó desde revisión"
     db.add(TicketComentario(ticket_id=t.id, autor_id=u.id, tipo="comentario",
-                            texto=f"No está resuelto; regresa al ingeniero. Motivo: {motivo[:1000]}"))
-    auditar(db, "ticket_rechazar", "ticket", t.id, u.id)
+                            texto=f"{quien}; vuelve a «En curso» con el ingeniero. Motivo: {motivo[:1000]}"))
+    auditar(db, "ticket_rechazar", "ticket", t.id, u.id, en_nombre=revisa_en_nombre(u, t))
 
 
 def dias_en_revision(t: Ticket) -> int:

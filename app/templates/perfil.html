@@ -14,5 +14,7 @@
   <label class="check"><input type="checkbox" name="avisos_agenda" value="true" {{ 'checked' if u.recibe_agenda }}><span>Notificarme cada sesión con cliente que se programe en la agenda, con la invitación para Google Calendar y el recordatorio 5 días antes</span></label>
   <span class="small muted">Comunicación interna. Por omisión lo recibe el responsable de Customer Success. Si eres responsable o invitado de OneCore en una sesión, la invitación te llega siempre.</span>
   <button class="btn soft" style="align-self:flex-start">Guardar avisos</button></form>
+<section class="card pad"><h2>Tickets</h2>
+  <span class="small">{% if u.revisa_tickets %}<span class="tag g">Revisa tickets de otros</span> Puedes cerrar o regresar a «En curso» tickets en revisión aunque no los hayas levantado.{% else %}Revisas los tickets que tú levantaste. El permiso para revisar tickets de otros lo da Dirección en Usuarios.{% endif %}</span></section>
 </div>
 {% endblock %}

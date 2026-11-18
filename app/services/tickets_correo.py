@@ -130,12 +130,7 @@ def avisos(db: Session, evento: str, t: Ticket, actor: Usuario | None, **x) -> l
         a([t.asignado], f"{t.folio}: el usuario respondió",
           f"{actor.nombre} respondió en «{t.titulo}»:\n{x.get('texto', '')[:1500]}\nEl ticket regresó a atención.", "Ver respuesta")
     elif evento == "comentario":
-        if actor.id != t.creado_por:
-            a([t.autor], f"{t.folio}: nuevo comentario",
-              f"{actor.nombre} comentó en «{t.titulo}»:\n{x.get('texto', '')[:1500]}", "Ver el ticket", interesados=True)
-        else:
-            a([t.asignado], f"{t.folio}: nuevo comentario",
-              f"{actor.nombre} comentó en «{t.titulo}»:\n{x.get('texto', '')[:1500]}", "Ver el ticket")
+        pass  # los comentarios no mandan correo: solo los cambios de estatus (se ven en la conversación del ticket)
     elif evento == "cerrado":
         r = t.resolucion or {}
         a([t.autor], f"{t.folio}: etapa Cerrado · resuelto",
@@ -150,12 +145,22 @@ def avisos(db: Session, evento: str, t: Ticket, actor: Usuario | None, **x) -> l
           "Entra al ticket y elige «Aceptar y cerrar» si quedó resuelto, o «No está resuelto» con el motivo para que "
           "regrese al ingeniero.", "Revisar el ticket", interesados=True)
     elif evento == "rechazado":
-        a([t.asignado], f"{t.folio}: el usuario indica que no está resuelto",
+        a([t.asignado], f"{t.folio}: regresó a En curso",
           f"{actor.nombre} revisó «{t.titulo}» y no lo dio por resuelto:\n{x.get('motivo', '')}\nEl ticket regresó a En curso.",
           "Ver el ticket")
+        if actor and actor.id != t.creado_por:
+            a([t.autor], f"{t.folio}: etapa En curso",
+              f"{actor.nombre} regresó el ticket a «En curso» desde revisión:\n{x.get('motivo', '')}\n{ficha}",
+              "Ver el ticket", interesados=True)
     elif evento == "aceptado":
         a([t.asignado], f"{t.folio}: solución aceptada · cerrado",
           f"{actor.nombre} aceptó la solución de «{t.titulo}». El ticket quedó cerrado.", "Ver el ticket")
+        if actor and actor.id != t.creado_por:
+            r = t.resolucion or {}
+            a([t.autor], f"{t.folio}: etapa Cerrado · resuelto",
+              f"{actor.nombre} cerró el ticket en tu lugar. Motivo: {x.get('comentario', '')}\n{ficha}\n"
+              f"Solución: {r.get('solucion', '')}\nSi no quedó resuelto, entra al ticket y usa «Reabrir».",
+              "Ver la solución", interesados=True)
     elif evento == "reabierto":
         a([t.asignado], f"{t.folio} reabierto", f"{actor.nombre} reabrió «{t.titulo}»: {x.get('motivo', '')}", "Ver el ticket")
         a([t.autor], f"{t.folio}: reabierto", f"{actor.nombre} reabrió el ticket: {x.get('motivo', '')}\n{ficha}",

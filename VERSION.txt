@@ -1,2 +1,3 @@
-bitacora-mci v20261111-1712_7a67982
-base 175df68
+bitacora-mci v20261118-0957_a8bc511
+commit a8bc511
+migración head: a7d4e9c2b315 (nueva: usuarios.revisa_tickets y tabla ticket_imagenes)

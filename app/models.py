@@ -73,6 +73,8 @@ class Usuario(Base):
     menus_extra: Mapped[list | None] = mapped_column(JSON)  # menús por otorgamiento que Dirección le dio
     jefe_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))  # jefe directo (recibe copia de sus tickets)
     costo_hora: Mapped[float | None] = mapped_column(Numeric(10, 2))  # pesos por hora, para el costo de los tickets
+    # puede cerrar o regresar a «En curso» tickets en revisión de otros (además de quien lo levantó); lo da Dirección
+    revisa_tickets: Mapped[bool] = mapped_column(Boolean, default=False, server_default=sa_false())
     area_ticket: Mapped[str | None] = mapped_column(String(40))  # clave del catálogo «área del usuario» (ticket_opciones)
     creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     ultimo_acceso: Mapped[datetime | None] = mapped_column(DateTime)
@@ -1207,6 +1209,20 @@ class TicketAnexo(Base):
 
     ticket: Mapped[Ticket] = relationship(back_populates="anexos")
     autor: Mapped[Usuario] = relationship()
+
+
+class TicketImagen(Base):
+    """Imagen pegada dentro del texto de un ticket (descripción o comentario), no como anexo: el texto la referencia
+    como ![imagen](/tickets-img/ID). Se sube antes de existir el ticket (al levantarlo) y se liga al guardar."""
+    __tablename__ = "ticket_imagenes"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ticket_id: Mapped[int | None] = mapped_column(ForeignKey("tickets.id"), index=True)
+    ruta: Mapped[str] = mapped_column(String(300))
+    tipo: Mapped[str] = mapped_column(String(60), default="image/png")
+    bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    sha256: Mapped[str] = mapped_column(String(64), default="")
+    subido_por: Mapped[int] = mapped_column(ForeignKey("usuarios.id"))
+    creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
 class TicketComentario(Base):

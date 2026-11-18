@@ -94,10 +94,58 @@ def limpiar_invitados(nombres: list[str], emails: list[str], lados: list[str], a
 # ---------------------------------------------------------------- agenda del mes
 
 MAX_SERIE_DIAS = 366
+DIAS_SEMANA = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+ORDINALES = {1: "primer", 2: "segundo", 3: "tercer", 4: "cuarto", -1: "último"}
 
 
-def fechas_serie(inicio: date, recurrencia: str, fin: date | None) -> list[date]:
-    """Fechas de una serie semanal o mensual (mismo día del mes; si no existe, el último del mes), hasta la fecha fin."""
+def _nesimo(y: int, m: int, dia_semana: int, n: int) -> date:
+    """n-ésimo día de la semana del mes (n=-1: el último)."""
+    import calendar
+    dias = [d for d in range(1, calendar.monthrange(y, m)[1] + 1) if date(y, m, d).weekday() == dia_semana]
+    return date(y, m, dias[n - 1] if n > 0 else dias[-1])
+
+
+def festivos(y: int) -> dict[date, str]:
+    """Días de descanso obligatorio en México (LFT art. 74)."""
+    f = {date(y, 1, 1): "Año Nuevo", _nesimo(y, 2, 0, 1): "Día de la Constitución",
+         _nesimo(y, 3, 0, 3): "Natalicio de Benito Juárez", date(y, 5, 1): "Día del Trabajo",
+         date(y, 9, 16): "Día de la Independencia", _nesimo(y, 11, 0, 3): "Día de la Revolución",
+         date(y, 12, 25): "Navidad"}
+    if (y - 2024) % 6 == 0:
+        f[date(y, 10, 1)] = "Transmisión del Poder Ejecutivo Federal"
+    return f
+
+
+def inhabil(d: date) -> str:
+    """Motivo si el día no es hábil (fin de semana o festivo oficial); vacío si es hábil."""
+    if d.weekday() >= 5:
+        return DIAS_SEMANA[d.weekday()].capitalize()
+    return festivos(d.year).get(d, "")
+
+
+def siguiente_habil(d: date) -> date:
+    while inhabil(d):
+        d += timedelta(days=1)
+    return d
+
+
+def describir_serie(recurrencia: str, modo: str = "", dia_semana: int | None = None, dia_mes: int | None = None,
+                    nesimo: int | None = None) -> str:
+    if recurrencia == "semanal":
+        return f"cada {DIAS_SEMANA[dia_semana or 0]}"
+    if modo == "nesimo":
+        return f"el {ORDINALES.get(nesimo, '')} {DIAS_SEMANA[dia_semana or 0]} de cada mes"
+    return f"cada día {dia_mes} del mes (si no es hábil, el siguiente día hábil)"
+
+
+def fechas_serie(inicio: date, recurrencia: str, fin: date | None, *, modo: str = "dia", dia_semana: int | None = None,
+                 dia_mes: int | None = None, nesimo: int | None = None) -> list[tuple[date, str]]:
+    """Fechas de una serie, desde «inicio» hasta «fin» (máx. 12 meses). Regresa [(fecha, nota)].
+    - semanal: cada «dia_semana» (0 = lunes).
+    - mensual modo «dia»: cada «dia_mes» (si el mes es más corto, el último día).
+    - mensual modo «nesimo»: el n-ésimo «dia_semana» del mes (1..4 o -1 = último).
+    Si una fecha cae en fin de semana o festivo oficial se recorre al siguiente día hábil y se anota por qué;
+    después, cada cita se puede reprogramar sola."""
     import calendar
     if not fin:
         raise ValueError("Indica hasta qué fecha se repite la cita.")
@@ -105,19 +153,43 @@ def fechas_serie(inicio: date, recurrencia: str, fin: date | None) -> list[date]
         raise ValueError("La fecha fin de la serie debe ser posterior a la primera cita.")
     if (fin - inicio).days > MAX_SERIE_DIAS:
         raise ValueError("Una serie puede durar hasta 12 meses; al terminar se programa otra.")
-    out, i = [], 0
-    while True:
-        if recurrencia == "semanal":
-            f = inicio + timedelta(weeks=i)
-        else:
-            m = inicio.month - 1 + i
-            y, m = inicio.year + m // 12, m % 12 + 1
-            f = date(y, m, min(inicio.day, calendar.monthrange(y, m)[1]))
-        if f > fin:
-            break
-        out.append(f)
-        i += 1
+    base: list[date] = []
+    if recurrencia == "semanal":
+        ds = inicio.weekday() if dia_semana is None else dia_semana
+        if not 0 <= ds <= 6:
+            raise ValueError("Elige el día de la semana.")
+        f = inicio + timedelta(days=(ds - inicio.weekday()) % 7)
+        while f <= fin:
+            base.append(f)
+            f += timedelta(weeks=1)
+    else:
+        y, m = inicio.year, inicio.month
+        while date(y, m, 1) <= fin:
+            if modo == "nesimo":
+                if dia_semana is None or nesimo not in ORDINALES:
+                    raise ValueError("Elige qué día del mes (por ejemplo, el primer lunes).")
+                f = _nesimo(y, m, dia_semana, nesimo)
+            else:
+                dm = dia_mes or inicio.day
+                if not 1 <= dm <= 31:
+                    raise ValueError("El día del mes va del 1 al 31.")
+                f = date(y, m, min(dm, calendar.monthrange(y, m)[1]))
+            if inicio <= f <= fin:
+                base.append(f)
+            y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    out, vistos = [], set()
+    for f in base:
+        motivo = inhabil(f)
+        g = siguiente_habil(f) if motivo else f
+        if g in vistos:
+            continue
+        vistos.add(g)
+        cae = motivo.lower() if f.weekday() >= 5 else f"festivo: {motivo}"
+        out.append((g, f"El {f:%d/%m} cae en {cae}; se recorrió al {g:%d/%m}, siguiente día hábil." if motivo else ""))
+    if not out:
+        raise ValueError("Con esa regla no cae ninguna cita entre las dos fechas.")
     return out
+
 
 def estado_visible(a: AgendaCliente) -> tuple[str, str]:
     """(texto, color) de la celda de estatus. Una sesión con fecha pasada sin transcripción queda en naranja."""

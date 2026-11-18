@@ -29,7 +29,7 @@
     <label for="tk-descripcion">Describe qué pasa <span class="ast">*</span></label>
     <div class="tkt-guia"><span class="muted small">Para atenderte a la primera incluye:</span>
       <span>Dónde (pantalla)</span><span>Qué pasó</span><span>Desde cuándo</span><span>Qué esperabas</span><span>Cliente y pedimento o RFC</span></div>
-    <textarea class="input tkt-auto" id="tk-descripcion" name="descripcion" required minlength="15" rows="3"
+    <textarea class="input tkt-auto" id="tk-descripcion" name="descripcion" data-imagenes="" required minlength="15" rows="3"
       placeholder="Ej. Desde ayer, al cargar el layout en SAFE (Validación › Pedimentos por validar) me sale «valor en aduana inválido» en todas las partidas…">{{ pre.descripcion if pre }}</textarea>
     <span class="muted small" id="tk-lee">Al terminar la descripción, {{ guardia }} propone el título y llena lo que ya mencionaste.</span>
   </div>
@@ -56,7 +56,7 @@
   </div>
   <div class="grid2">
     <div class="field" data-req="pasos"><label for="tk-pasos">Pasos para replicar</label>
-      <textarea class="input tkt-auto" id="tk-pasos" name="pasos" rows="4" placeholder="1. Entré a…&#10;2. Cargué…&#10;3. Di clic en…&#10;Esperaba … y obtuve …"></textarea>
+      <textarea class="input tkt-auto" id="tk-pasos" name="pasos" data-imagenes="" rows="4" placeholder="1. Entré a…&#10;2. Cargué…&#10;3. Di clic en…&#10;Esperaba … y obtuve …"></textarea>
       <span class="muted small">Incluye qué esperabas y qué obtuviste.</span></div>
     <div class="field" data-req="anexo"><label>Anexos</label>
     <div class="tkt-files"><span class="muted small" id="tk-files-vacio">Captura, archivo o reporte. Sin límite de tamaño; los grandes tardan más en subir.</span>
