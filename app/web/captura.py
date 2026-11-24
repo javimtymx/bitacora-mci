@@ -341,6 +341,28 @@ async def subir_evidencias(cid: int, request: Request, fondo: BackgroundTasks, a
     return ir(f"/compromisos/{cid}")
 
 
+@router.post("/compromisos/{cid}/aclarar")
+def aclarar_cierre(cid: int, request: Request, fondo: BackgroundTasks, texto: str = Form(""), db: Session = Depends(get_db),
+                   u: Usuario = Depends(usuario_actual)):
+    """Responde la duda de GuardIA o corrige el comentario de cierre; GuardIA vuelve a revisar con eso."""
+    from ..services import evidencias
+    c = _comp_editable(db, cid, u)
+    if c.estado != "cumplido":
+        flash(request, "Solo se aclara un compromiso cerrado como cumplido.", "error")
+        return ir(f"/compromisos/{cid}")
+    try:
+        evidencias.aclarar(db, c, u, texto)
+    except evidencias.EvidenciaInvalida as e:
+        flash(request, str(e), "error")
+        return ir(f"/compromisos/{cid}#cierre")
+    if ia.cliente().disponible:
+        c.cierre_veredicto = "verificando"
+        fondo.add_task(evidencias.verificar_en_fondo, c.id)
+    db.commit()
+    flash(request, "Aclaración guardada." + (" GuardIA vuelve a revisar el cierre con ella." if c.cierre_veredicto == "verificando" else ""))
+    return ir(f"/compromisos/{cid}")
+
+
 @router.get("/evidencias/{eid}")
 def descargar_evidencia(eid: int, ver: int = 0, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
     """ver=1: imágenes y PDF se muestran en el navegador (para el visor de evidencias); lo demás se descarga."""

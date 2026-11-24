@@ -24,7 +24,7 @@ from pathlib import Path
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..models import (TICKET_CIERRES, TICKET_ESTADOS, TICKET_IMPACTOS, TICKET_TIPOS, Ticket, TicketAnexo, TicketOpcion,
+from ..models import (TICKET_CIERRES, TICKET_CIERRES_SIN_CAUSA, TICKET_ESTADOS, TICKET_IMPACTOS, TICKET_TIPOS, Ticket, TicketAnexo, TicketOpcion,
                       TicketCatalogo, TicketEstimacion, TicketComentario, TicketPrompt, TicketRegla, Usuario, utcnow)
 from . import accesos, almacen, ia, parametros
 from .util import auditar
@@ -556,7 +556,8 @@ def similares(db: Session, texto: str, excluir_id: int | None = None, n: int = 3
     cerrados = db.scalars(select(Ticket).where(Ticket.estado == "cerrado").order_by(Ticket.cerrado_en.desc()).limit(600)).all()
     puntos = []
     for t in cerrados:
-        if t.id == excluir_id or not (t.resolucion or {}).get("solucion"):
+        if (t.id == excluir_id or not (t.resolucion or {}).get("solucion")
+                or (t.resolucion or {}).get("tipo") in TICKET_CIERRES_SIN_CAUSA):
             continue
         d = _tokens(f"{t.titulo} {t.descripcion} {t.pantalla} {t.producto} {(t.resolucion or {}).get('causa', '')}")
         if not d:
@@ -573,7 +574,7 @@ def similares(db: Session, texto: str, excluir_id: int | None = None, n: int = 3
 
 IMG_TIPOS = {"image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp"}
 IMG_MAX = 10 * 1024 * 1024
-RE_IMG = re.compile(r"!\[([^\]\n]{0,80})\]\(/tickets-img/(\d+)\)")
+RE_IMG = re.compile(r"!\[([^\]\n]{0,80})\]\(/(tickets-img|clientes/pendientes-img)/(\d+)\)")  # alt, tipo, id
 
 
 def _tipo_imagen(contenido: bytes) -> str | None:
@@ -589,7 +590,7 @@ def _tipo_imagen(contenido: bytes) -> str | None:
     return None
 
 
-def guardar_imagen(db: Session, u: Usuario, contenido: bytes, ticket: Ticket | None = None):
+def guardar_imagen(db: Session, u: Usuario, contenido: bytes, ticket: Ticket | None = None, pendiente_id: int | None = None):
     """Imagen pegada en la descripción o en un comentario. Regresa la TicketImagen (aún sin ticket si se está levantando)."""
     import uuid
     from ..models import TicketImagen
@@ -604,7 +605,7 @@ def guardar_imagen(db: Session, u: Usuario, contenido: bytes, ticket: Ticket | N
         ruta = almacen.guardar("tickets/imagenes", f"{uuid.uuid4().hex}.{IMG_TIPOS[tipo]}", contenido, tipo)
     except almacen.AlmacenError as e:
         raise TicketInvalido(str(e)) from e
-    img = TicketImagen(ticket_id=ticket.id if ticket else None, ruta=ruta, tipo=tipo, bytes=len(contenido),
+    img = TicketImagen(ticket_id=ticket.id if ticket else None, pendiente_id=pendiente_id, ruta=ruta, tipo=tipo, bytes=len(contenido),
                        sha256=hashlib.sha256(contenido).hexdigest(), subido_por=u.id)
     db.add(img)
     db.flush()
@@ -614,15 +615,31 @@ def guardar_imagen(db: Session, u: Usuario, contenido: bytes, ticket: Ticket | N
 def ligar_imagenes(db: Session, u: Usuario, t: Ticket, *textos: str) -> int:
     """Liga al ticket las imágenes que el texto referencia y que subió esta persona (las de otro ticket no se tocan)."""
     from ..models import TicketImagen
-    ids = {int(m.group(2)) for x in textos if x for m in RE_IMG.finditer(x)}
+    ids = {int(m.group(3)) for x in textos if x for m in RE_IMG.finditer(x) if m.group(2) == "tickets-img"}
     n = 0
     for img in db.scalars(select(TicketImagen).where(TicketImagen.id.in_(ids))) if ids else []:
-        if img.ticket_id is None and img.subido_por == u.id:
+        if img.ticket_id is None and img.pendiente_id is None and img.subido_por == u.id:
             img.ticket_id, n = t.id, n + 1
     return n
 
 
+def ligar_imagenes_pendiente(db: Session, u: Usuario, pendiente_id: int, *textos: str) -> int:
+    from ..models import TicketImagen
+    ids = {int(m.group(3)) for x in textos if x for m in RE_IMG.finditer(x) if m.group(2) == "clientes/pendientes-img"}
+    n = 0
+    for img in db.scalars(select(TicketImagen).where(TicketImagen.id.in_(ids))) if ids else []:
+        if img.ticket_id is None and img.pendiente_id is None and img.subido_por == u.id:
+            img.pendiente_id, n = pendiente_id, n + 1
+    return n
+
+
 def puede_ver_imagen(db: Session, u: Usuario, img) -> bool:
+    if img.pendiente_id is not None:
+        if accesos.puede(u, "clientes-pendientes") or img.subido_por == u.id:
+            return True
+        from ..models import PendienteCliente  # delegado a soporte: la ve quien puede ver el ticket
+        p = db.get(PendienteCliente, img.pendiente_id)
+        return bool(p and p.ticket and puede_ver(u, p.ticket))
     if img.ticket_id is None:
         return img.subido_por == u.id
     t = db.get(Ticket, img.ticket_id)
@@ -846,6 +863,9 @@ def triage(db: Session, u: Usuario, t: Ticket, prioridad: str, asignado: Usuario
 # ---------------------------------------------------------------- atención
 
 ABIERTOS_ATENCION = ("pendiente", "planeado", "en_curso", "revision", "info")
+# «V°B° cliente»: resuelto por sistemas, falta la aprobación del cliente (un tercero). Se ve en el tablero pero no cuenta
+# como carga del ingeniero ni como atraso de atención.
+ABIERTOS_TABLERO = ABIERTOS_ATENCION + ("vobo",)
 
 
 def mover(db: Session, u: Usuario, t: Ticket, estado: str) -> None:
@@ -858,7 +878,7 @@ def mover(db: Session, u: Usuario, t: Ticket, estado: str) -> None:
         raise TicketInvalido("Primero planéalo: horas estimadas, fecha de entrega e ingeniero.")
     if estado == "revision":
         raise TicketInvalido("Para pasarlo a revisión captura cómo se resolvió (resolver): lo revisa quien levantó el ticket.")
-    if t.estado == "revision" and estado != "revision":
+    if t.estado in ("revision", "vobo") and estado != t.estado:
         raise TicketInvalido("Está en revisión: usa «Aceptar y cerrar» o «Regresar a En curso» con el motivo.")
     db.add(TicketComentario(ticket_id=t.id, autor_id=u.id, tipo="sistema",
                             texto=f"Pasó de «{TICKET_ESTADOS[t.estado]}» a «{TICKET_ESTADOS[estado]}»."))
@@ -968,7 +988,10 @@ def cerrar(db: Session, u: Usuario, t: Ticket, *, tipo_cierre: str, causa: str, 
     if horas_reales is None or horas_reales < 0 or horas_reales > 5000:
         raise TicketInvalido("Indica las horas que realmente se invirtieron.")
     causa, solucion = (causa or "").strip(), (solucion or "").strip()
-    if len(causa) < 10 or len(solucion) < 15:
+    if tipo_cierre in TICKET_CIERRES_SIN_CAUSA:  # cancelado o aclaración: basta el motivo
+        if len(solucion) < 10:
+            raise TicketInvalido("Escribe el motivo: por qué se cancela o qué se le aclaró al usuario.")
+    elif len(causa) < 10 or len(solucion) < 15:
         raise TicketInvalido("Para cerrar escribe la causa y la solución: con eso GuardIA resuelve los próximos tickets parecidos.")
     t.resolucion = {"tipo": tipo_cierre, "causa": causa[:3000], "solucion": solucion[:5000], "modulos": (modulos or "").strip()[:1000],
                     "por": u.id, "por_nombre": u.nombre}
@@ -995,7 +1018,10 @@ def _datos_solucion(db: Session, tipo_cierre: str, causa: str, solucion: str, ho
     if horas_reales is None or horas_reales < 0 or horas_reales > 5000:
         raise TicketInvalido("Indica las horas que realmente se invirtieron.")
     causa, solucion = (causa or "").strip(), (solucion or "").strip()
-    if len(causa) < 10 or len(solucion) < 15:
+    if tipo_cierre in TICKET_CIERRES_SIN_CAUSA:  # cancelado o aclaración: basta el motivo
+        if len(solucion) < 10:
+            raise TicketInvalido("Escribe el motivo: por qué se cancela o qué se le aclaró al usuario.")
+    elif len(causa) < 10 or len(solucion) < 15:
         raise TicketInvalido("Escribe la causa y la solución: con eso GuardIA resuelve los próximos tickets parecidos.")
     return horas_reales, causa, solucion
 
@@ -1004,7 +1030,7 @@ def resolver(db: Session, u: Usuario, t: Ticket, *, tipo_cierre: str, causa: str
              horas_reales=None) -> None:
     """El ingeniero lo resolvió: captura la base de conocimiento (causa, solución, módulos, horas) y el ticket pasa a
     «En revisión», donde el responsable es quien lo levantó: él lo acepta (se cierra) o lo regresa con motivo."""
-    if t.estado in ("cerrado", "revision"):
+    if t.estado in ("cerrado", "revision", "vobo"):
         raise TicketInvalido("El ticket ya está resuelto.")
     if t.horas_estimadas is None:
         raise TicketInvalido("Primero planéalo: horas estimadas, fecha de entrega e ingeniero.")
@@ -1035,8 +1061,23 @@ def revisa_en_nombre(u: Usuario, t: Ticket) -> bool:
     return u.id != t.creado_por
 
 
-def aceptar(db: Session, u: Usuario, t: Ticket, comentario: str = "") -> None:
+def pasar_vobo(db: Session, u: Usuario, t: Ticket, nota: str = "") -> None:
+    """En revisión → «V°B° cliente»: está resuelto pero depende de que el cliente lo apruebe."""
     if t.estado != "revision":
+        raise TicketInvalido("Solo un ticket en revisión pasa a V°B° del cliente.")
+    nota = (nota or "").strip()
+    if len(nota) < 5:
+        raise TicketInvalido("Escribe qué se espera del cliente (ej. «que valide el layout con su agente aduanal»).")
+    t.resolucion = {**(t.resolucion or {}), "vobo_en": utcnow().isoformat(timespec="seconds"), "vobo_por": u.id,
+                    "vobo_nota": nota[:1000]}
+    t.estado, t.actualizado = "vobo", utcnow()
+    db.add(TicketComentario(ticket_id=t.id, autor_id=u.id, tipo="sistema",
+                            texto=f"Pasa a «V°B° cliente»: depende de la aprobación del cliente. {nota[:1000]}"))
+    auditar(db, "ticket_vobo", "ticket", t.id, u.id)
+
+
+def aceptar(db: Session, u: Usuario, t: Ticket, comentario: str = "") -> None:
+    if t.estado not in ("revision", "vobo"):
         raise TicketInvalido("El ticket no está en revisión.")
     comentario = (comentario or "").strip()
     otro = revisa_en_nombre(u, t)
@@ -1058,7 +1099,7 @@ def aceptar(db: Session, u: Usuario, t: Ticket, comentario: str = "") -> None:
 
 
 def rechazar(db: Session, u: Usuario, t: Ticket, motivo: str) -> None:
-    if t.estado != "revision":
+    if t.estado not in ("revision", "vobo"):
         raise TicketInvalido("El ticket no está en revisión.")
     motivo = (motivo or "").strip()
     if len(motivo) < 10:
@@ -1075,7 +1116,7 @@ def rechazar(db: Session, u: Usuario, t: Ticket, motivo: str) -> None:
 
 
 def dias_en_revision(t: Ticket) -> int:
-    r = (t.resolucion or {}).get("resuelto_en")
+    r = (t.resolucion or {}).get("vobo_en" if t.estado == "vobo" else "resuelto_en")
     base = datetime.fromisoformat(r) if r else t.actualizado
     return max(0, (utcnow() - base).days)
 
@@ -1150,7 +1191,7 @@ def regresados_por_version(db: Session) -> dict[int, tuple[int, int]]:
 
 def vence_en(t: Ticket) -> tuple[str, str]:
     """Texto y color del tiempo de atención restante."""
-    if not t.sla_vence or t.estado == "cerrado":
+    if not t.sla_vence or t.estado in ("cerrado", "vobo"):  # en V°B° depende del cliente: no corre contra sistemas
         return "", ""
     resta = (t.sla_vence - utcnow()).total_seconds() / 3600
     if resta < 0:
@@ -1176,7 +1217,7 @@ def sincronizar_pendiente(db: Session, t: Ticket, u: Usuario | None = None) -> N
     ultimo = next((h.get("ticket") for h in reversed(p.historial or []) if h.get("ticket")), None)
     if t.estado != ultimo:
         evento(p, u, f"Soporte: {t.folio} está en «{TICKET_ESTADOS.get(t.estado, t.estado)}».", ticket=t.estado)
-    if t.estado in ("pendiente", "planeado", "en_curso", "info", "revision") and p.estado not in ("delegado", "resuelto"):
+    if t.estado in ("pendiente", "planeado", "en_curso", "info", "revision", "vobo") and p.estado not in ("delegado", "resuelto"):
         p.estado = "delegado"
         evento(p, u, f"Soporte aceptó {t.folio}: el pendiente queda delegado y avanza con el ticket.")
     elif t.estado == "cerrado" and p.estado == "delegado":

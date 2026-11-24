@@ -13,10 +13,11 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..db import get_db
-from ..models import (PendienteCliente, TICKET_CIERRES, TICKET_ESTADOS, TICKET_IMPACTOS, TICKET_TIPOS, Ticket, TicketAnexo,
+from ..models import (PendienteCliente, TICKET_CIERRES, TICKET_CIERRES_SIN_CAUSA, TICKET_ESTADOS, TICKET_IMPACTOS, TICKET_TIPOS, Ticket, TicketAnexo,
                       TicketComentario, TicketDiagnostico, TicketPrompt, TicketRegla, Usuario, utcnow)
 from ..services import accesos, almacen, correo, ia
 from ..services import subidas as subidas_srv
+from ..services import cargas as cg
 from ..services import tickets as tk
 from .base import OptDate, OptInt, flash, ir, render, usuario_actual
 
@@ -55,7 +56,9 @@ async def _archivos(lista: list[UploadFile] | None) -> list[tuple[str, bytes]]:
 PESTANAS = {
     "pendientes": ("Pendientes", ("nuevo", "pendiente", "info")),
     "programados": ("Programados", ("planeado", "en_curso")),
-    "cerrar": ("Por cerrar y cerrados", ("revision", "cerrado")),
+    "revision": ("En revisión", ("revision",)),
+    "vobo": ("V°B° cliente", ("vobo",)),
+    "cerrados": ("Cerrados", ("cerrado",)),
     "todos": ("Todos", None),
 }
 
@@ -63,6 +66,7 @@ PESTANAS = {
 @router.get("/tickets")
 def lista(request: Request, tab: str = "pendientes", ver: str = "mios", q: str = "", db: Session = Depends(get_db),
           u: Usuario = Depends(usuario_actual)):
+    tab = {"cerrar": "revision"}.get(tab, tab)  # ligas viejas a «Por cerrar»
     tab = tab if tab in PESTANAS else "pendientes"
     ver = ver if ver in ("mios", "equipo", "empresa") else "mios"
     equipo = db.scalars(select(Usuario.id).where(Usuario.jefe_id == u.id)).all()
@@ -84,8 +88,8 @@ def lista(request: Request, tab: str = "pendientes", ver: str = "mios", q: str =
     lq = base.where(Ticket.estado.in_(estados)) if estados else base
     if tab == "programados":
         lq = lq.order_by(Ticket.fecha_entrega.is_(None), Ticket.fecha_entrega, Ticket.id)
-    elif tab == "cerrar":
-        lq = lq.order_by((Ticket.estado == "cerrado"), Ticket.cerrado_en.desc(), Ticket.id.desc())
+    elif tab == "cerrados":
+        lq = lq.order_by(Ticket.cerrado_en.desc(), Ticket.id.desc())
     else:
         lq = lq.order_by(Ticket.creado.desc())
     ts = db.scalars(lq.limit(400)).all()
@@ -200,12 +204,12 @@ def detalle(tid: int, request: Request, db: Session = Depends(get_db), u: Usuari
     return render(request, "ticket.html", u, "tickets", t=t, staff=staff, sim=sim,
                   triage=accesos.puede(u, "tickets-triage"), dev=accesos.puede(u, "tickets-tablero"),
                   estados=TICKET_ESTADOS, tipos=tk.tipos(db, True), impactos=tk.impactos(db, True), cierres=tk.cierres(db, True),
-                  cierres_activos=tk.cierres(db),
+                  cierres_activos=tk.cierres(db), sin_causa=list(TICKET_CIERRES_SIN_CAUSA),
                   campos_req=tk.CAMPOS_REQ, asignables=tk.asignables(db) if staff else [], vence_en=tk.vence_en,
                   aceptar=",".join("." + e for e in tk.PERMITIDOS), ve_costos=tk.ve_costos(u),
                   edita_cc=tk.puede_editar_cc(u, t), hoy=date.today(), areas_u=tk.areas_usuario(db, True),
                   gente=tk.asignables(db) if accesos.puede(u, "tickets-tablero") else [],
-                  puede_aceptar=t.estado == "revision" and tk.puede_aceptar(u, t), dias_revision=tk.dias_en_revision(t),
+                  puede_aceptar=t.estado in ("revision", "vobo") and tk.puede_aceptar(u, t), dias_revision=tk.dias_en_revision(t),
                   pendiente=db.scalar(select(PendienteCliente).where(PendienteCliente.ticket_id == t.id)))
 
 
@@ -312,10 +316,18 @@ def mover(tid: int, request: Request, bg: BackgroundTasks, estado: str = Form(..
 
 
 @router.post("/tickets/{tid}/planear")
-def planear(tid: int, request: Request, bg: BackgroundTasks, horas: str = Form(""), fecha_entrega: OptDate = Form(None),
-            asignado_id: OptInt = Form(None), volver: str = Form(""), motivo: str = Form(""), despues: str = Form(""),
-            db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+async def planear(tid: int, request: Request, bg: BackgroundTasks, horas: str = Form(""), fecha_entrega: OptDate = Form(None),
+                  asignado_id: OptInt = Form(None), volver: str = Form(""), motivo: str = Form(""), despues: str = Form(""),
+                  motivo_carga: str = Form(""), db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
     _exigir(u, "tickets-tablero")
+    form = await request.form()
+    recorrer = {}
+    for k, v in form.multi_items():  # afectados que el usuario confirmó recorrer (fecha_<id>=AAAA-MM-DD)
+        if k.startswith("fecha_") and k[6:].isdigit():
+            try:
+                recorrer[int(k[6:])] = date.fromisoformat(str(v))
+            except ValueError:
+                pass
     t = _ticket(db, tid, u)
     asignado = db.get(Usuario, asignado_id) if asignado_id else None
     if asignado and asignado not in tk.asignables(db):
@@ -323,6 +335,8 @@ def planear(tid: int, request: Request, bg: BackgroundTasks, horas: str = Form("
     antes = t.estado
     try:
         tk.planear(db, u, t, horas=horas, fecha_entrega=fecha_entrega, asignado=asignado, motivo=motivo)
+        if recorrer:
+            cg.aplicar_fechas(db, u, {k: v for k, v in recorrer.items() if k != t.id}, motivo_carga or f"entró {t.folio}")
         if despues == "en_curso":  # se planeó desde el botón «En curso»
             tk.mover(db, u, t, despues)
         tk.sincronizar_pendiente(db, t, u)
@@ -430,6 +444,24 @@ def aceptar(tid: int, request: Request, bg: BackgroundTasks, comentario: str = F
     return _resp_revision(request, tid, True, f"{t.folio} cerrado." + (" Gracias por revisarlo." if u.id == t.creado_por else ""))
 
 
+@router.post("/tickets/{tid}/vobo")
+def vobo(tid: int, request: Request, bg: BackgroundTasks, nota: str = Form(""), db: Session = Depends(get_db),
+         u: Usuario = Depends(usuario_actual)):
+    t = _ticket(db, tid, u)
+    if not tk.puede_aceptar(u, t):
+        return _resp_revision(request, tid, False, "Lo pasa a V°B° quien levantó el ticket o quien tenga el permiso "
+                                                   "«Revisa tickets de otros» en su perfil.")
+    try:
+        tk.pasar_vobo(db, u, t, nota)
+        tk.sincronizar_pendiente(db, t, u)
+        db.commit()
+    except tk.TicketInvalido as e:
+        db.rollback()
+        return _resp_revision(request, tid, False, str(e))
+    _avisar(bg, "vobo", t, u, nota=nota.strip())
+    return _resp_revision(request, tid, True, f"{t.folio} en «V°B° cliente»: ya no cuenta como atraso de sistemas.")
+
+
 @router.post("/tickets/{tid}/rechazar")
 def rechazar(tid: int, request: Request, bg: BackgroundTasks, motivo: str = Form(""), db: Session = Depends(get_db),
              u: Usuario = Depends(usuario_actual)):
@@ -507,15 +539,17 @@ def reabrir(tid: int, request: Request, bg: BackgroundTasks, motivo: str = Form(
 
 
 @router.get("/tickets-tablero")
-def tablero(request: Request, persona: OptInt = None, buscar: str = "", cerrados: bool = False, db: Session = Depends(get_db),
-            u: Usuario = Depends(usuario_actual)):
+def tablero(request: Request, persona: OptInt = None, buscar: str = "", cerrados: bool = False, vista: str = "kanban",
+            db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+    if vista in ("gantt", "cargas"):
+        return _vista_planeacion(request, vista, persona, db, u)
     buscar = buscar.strip()
     if buscar:  # por folio (ONE-12 o 12) o palabras; por omisión solo en tickets activos
         q = select(Ticket).where(tk.filtro_busqueda(buscar))
         if not cerrados:
             q = q.where(Ticket.estado != "cerrado")
     else:
-        q = select(Ticket).where(or_(Ticket.estado.in_(tk.ABIERTOS_ATENCION),
+        q = select(Ticket).where(or_(Ticket.estado.in_(tk.ABIERTOS_TABLERO),
                                      Ticket.cerrado_en >= utcnow() - timedelta(days=7)))
     if persona:
         q = q.where(Ticket.asignado_id == persona)
@@ -523,12 +557,98 @@ def tablero(request: Request, persona: OptInt = None, buscar: str = "", cerrados
     ts = sorted(db.scalars(q).all(), key=lambda t: (orden.get(t.prioridad or "", 4), t.sla_vence or t.creado))
     columnas = [(e, TICKET_ESTADOS[e], [t for t in ts if t.estado == e])
                 for e in (("nuevo",) if buscar and any(t.estado == "nuevo" for t in ts) else ())
-                + ("pendiente", "planeado", "en_curso", "revision", "info", "cerrado")]
+                + ("pendiente", "planeado", "en_curso", "revision", "vobo", "info", "cerrado")]
     n_nuevos = len(db.scalars(select(Ticket.id).where(Ticket.estado == "nuevo")).all())
     return render(request, "tickets_tablero.html", u, "tickets-tablero", columnas=columnas, persona=persona,
                   gente=tk.asignables(db), vence_en=tk.vence_en, n_nuevos=n_nuevos, hoy=date.today(), tipos=tk.tipos(db, True),
                   buscar=buscar, cerrados=cerrados, dias_revision=tk.dias_en_revision,
                   puede_revisar=tk.puede_aceptar)
+
+
+# ---------------------------------------------------------------- Gantt y cargas (planeación de soporte)
+
+def _vista_planeacion(request: Request, vista: str, persona, db: Session, u: Usuario):
+    _exigir(u, "tickets-tablero")
+    gente = tk.asignables(db)
+    if vista == "gantt":
+        sel = [g for g in gente if g.id == persona] if persona else gente
+        return render(request, "tickets_gantt.html", u, "tickets-tablero", vista=vista, gente=gente, persona=persona,
+                      g=cg.gantt(db, sel), hoy=date.today())
+    ing = next((g for g in gente if g.id == persona), None)
+    if ing is None:  # el más cargado primero
+        cargados = sorted(((sum(float(t.horas_estimadas or 0) for t in cg.cola(db, g.id)), g) for g in gente),
+                          key=lambda x: -x[0])
+        ing = cargados[0][1] if cargados else None
+    datos = cg.cargas(db, ing) if ing else None
+    return render(request, "tickets_cargas.html", u, "tickets-tablero", vista=vista, gente=gente, persona=ing.id if ing else None,
+                  c=datos, hoy=date.today(), resumen=[(g, cg.cargas(db, g, 10)) for g in gente])
+
+
+@router.get("/api/tickets/{tid}/sugerencia")
+def api_sugerencia(tid: int, horas: str = "", asignado_id: OptInt = None, db: Session = Depends(get_db),
+                   u: Usuario = Depends(usuario_actual)):
+    _exigir(u, "tickets-tablero")
+    t = _ticket(db, tid, u)
+    try:
+        h = round(float(str(horas).replace(",", ".")), 2)
+    except ValueError:
+        h = 0
+    if not 0 < h <= 2000:
+        return JSONResponse({"ok": False, "mensaje": "Indica las horas para calcular la fecha."})
+    gente = tk.asignables(db)
+    opciones = cg.disponibilidad(db, t, h, gente)
+    elegido = next((o for o in opciones if o["ingeniero"] == asignado_id), None)
+    return JSONResponse({"ok": True, "elegido": elegido, "opciones": opciones[:6], "capacidad_default": cg.HORAS_DIA})
+
+
+@router.post("/tickets-cargas/orden")
+def cargas_orden(persona: int = Form(...), ids: str = Form(""), db: Session = Depends(get_db),
+                 u: Usuario = Depends(usuario_actual)):
+    _exigir(u, "tickets-tablero")
+    ing = db.get(Usuario, persona)
+    if not ing:
+        raise HTTPException(404)
+    lista = [int(x) for x in ids.split(",") if x.strip().isdigit()]
+    cg.fijar_orden(db, u, ing, lista)
+    db.commit()
+    return JSONResponse({"ok": True})
+
+
+@router.post("/tickets-cargas/inicio")
+def cargas_inicio(request: Request, tid: int = Form(...), inicio: OptDate = Form(None), db: Session = Depends(get_db),
+                  u: Usuario = Depends(usuario_actual)):
+    _exigir(u, "tickets-tablero")
+    t = _ticket(db, tid, u)
+    try:
+        cg.fijar_inicio(db, u, t, inicio)
+        db.commit()
+    except tk.TicketInvalido as e:
+        db.rollback()
+        flash(request, str(e), "error")
+    return ir(f"/tickets-tablero?vista=cargas&persona={t.asignado_id or ''}")
+
+
+@router.post("/tickets-cargas/fechas")
+async def cargas_fechas(request: Request, persona: OptInt = Form(None), motivo: str = Form(""), db: Session = Depends(get_db),
+                        u: Usuario = Depends(usuario_actual)):
+    """Confirma las fechas de entrega propuestas por la carga (casillas fecha_<id>=AAAA-MM-DD marcadas)."""
+    _exigir(u, "tickets-tablero")
+    form = await request.form()
+    cambios = {}
+    for k, v in form.multi_items():
+        if k.startswith("fecha_") and k[6:].isdigit():
+            try:
+                cambios[int(k[6:])] = date.fromisoformat(str(v))
+            except ValueError:
+                continue
+    try:
+        n = cg.aplicar_fechas(db, u, cambios, motivo)
+        db.commit()
+        flash(request, f"{n} fecha(s) de entrega actualizadas; quedó el motivo en cada ticket." if n else "No se cambió ninguna fecha.")
+    except tk.TicketInvalido as e:
+        db.rollback()
+        flash(request, str(e), "error")
+    return ir(f"/tickets-tablero?vista=cargas&persona={persona or ''}")
 
 
 # ---------------------------------------------------------------- triage

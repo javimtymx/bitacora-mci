@@ -1,0 +1,5 @@
+<div class="tabs tb-vistas" role="tablist" aria-label="Vista del tablero">
+  <a href="/tickets-tablero{{ '?persona=%d'|format(persona) if persona }}" class="{{ 'on' if vista == 'kanban' }}">Kanban</a>
+  <a href="/tickets-tablero?vista=gantt{{ '&persona=%d'|format(persona) if persona }}" class="{{ 'on' if vista == 'gantt' }}">Gantt</a>
+  <a href="/tickets-tablero?vista=cargas{{ '&persona=%d'|format(persona) if persona }}" class="{{ 'on' if vista == 'cargas' }}">Cargas por día</a>
+</div>

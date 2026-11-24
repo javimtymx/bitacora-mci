@@ -4,7 +4,14 @@
 {% block content %}
 <div class="top">
   <div class="col" style="gap:4px"><span class="muted small"><a href="/clientes/agenda?mes={{ a.mes }}">Agenda de clientes</a> · Sesión #{{ '%04d' % a.id }} · {{ a.area.nombre }}</span>
-    <h1 style="font-size:24px">{{ cliente }}</h1>
+    <div class="row" style="gap:10px;align-items:center"><h1 style="font-size:24px">{{ cliente }}</h1>
+      {% if sin_cliente and ve_cli %}<span class="tag o">Falta especificar el cliente</span>{% endif %}
+      {% if puede and (ve_cli or sin_cliente) %}<details class="ev-ret"><summary class="btn sm ghost">{{ icon('edit', 14) }}{{ 'Especificar cliente' if sin_cliente else 'Cambiar cliente' }}</summary>
+        <form method="post" action="/clientes/agenda/{{ a.id }}/cliente" class="ev-ret-f" style="flex-wrap:wrap;max-width:720px">
+          {% if catalogo %}<select class="input" name="cliente" aria-label="Cliente del catálogo" style="min-width:220px"><option value="">Del catálogo…</option>{% for rfc, n in catalogo %}<option value="{{ rfc }}|{{ n }}" {{ 'selected' if rfc == a.cliente_rfc }}>{{ n }}</option>{% endfor %}</select>{% endif %}
+          <input class="input" name="cliente_nombre" maxlength="255" value="{{ a.cliente_nombre if ve_cli else '' }}" placeholder="{{ 'O escribe el nombre' if catalogo else 'Nombre del cliente' }}" aria-label="Nombre del cliente">
+          <button class="btn sm dark">Guardar</button>
+          <span class="small muted" style="flex-basis:100%">Queda en la bitácora con el valor anterior; también se actualiza en la transcripción y en los pendientes de esta sesión.</span></form></details>{% endif %}</div>
     <div class="row" style="gap:8px"><span class="tag {{ 'b' if a.tipo == 'operativa' else 'p' }}">{{ tipos[a.tipo] }}</span>
       <span class="tag {{ estado[1] }}">{{ estado[0] }}</span>
       <span class="muted">{{ fmt_fecha(a.fecha) }}{% if a.hora %} · {{ a.hora }} h{% endif %} · Responsable: <b>{{ a.responsable.nombre }}</b></span></div>
@@ -62,6 +69,10 @@
     <form method="post" action="/clientes/agenda/{{ a.id }}/transcripcion" enctype="multipart/form-data" data-subidas="transcripcion" class="col" style="gap:8px;border-top:1px solid var(--line);padding-top:12px">
       <label for="ag-tr"><b>{{ 'Cargar otra transcripción (reemplaza la anterior y se vuelve a revisar)' if s else 'Cargar la transcripción (obligatoria): de ella sale la minuta' }}</b></label>
       <div class="drop"><input type="file" id="ag-tr" name="archivo" accept=".txt,.vtt,.srt,.md,text/plain" required></div>
+      {% if sin_cliente %}<div class="field"><label><b>¿Con qué cliente fue la sesión?</b> {{ icon('lock', 13) }}</label>
+        <div class="row" style="gap:8px;flex-wrap:wrap">{% if catalogo %}<select class="input" name="cliente" aria-label="Cliente del catálogo" style="min-width:240px"><option value="">Del catálogo…</option>{% for rfc, n in catalogo %}<option value="{{ rfc }}|{{ n }}">{{ n }}</option>{% endfor %}</select>{% endif %}
+          <input class="input" name="cliente_nombre" maxlength="255" placeholder="{{ 'O escribe el nombre' if catalogo else 'Nombre del cliente' }}" aria-label="Nombre del cliente" style="min-width:240px"></div>
+        <span class="small muted">La sesión se registró sin cliente; indícalo para ligar la minuta y los pendientes.</span></div>{% endif %}
       <label class="check"><input type="checkbox" name="consentimiento" value="true" required><span>El cliente sabe que la sesión se grabó y que se usará para mejorar el servicio</span></label>
       <button class="btn aibtn" style="align-self:flex-start">{{ icon('ia') }}<span>Cargar y generar la minuta con Guard<span class="gia">IA</span></span></button></form>
     {% else %}<span class="small muted">La transcripción se carga después de la sesión ({{ fmt_fecha(a.fecha) }}).</span>{% endif %}

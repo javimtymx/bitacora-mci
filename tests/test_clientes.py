@@ -362,6 +362,7 @@ def test_avisos_internos_de_agenda_invitacion_recordatorio_y_escalacion(admin, d
                             asignado_id=_u(db, "egarza@onecore.mx").id, fecha_compromiso=hoy() - timedelta(days=3), historial=[]))
     a = db.get(AgendaCliente, a.id)
     a.fecha = hoy() + timedelta(days=4)
+    a.mes = a.fecha.strftime("%Y-%m")
     a.avisos[0]["en"] = (hoy() - timedelta(days=10)).isoformat() + "T15:00:00"
     from sqlalchemy.orm.attributes import flag_modified
     flag_modified(a, "avisos")

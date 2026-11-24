@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from ..models import Ticket, TicketPago, Usuario, utcnow
 from .util import auditar
 
-EN_CURSO = ("planeado", "en_curso", "revision")
+EN_CURSO = ("planeado", "en_curso", "revision", "vobo")
 MESES = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre",
          "noviembre", "diciembre")
 

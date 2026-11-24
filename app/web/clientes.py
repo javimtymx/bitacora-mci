@@ -226,6 +226,7 @@ def ver_agenda(aid: int, request: Request, db: Session = Depends(get_db), u: Usu
     s = a.sesion
     return render(request, "clientes_agenda_ver.html", u, "clientes-agenda", a=a, s=s, tipos=AGENDA_TIPOS,
                   estados=AGENDA_ESTADOS, estado=cl.estado_visible(a), cliente=cl.nombre_cliente(u, a),
+                  sin_cliente=cl.sin_cliente(a), ve_cli=cl.ve_cliente(u, a), catalogo=_clientes(db) if u.puede_confidencial else [],
                   puede=_puede_editar_agenda(u, a), gente=_gente(db), lider=cl.puede_gestionar(u) or a.responsable_id == u.id,
                   flag_minuta=cl.flag_minuta(a),
                   atorado=bool(s and vozcliente.analisis_atorado(s)), ve_sesion=bool(s and (u.es_direccion or s.autor_id == u.id or
@@ -236,6 +237,31 @@ def ver_agenda(aid: int, request: Request, db: Session = Depends(get_db), u: Usu
                   vence=cl.vence, fecha_def=hoy() + timedelta(days=5), prep=agenda_avisos.preparacion(db, a),
                   serie=list(db.scalars(select(AgendaCliente).where(AgendaCliente.serie_id == a.serie_id)
                                         .order_by(AgendaCliente.fecha))) if a.serie_id else [])
+
+
+def _cliente_form(cliente: str, cliente_nombre: str) -> tuple[str, str]:
+    """Combo del catálogo («RFC|Nombre») o nombre libre."""
+    if cliente and "|" in cliente:
+        rfc, nombre = cliente.split("|", 1)
+        return rfc, nombre
+    return "", cliente_nombre
+
+
+@router.post("/clientes/agenda/{aid}/cliente")
+def cliente_agenda(aid: int, request: Request, cliente: str = Form(""), cliente_nombre: str = Form(""),
+                   db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+    """Especifica o corrige el cliente de una sesión ya registrada (queda en la bitácora con el valor anterior)."""
+    a = _agenda(db, aid)
+    if not _puede_editar_agenda(u, a) or not (cl.ve_cliente(u, a) or cl.sin_cliente(a)):
+        raise HTTPException(403)
+    try:
+        cambio = cl.fijar_cliente(db, a, u, *_cliente_form(cliente, cliente_nombre))
+        db.commit()
+        flash(request, "Cliente de la sesión actualizado." if cambio else "Sin cambios.")
+    except ValueError as e:
+        db.rollback()
+        flash(request, str(e), "error")
+    return ir(f"/clientes/agenda/{a.id}")
 
 
 @router.post("/clientes/agenda/{aid}/editar")
@@ -311,7 +337,8 @@ def cancelar(aid: int, request: Request, fondo: BackgroundTasks, motivo: str = F
 
 @router.post("/clientes/agenda/{aid}/transcripcion")
 async def cargar_transcripcion(aid: int, request: Request, fondo: BackgroundTasks, archivo: UploadFile | None = File(None),
-                               subidas: list[str] = Form([]), consentimiento: bool = Form(False),
+                               subidas: list[str] = Form([]), consentimiento: bool = Form(False), cliente: str = Form(""),
+                               cliente_nombre: str = Form(""),
                                db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
     a = _agenda(db, aid)
     if not _puede_editar_agenda(u, a):
@@ -324,6 +351,13 @@ async def cargar_transcripcion(aid: int, request: Request, fondo: BackgroundTask
     if a.fecha > hoy():
         flash(request, "La sesión aún no ocurre; carga la transcripción después de la fecha programada.", "error")
         return ir(f"/clientes/agenda/{a.id}")
+    if cl.sin_cliente(a):  # la sesión se dio de alta sin cliente: se pide al subir la transcripción
+        rfc, nombre = _cliente_form(cliente, cliente_nombre)
+        try:
+            cl.fijar_cliente(db, a, u, rfc, nombre)
+        except ValueError as e:
+            flash(request, f"{e} Así la minuta, los pendientes y Voz del Cliente quedan ligados a él.", "error")
+            return ir(f"/clientes/agenda/{a.id}")
     texto = await _leer_transcripcion(u, archivo, subidas)
     s = a.sesion
     if s is None:
@@ -391,11 +425,47 @@ def pendientes(request: Request, persona: OptInt = None, tipo: str = "", q: str 
                            if cl.ve_cliente(u, a)])
 
 
+@router.post("/clientes/pendientes-img")
+async def subir_imagen_pendiente(imagen: UploadFile = File(...), pendiente_id: OptInt = Form(None), db: Session = Depends(get_db),
+                                 u: Usuario = Depends(usuario_actual)):
+    """Imagen pegada dentro del detalle de un pendiente (como en tickets): se inserta en el texto, no como anexo."""
+    if pendiente_id:
+        _pend(db, pendiente_id)
+    try:
+        img = tk.guardar_imagen(db, u, await imagen.read(), None, pendiente_id=pendiente_id)
+        db.commit()
+    except tk.TicketInvalido as e:
+        db.rollback()
+        return JSONResponse({"ok": False, "mensaje": str(e)}, status_code=400)
+    url = f"/clientes/pendientes-img/{img.id}"
+    return JSONResponse({"ok": True, "id": img.id, "url": url, "md": f"![imagen]({url})"})
+
+
+@router.get("/clientes/pendientes-img/{iid}")
+def ver_imagen_pendiente(iid: int, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+    from ..models import TicketImagen
+    img = db.get(TicketImagen, iid)
+    if not img or img.ticket_id is not None or not tk.puede_ver_imagen(db, u, img):
+        raise HTTPException(404, "Imagen no encontrada.")
+    try:
+        contenido = almacen.leer(img.ruta)
+    except almacen.AlmacenError as e:
+        raise HTTPException(404, str(e)) from e
+    return Response(contenido, media_type=img.tipo, headers={
+        "Content-Disposition": "inline", "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "private, max-age=86400", "Content-Security-Policy": "default-src 'none'"})
+
+
+@router.get("/clientes/pendientes/anexos/{xid}")
+def anexo_pendiente(xid: int, ver: int = 0, db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
+    return _servir(_archivo(db, xid, "pend_anexo"), ver)
+
+
 @router.post("/clientes/pendientes")
-def crear_pendiente(request: Request, tipo: str = Form("tarea"), titulo: str = Form(...), detalle: str = Form(""),
+async def crear_pendiente(request: Request, tipo: str = Form("tarea"), titulo: str = Form(...), detalle: str = Form(""),
                     severidad: str = Form("media"), cliente: str = Form(""), cliente_nombre: str = Form(""),
                     agenda_id: OptInt = Form(None), asignado_id: OptInt = Form(None), fecha_compromiso: OptDate = Form(None),
-                    producto: str = Form(""), menu: str = Form(""),
+                    producto: str = Form(""), menu: str = Form(""), anexos: list[UploadFile] = File([]),
                     db: Session = Depends(get_db), u: Usuario = Depends(usuario_actual)):
     if len(titulo.strip()) < 5:
         flash(request, "Escribe qué hay que resolver.", "error")
@@ -418,8 +488,18 @@ def crear_pendiente(request: Request, tipo: str = Form("tarea"), titulo: str = F
     cl.evento(p, u, "Capturado a mano." + ("" if p.estado == "pendiente" else " Queda por decidir si pasa al kanban."))
     db.add(p)
     db.flush()
+    tk.ligar_imagenes_pendiente(db, u, p.id, p.detalle)
+    errores = []
+    for a in anexos or []:
+        if a and a.filename:
+            try:
+                cl.guardar_archivo(db, "pend_anexo", p.id, a.filename, await a.read(), u)
+            except EvidenciaInvalida as e:
+                errores.append(str(e))
     auditar(db, "crear", "pendiente", p.id, u.id, tipo=p.tipo, estado=p.estado)
     db.commit()
+    if errores:
+        flash(request, "Algunos anexos no se guardaron: " + " ".join(errores), "error")
     flash(request, f"{p.folio} creado." + ("" if p.estado == "pendiente" else " Queda «por decidir» hasta que el responsable decida si pasa al kanban."))
     return ir(f"/clientes/pendientes/{p.id}")
 

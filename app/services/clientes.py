@@ -57,12 +57,48 @@ def mes_mover(mes: str, delta: int) -> str:
 
 # ---------------------------------------------------------------- visibilidad del nombre del cliente
 
+def _invitado_onecore(u: Usuario, a) -> bool:
+    correo = (u.email or "").strip().lower()
+    return bool(a and correo and any((i.get("email") or "").strip().lower() == correo and i.get("lado") == "onecore"
+                                     for i in (a.invitados or [])))
+
+
 def ve_cliente(u: Usuario, obj) -> bool:
-    """El nombre del cliente es confidencial: lo ven quien tiene ese permiso, Dirección y quien atiende el asunto."""
+    """El nombre del cliente es confidencial: lo ven quien tiene ese permiso, Dirección, quien atiende el asunto y los
+    asistentes de OneCore invitados a la sesión (o a la sesión de la que salió el pendiente)."""
     if u.puede_confidencial or u.es_direccion:
         return True
     ids = {getattr(obj, "responsable_id", None), getattr(obj, "asignado_id", None), getattr(obj, "creado_por", None)}
-    return u.id in ids
+    if u.id in ids:
+        return True
+    agenda = obj if isinstance(obj, AgendaCliente) else getattr(obj, "agenda", None)
+    return _invitado_onecore(u, agenda) or bool(agenda is not obj and agenda and u.id in (agenda.responsable_id, agenda.creado_por))
+
+
+def sin_cliente(a) -> bool:
+    return not ((a.cliente_nombre or "").strip() or (a.cliente_rfc or "").strip())
+
+
+def fijar_cliente(db: Session, a, u: Usuario, rfc: str, nombre: str) -> bool:
+    """Especifica o corrige el cliente de una sesión. Queda en la bitácora con el valor anterior y se lleva a la
+    transcripción y a los pendientes de la sesión que traían el mismo cliente."""
+    rfc, nombre = (rfc or "").strip().upper()[:13], (nombre or "").strip()[:255]
+    if not (rfc or nombre):
+        raise ValueError("Indica el cliente de la sesión.")
+    if (rfc, nombre) == ((a.cliente_rfc or "").strip(), (a.cliente_nombre or "").strip()):
+        return False
+    antes = a.cliente_nombre or a.cliente_rfc or "sin cliente"
+    viejo = ((a.cliente_rfc or ""), (a.cliente_nombre or ""))
+    a.cliente_rfc, a.cliente_nombre = rfc, nombre
+    evento(a, u, f"Cliente de la sesión: «{antes}» → «{nombre or rfc}».")
+    if a.sesion and (a.sesion.cliente_rfc or "", a.sesion.cliente_nombre or "") == viejo:
+        a.sesion.cliente_rfc, a.sesion.cliente_nombre = rfc, nombre
+    for p in a.pendientes:
+        if ((p.cliente_rfc or ""), (p.cliente_nombre or "")) == viejo:
+            p.cliente_rfc, p.cliente_nombre = rfc, nombre
+            evento(p, u, f"Cliente actualizado desde la sesión: «{nombre or rfc}».")
+    auditar(db, "cliente_agenda", "agenda_cliente", a.id, u.id)
+    return True
 
 
 def nombre_cliente(u: Usuario, obj) -> str:
@@ -181,11 +217,18 @@ def fechas_serie(inicio: date, recurrencia: str, fin: date | None, *, modo: str 
     for f in base:
         motivo = inhabil(f)
         g = siguiente_habil(f) if motivo else f
+        atras = False
+        if motivo and recurrencia != "semanal" and g.month != f.month:  # mensual: no se sale del mes
+            g, atras = f - timedelta(days=1), True
+            while inhabil(g):
+                g -= timedelta(days=1)
         if g in vistos:
             continue
         vistos.add(g)
         cae = motivo.lower() if f.weekday() >= 5 else f"festivo: {motivo}"
-        out.append((g, f"El {f:%d/%m} cae en {cae}; se recorrió al {g:%d/%m}, siguiente día hábil." if motivo else ""))
+        nota = (f"El {f:%d/%m} cae en {cae}; se adelantó al {g:%d/%m}, día hábil anterior, para no salirse del mes."
+                if atras else f"El {f:%d/%m} cae en {cae}; se recorrió al {g:%d/%m}, siguiente día hábil.")
+        out.append((g, nota if motivo else ""))
     if not out:
         raise ValueError("Con esa regla no cae ninguna cita entre las dos fechas.")
     return out

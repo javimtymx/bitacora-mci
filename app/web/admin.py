@@ -105,7 +105,7 @@ def editar_usuario(uid: int, request: Request, nombre: str = Form(...), rol: str
                    en_indicador_personas: bool = Form(False), jefe_id: OptInt = Form(None),
                    costo_hora: str = Form("__sin_cambio__"), area_ticket: str = Form("__sin_cambio__"),
                    avisos_triage: bool = Form(False), puesto: str = Form("__sin_cambio__"), avisos_agenda: bool = Form(False),
-                   revisa_tickets: bool = Form(False), db: Session = Depends(get_db), u: Usuario = Depends(requiere_direccion)):
+                   revisa_tickets: bool = Form(False), horas_dia: str = Form(""), db: Session = Depends(get_db), u: Usuario = Depends(requiere_direccion)):
     x = db.get(Usuario, uid)
     if not x or rol not in ROLES:
         raise HTTPException(400)
@@ -126,6 +126,15 @@ def editar_usuario(uid: int, request: Request, nombre: str = Form(...), rol: str
         if bool(x.revisa_tickets) != revisa_tickets:
             cambios["revisa_tickets"] = (bool(x.revisa_tickets), revisa_tickets)
         x.revisa_tickets = revisa_tickets
+        try:
+            hd = round(float(horas_dia.replace(",", ".")), 1) if horas_dia.strip() else None
+        except ValueError:
+            hd = None
+        if hd is not None and not 0 < hd <= 12:
+            hd = None
+        if (float(x.horas_dia) if x.horas_dia is not None else None) != hd:
+            cambios["horas_dia"] = (float(x.horas_dia) if x.horas_dia is not None else None, hd)
+        x.horas_dia = hd
         if avisos_agenda != x.recibe_agenda:
             cambios["avisos_agenda"] = (x.recibe_agenda, avisos_agenda)
             x.avisos_agenda = avisos_agenda

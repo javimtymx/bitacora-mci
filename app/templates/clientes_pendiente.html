@@ -26,7 +26,8 @@
 <div class="col" style="gap:16px">
   <section class="card pad">
     <h3>Qué pidió o reclamó el cliente</h3>
-    {% if p.detalle %}<p style="margin:0;line-height:1.55">{{ p.detalle }}</p>{% endif %}
+    {% if p.detalle %}<div class="tk-texto" style="margin:0;line-height:1.55;white-space:pre-wrap">{{ p.detalle|con_imagenes }}</div>{% endif %}
+    {% if p.anexos %}<div class="row" style="gap:6px;flex-wrap:wrap"><span class="small muted">Anexos:</span>{% for ev in p.anexos %}<a class="tag n" href="/clientes/pendientes/anexos/{{ ev.id }}">{{ icon('clip', 13) }} {{ ev.nombre }}</a>{% endfor %}</div>{% endif %}
     {% if p.cita %}<div class="quote">«{{ p.cita }}»</div>{% endif %}
     <div class="row small" style="gap:10px;flex-wrap:wrap">
       {% if p.agenda %}<a class="lnk" href="/clientes/agenda/{{ p.agenda_id }}">{{ icon('cal', 15) }}Sesión del {{ fmt_fecha(p.agenda.fecha) }}</a>{% endif %}

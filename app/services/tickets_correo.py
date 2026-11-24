@@ -144,6 +144,10 @@ def avisos(db: Session, evento: str, t: Ticket, actor: Usuario | None, **x) -> l
           f"Cómo: {_cierres(db).get(r.get('tipo'), r.get('tipo', ''))}\nSolución: {r.get('solucion', '')}\n"
           "Entra al ticket y elige «Aceptar y cerrar» si quedó resuelto, o «No está resuelto» con el motivo para que "
           "regrese al ingeniero.", "Revisar el ticket", interesados=True)
+    elif evento == "vobo":
+        a([t.asignado], f"{t.folio}: etapa V°B° cliente",
+          f"{actor.nombre} indicó que «{t.titulo}» espera la aprobación del cliente:\n{x.get('nota', '')}\n"
+          "Si el cliente lo rechaza, regresará a En curso.", "Ver el ticket")
     elif evento == "rechazado":
         a([t.asignado], f"{t.folio}: regresó a En curso",
           f"{actor.nombre} revisó «{t.titulo}» y no lo dio por resuelto:\n{x.get('motivo', '')}\nEl ticket regresó a En curso.",
@@ -194,7 +198,7 @@ def recordar_revision(db: Session, actor: Usuario | None) -> int:
     ticket, descripción, días desde que se resolvió, ingeniero y liga. Regresa cuántos correos salieron."""
     from .tickets import dias_en_revision
     base = get_settings().base_url.rstrip("/")
-    tickets = list(db.scalars(select(Ticket).where(Ticket.estado == "revision").order_by(Ticket.id)))
+    tickets = list(db.scalars(select(Ticket).where(Ticket.estado.in_(("revision", "vobo"))).order_by(Ticket.id)))
     por_persona: dict[int, list[Ticket]] = {}
     for t in tickets:
         por_persona.setdefault(t.creado_por, []).append(t)
@@ -205,7 +209,8 @@ def recordar_revision(db: Session, actor: Usuario | None) -> int:
             por_jefe.setdefault(u.jefe_id, []).extend(ts)
 
     def fila(t):
-        return [t.folio, (t.titulo or t.descripcion or "")[:140] + (f" · {t.autor.nombre}" if t.autor else ""),
+        return [t.folio + (" · V°B° cliente" if t.estado == "vobo" else ""),
+                (t.titulo or t.descripcion or "")[:140] + (f" · {t.autor.nombre}" if t.autor else ""),
                 dias_en_revision(t), (t.resolucion or {}).get("por_nombre") or (t.asignado.nombre if t.asignado else "—"),
                 f"{base}/tickets/{t.id}"]
 
@@ -222,7 +227,7 @@ def recordar_revision(db: Session, actor: Usuario | None) -> int:
                   (f"Tu equipo tiene {len(ts)} ticket(s) ya resueltos que esperan la revisión de quien los levantó. "
                    "Ayúdanos a que los revisen."))
         try:
-            correo.enviar([u.email], f"Recordatorio: {len(ts)} ticket(s) resueltos por revisar", cuerpo, f"{base}/tickets?tab=cerrar",
+            correo.enviar([u.email], f"Recordatorio: {len(ts)} ticket(s) resueltos por revisar", cuerpo, f"{base}/tickets?tab=revision",
                           boton="Ver mis tickets", pie=PIE, titulo="Soporte",
                           tabla={"columnas": columnas, "filas": [fila(t) for t in ts], "enlace": 4})
             n += 1

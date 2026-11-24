@@ -108,8 +108,8 @@ def _con_imagenes(texto) -> Markup:
     seguro = str(escape(texto or ""))
     import re as _re
     linea = _re.compile(r"\n?" + RE_IMG.pattern + r"[ \t]*\n{0,2}")
-    return Markup(linea.sub(lambda m: f'<a class="tk-img" href="/tickets-img/{m.group(2)}" target="_blank" rel="noopener">'
-                                       f'<img src="/tickets-img/{m.group(2)}" alt="{m.group(1) or "imagen"}" loading="lazy"></a>', seguro))
+    return Markup(linea.sub(lambda m: f'<a class="tk-img" href="/{m.group(2)}/{m.group(3)}" target="_blank" rel="noopener">'
+                                       f'<img src="/{m.group(2)}/{m.group(3)}" alt="{m.group(1) or "imagen"}" loading="lazy"></a>', seguro))
 
 
 def _sin_imagenes(texto) -> str:

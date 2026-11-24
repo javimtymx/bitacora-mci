@@ -75,6 +75,7 @@ class Usuario(Base):
     costo_hora: Mapped[float | None] = mapped_column(Numeric(10, 2))  # pesos por hora, para el costo de los tickets
     # puede cerrar o regresar a «En curso» tickets en revisión de otros (además de quien lo levantó); lo da Dirección
     revisa_tickets: Mapped[bool] = mapped_column(Boolean, default=False, server_default=sa_false())
+    horas_dia: Mapped[float | None] = mapped_column(Numeric(4, 1))  # horas al día para tickets; vacío = 4
     area_ticket: Mapped[str | None] = mapped_column(String(40))  # clave del catálogo «área del usuario» (ticket_opciones)
     creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     ultimo_acceso: Mapped[datetime | None] = mapped_column(DateTime)
@@ -896,6 +897,10 @@ class PendienteCliente(Base):
     evidencias_retiradas: Mapped[list["ArchivoCliente"]] = relationship(
         primaryjoin="and_(foreign(ArchivoCliente.entidad_id) == PendienteCliente.id, ArchivoCliente.entidad == 'pendiente', "
                     "ArchivoCliente.retirada.is_(True))", order_by="ArchivoCliente.retirada_en", viewonly=True)
+    # anexos del alta (contexto del pendiente); no son evidencia de resolución ni entran a la verificación
+    anexos: Mapped[list["ArchivoCliente"]] = relationship(
+        primaryjoin="and_(foreign(ArchivoCliente.entidad_id) == PendienteCliente.id, ArchivoCliente.entidad == 'pend_anexo')",
+        order_by="ArchivoCliente.creado", viewonly=True)
 
     @property
     def folio(self) -> str:
@@ -1017,10 +1022,13 @@ def _ocultar_archivados(st):
 TICKET_TIPOS = {"error": "Error", "duda": "Duda", "mejora": "Mejora", "configuracion": "Configuración"}
 TICKET_IMPACTOS = {"bloquea": "Bloquea la operación", "afecta": "Afecta pero hay forma de seguir", "menor": "Molestia menor"}
 TICKET_ESTADOS = {"nuevo": "Por triage", "pendiente": "Pendiente", "planeado": "Planeado", "en_curso": "En curso",
-                  "revision": "En revisión", "info": "Esperando información", "cerrado": "Cerrado"}
+                  "revision": "En revisión", "vobo": "V°B° cliente", "info": "Esperando información", "cerrado": "Cerrado"}
 TICKET_CIERRES = {"corregido": "Corregido en código", "configuracion": "Ajuste de configuración o datos",
                   "capacitacion": "Uso / capacitación", "no_reproducible": "No se pudo reproducir",
-                  "duplicado": "Duplicado", "backlog": "Pasa a backlog de mejoras"}
+                  "duplicado": "Duplicado", "backlog": "Pasa a backlog de mejoras",
+                  "aclaracion": "Aclaración (no era falla)", "cancelado": "Cancelado"}
+# cierres sin causa raíz: solo motivo; no alimentan la base de conocimiento de GuardIA
+TICKET_CIERRES_SIN_CAUSA = ("aclaracion", "cancelado")
 
 
 class TicketOpcion(Base):
@@ -1107,6 +1115,8 @@ class Ticket(Base):
     costo_hora: Mapped[float | None] = mapped_column(Numeric(10, 2))
     pago_id: Mapped[int | None] = mapped_column(ForeignKey("ticket_pagos.id"), index=True)
     horas_originales: Mapped[float | None] = mapped_column(Numeric(8, 2))  # primera estimación (no cambia)
+    orden_cola: Mapped[int | None] = mapped_column(Integer)  # orden manual en la cola del ingeniero (pantalla de cargas)
+    inicio_plan: Mapped[date | None] = mapped_column(Date)    # «no antes de»: día mínimo en que empieza
     area: Mapped[str | None] = mapped_column(String(40))  # área de quien lo levantó, fija al levantarlo
 
     autor: Mapped[Usuario] = relationship(foreign_keys=[creado_por])
@@ -1217,6 +1227,7 @@ class TicketImagen(Base):
     __tablename__ = "ticket_imagenes"
     id: Mapped[int] = mapped_column(primary_key=True)
     ticket_id: Mapped[int | None] = mapped_column(ForeignKey("tickets.id"), index=True)
+    pendiente_id: Mapped[int | None] = mapped_column(ForeignKey("pendientes_cliente.id"), index=True)  # o de un pendiente de cliente
     ruta: Mapped[str] = mapped_column(String(300))
     tipo: Mapped[str] = mapped_column(String(60), default="image/png")
     bytes: Mapped[int] = mapped_column(BigInteger, default=0)

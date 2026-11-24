@@ -7,18 +7,19 @@
     <h1 style="font-size:22px;max-width:900px">{{ t.titulo }}</h1></div>
   <div class="row">
     {% if t.prioridad %}<span class="prio {{ t.prioridad }}">{{ t.prioridad }}</span>{% endif %}
-    <span class="tag {{ 'g' if t.estado=='cerrado' else ('o' if t.estado=='info' else ('n' if t.estado=='nuevo' else 'b')) }}">{{ estados[t.estado] }}</span>
+    <span class="tag {{ 'g' if t.estado=='cerrado' else ('o' if t.estado=='info' else ('n' if t.estado=='nuevo' else ('p' if t.estado=='vobo' else 'b'))) }}">{{ estados[t.estado] }}</span>
     {% if v[0] %}<span class="sla {{ v[1] }} small" style="font-weight:800">{{ v[0] }}</span>{% endif %}
   </div>
 </div>
 
-{% if t.estado == 'revision' %}{% set r = t.resolucion or {} %}
+{% if t.estado in ('revision', 'vobo') %}{% set r = t.resolucion or {} %}{% set es_vobo = t.estado == 'vobo' %}
 <section class="card pad tkt-rev">
 {% set en_nombre = puede_aceptar and u.id != t.creado_por %}
-  <div class="row between"><h2>{{ icon('ok', 18) }} Resuelto: {{ 'te toca revisarlo' if puede_aceptar and not en_nombre else 'en revisión de ' ~ (t.autor.nombre if t.autor else 'quien lo levantó') }}</h2>
-    <span class="small muted">Resolvió {{ r.por_nombre or '—' }}{% if r.resuelto_en %} · hace {{ dias_revision }} día{{ 's' if dias_revision != 1 }}{% endif %}</span></div>
+  <div class="row between"><h2>{{ icon('ok', 18) }} {% if es_vobo %}Resuelto: esperando V°B° del cliente{% else %}Resuelto: {{ 'te toca revisarlo' if puede_aceptar and not en_nombre else 'en revisión de ' ~ (t.autor.nombre if t.autor else 'quien lo levantó') }}{% endif %}</h2>
+    <span class="small muted">Resolvió {{ r.por_nombre or '—' }}{% if r.resuelto_en or r.vobo_en %} · {{ 'en V°B° ' if es_vobo }}hace {{ dias_revision }} día{{ 's' if dias_revision != 1 }}{% endif %}</span></div>
   <dl class="tkt-dl" style="grid-template-columns:90px 1fr">
-    <dt>Cómo</dt><dd>{{ cierres.get(r.tipo, r.tipo) if r.tipo else '—' }}</dd><dt>Solución</dt><dd>{{ r.solucion or '—' }}</dd></dl>
+    <dt>Cómo</dt><dd>{{ cierres.get(r.tipo, r.tipo) if r.tipo else '—' }}</dd><dt>{{ 'Motivo' if r.tipo in sin_causa else 'Solución' }}</dt><dd>{{ r.solucion or '—' }}</dd>
+    {% if es_vobo %}<dt>Del cliente</dt><dd>{{ r.vobo_nota or '—' }} <span class="muted small">· no cuenta como atraso de sistemas</span></dd>{% endif %}</dl>
   {% if puede_aceptar %}
   {% if en_nombre %}<span class="small muted">Tienes el permiso «Revisa tickets de otros»: puedes cerrarlo o regresarlo en lugar de {{ t.autor.nombre if t.autor else 'quien lo levantó' }}. Escribe el motivo; queda en el historial.</span>{% endif %}
   <div class="row" style="gap:10px;flex-wrap:wrap;align-items:flex-start">
@@ -27,6 +28,8 @@
       <button class="btn yellow">{{ icon('ok') }}Aceptar y cerrar</button></form>
     <details class="ev-ret"><summary class="btn soft">{{ 'Regresar a En curso' if en_nombre else 'No está resuelto' }}</summary>
       <form method="post" action="/tickets/{{ t.id }}/rechazar" class="ev-ret-f"><input class="input" name="motivo" required minlength="10" placeholder="¿Qué falta o qué sigue sin funcionar?" aria-label="Motivo"><button class="btn sm red">Regresar al ingeniero</button></form></details>
+    {% if not es_vobo %}<details class="ev-ret"><summary class="btn soft">Depende del cliente: V°B°</summary>
+      <form method="post" action="/tickets/{{ t.id }}/vobo" class="ev-ret-f"><input class="input" name="nota" required minlength="5" placeholder="¿Qué debe validar o aprobar el cliente?" aria-label="Qué se espera del cliente"><button class="btn sm dark">Pasar a V°B° cliente</button></form></details>{% endif %}
   </div>{% else %}<span class="small muted">Lo cierra o lo regresa a «En curso» quien levantó el ticket, o quien tenga el permiso «Revisa tickets de otros» en su perfil.</span>{% endif %}
 </section>
 {% endif %}
@@ -115,7 +118,7 @@
     {% if dev and t.estado != 'cerrado' %}
     <button class="btn sm {{ 'yellow' if t.estado in ('nuevo','pendiente','info') else 'soft' }}" type="button" data-open="planear" style="align-self:flex-start;margin-top:10px">{{ icon('cal', 15) }}{{ 'Mover a Planeados' if t.estado in ('nuevo','pendiente','info') else 'Cambiar plan' }}</button>
     {% endif %}
-    {% if dev and t.estado not in ('cerrado', 'revision') %}
+    {% if dev and t.estado not in ('cerrado', 'revision', 'vobo') %}
     <div class="col" style="gap:8px;border-top:1px solid var(--line);padding-top:12px">
       <span class="lbl">Mover a</span>
       <div class="row" style="gap:6px">{% for e in ('pendiente','en_curso','revision') if e != t.estado %}
@@ -223,12 +226,13 @@
     </div>
     <div class="field"><label for="pla-a">Ingeniero que lo ejecuta</label><select class="input" id="pla-a" name="asignado_id" required><option value="">Elige…</option>
       {% for g in gente %}<option value="{{ g.id }}" {{ 'selected' if t.asignado_id == g.id }}>{{ g.nombre }}</option>{% endfor %}</select></div>
+    <div class="pla-sug" data-sugerencia></div>
     {% if t.horas_estimadas is not none %}
     <div class="field" id="pla-m-campo"><label for="pla-m">Motivo del cambio <span class="muted small">(obligatorio si cambias las horas)</span></label>
       <input class="input" id="pla-m" name="motivo" maxlength="1000" data-horas="{{ t.horas_estimadas|float }}" placeholder="Ej. Se encontró que también afecta el reporte de diferencias">
       <span class="muted small">Estimación original: {{ (t.horas_originales or t.horas_estimadas)|float }} h. Cada cambio queda en la historia y el ticket se marca como «Horas modificadas».</span></div>
     {% endif %}
-    <span class="muted small">Se avisa por correo a quien levantó el ticket, a su jefe y al ingeniero.</span>
+    <span class="muted small">Si el ticket cambia de etapa se avisa por correo a quien lo levantó, a su jefe y al ingeniero.</span>
   </div>
   <div class="mf"><button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn yellow">{{ icon('ok') }}Planear</button></div></form></div>
 
@@ -239,8 +243,8 @@
     <div class="cint"><span class="ic">{{ icon('ia') }}</span><span style="flex:1">Base de conocimiento: la causa, la solución y los módulos alimentan a {{ guardia }} para sugerir la respuesta cuando alguien reporte algo parecido. Después lo revisa {{ t.autor.nombre if t.autor else 'quien lo levantó' }}: él lo acepta y se cierra, o te lo regresa con motivo.</span></div>
     <div class="field"><label for="cer-t">¿Cómo se resolvió?</label><select class="input" id="cer-t" name="tipo_cierre" required><option value="">Elige…</option>
       {% for k, v in cierres_activos.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></div>
-    <div class="field"><label for="cer-c">Causa raíz</label><textarea class="input" id="cer-c" name="causa" required minlength="10" rows="2" style="padding:10px 12px"></textarea></div>
-    <div class="field"><label for="cer-s">Solución (qué se hizo y qué debe hacer el usuario si vuelve a pasar)</label><textarea class="input" id="cer-s" name="solucion" required minlength="15" rows="3" style="padding:10px 12px"></textarea></div>
+    <div class="field" id="cer-cf"><label for="cer-c">Causa raíz</label><textarea class="input" id="cer-c" name="causa" required minlength="10" rows="2" style="padding:10px 12px"></textarea></div>
+    <div class="field"><label for="cer-s" id="cer-sl">Solución (qué se hizo y qué debe hacer el usuario si vuelve a pasar)</label><textarea class="input" id="cer-s" name="solucion" required minlength="15" rows="3" style="padding:10px 12px"></textarea></div>
     <div class="grid2">
       <div class="field"><label for="cer-m">Módulos o archivos tocados (opcional)</label><input class="input" id="cer-m" name="modulos" maxlength="1000"></div>
       <div class="field"><label for="cer-h">Horas reales invertidas</label><input class="input" id="cer-h" name="horas_reales" inputmode="decimal"
@@ -254,6 +258,19 @@
 {% endif %}
 {% endblock %}
 {% block scripts %}<script>
+// Cancelado o Aclaración: sin causa raíz, solo el motivo (no entra a la base de conocimiento).
+(function () {
+  var sel = document.getElementById("cer-t");
+  if (!sel) return;
+  var sinCausa = {{ sin_causa|tojson }}, cf = document.getElementById("cer-cf"), c = document.getElementById("cer-c"),
+      sl = document.getElementById("cer-sl"), s = document.getElementById("cer-s"), base = sl.textContent;
+  sel.addEventListener("change", function () {
+    var k = sel.value, sin = sinCausa.indexOf(k) >= 0;
+    cf.hidden = sin; c.required = !sin;
+    sl.textContent = k === "cancelado" ? "Motivo de la cancelación" : k === "aclaracion" ? "¿Qué se le aclaró al usuario?" : base;
+    s.minLength = sin ? 10 : 15;
+  });
+})();
 // «En curso» o «En revisión» sin plan: primero se planea y, al guardar, el ticket pasa a esa etapa.
 document.addEventListener("click", function (e) {
   var b = e.target.closest("[data-open='planear']");

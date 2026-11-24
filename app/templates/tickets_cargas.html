@@ -1,0 +1,90 @@
+{% extends "base.html" %}{% from "_ui.html" import icon with context %}
+{% block title %}Cargas de soporte{% endblock %}
+{% block content %}
+<div class="top">
+  <div class="col" style="gap:4px"><span class="muted small">Soporte · Guard<span class="gia">IA</span> Ticket</span><h1>Tablero de desarrollo</h1></div>
+  <div class="row"><a class="btn yellow" href="/tickets/nuevo">{{ icon('plus') }}Levantar ticket</a></div>
+</div>
+{% include "_tablero_vistas.html" %}
+<div class="cg-gente">
+  {% for g, r in resumen %}{% set hs = r.tramos|sum(attribute='horas') %}{% set ult = r.tramos[-1].fin if r.tramos else none %}
+  <a class="cg-per {{ 'on' if persona == g.id }}" href="?vista=cargas&persona={{ g.id }}">
+    <b>{{ g.nombre }}</b><span class="small muted">{{ '%g'|format(hs) }} h en cola · {{ '%g'|format(r.capacidad) }} h/día</span>
+    <span class="small">{% if ult %}Libre desde {{ ult.strftime('%d/%m') }}{% else %}Sin carga{% endif %}{% if r.tarde %} · <b style="color:var(--red)">{{ r.tarde|length }} no llega{{ 'n' if r.tarde|length > 1 }}</b>{% endif %}</span></a>
+  {% endfor %}
+</div>
+{% if c %}
+<section class="card pad">
+  <div class="row between"><h2>Carga diaria de {{ c.ing.nombre }}</h2><span class="small muted">Capacidad {{ '%g'|format(c.capacidad) }} h por día hábil · próximos {{ c.eje|length }} días hábiles</span></div>
+  <div class="cg-dias">
+    {% for d, h in c.carga %}
+    <div class="cg-dia {{ 'hoy' if d == hoy }}">
+      <div class="cg-barra" title="{{ '%g'|format(h) }} de {{ '%g'|format(c.capacidad) }} h">
+        {% for tr in c.tramos if d in tr.por_dia %}<a class="cg-seg p-{{ tr.ticket.prioridad or 'x' }} {{ 'tarde' if tr.tarde }}" href="/tickets/{{ tr.ticket.id }}" style="flex:{{ tr.por_dia[d] }}" title="{{ tr.ticket.folio }} · {{ '%g'|format(tr.por_dia[d]) }} h">{{ tr.ticket.folio }}</a>{% endfor %}
+        {% if h < c.capacidad %}<span class="cg-libre" style="flex:{{ c.capacidad - h }}"></span>{% endif %}
+      </div>
+      <span class="small"><b>{{ ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'][d.weekday()] }} {{ d.strftime('%d/%m') }}</b></span>
+      <span class="small muted">{{ '%g'|format(h) }}/{{ '%g'|format(c.capacidad) }} h</span>
+    </div>{% endfor %}
+  </div>
+</section>
+
+<section class="card pad">
+  <div class="row between"><h2>Cola de {{ c.ing.nombre }}</h2><span class="small muted">Arrastra para cambiar el orden de atención; «No antes de» deja un ticket esperando hasta ese día.</span></div>
+  {% if not c.tramos %}<span class="muted">Sin tickets planeados o en curso.</span>{% else %}
+  <div class="cg-cola" id="cola" data-persona="{{ c.ing.id }}">
+    {% for tr in c.tramos %}{% set t = tr.ticket %}
+    <div class="cg-item {{ 'tarde' if tr.tarde }}" draggable="true" data-id="{{ t.id }}">
+      <span class="cg-asa" aria-hidden="true">⋮⋮</span>
+      <span class="prio {{ t.prioridad }}">{{ t.prioridad or '—' }}</span>
+      <a href="/tickets/{{ t.id }}" class="cg-tit"><b>{{ t.folio }}</b> {{ t.titulo }}{% if t.estado == 'en_curso' %} <span class="tag b">En curso</span>{% endif %}{% if t.orden_cola is not none %} <span class="tag n" title="Orden fijado a mano">manual</span>{% endif %}</a>
+      <span class="small">{{ '%g'|format(tr.horas) }} h</span>
+      <span class="small">{{ tr.inicio.strftime('%d/%m') if tr.inicio else '—' }} → <b>{{ tr.fin.strftime('%d/%m') if tr.fin else '—' }}</b></span>
+      <span class="small {{ 'cg-mal' if tr.tarde }}">Entrega {{ t.fecha_entrega.strftime('%d/%m') if t.fecha_entrega else '—' }}{% if tr.tarde %} · no llega{% endif %}</span>
+      <form method="post" action="/tickets-cargas/inicio" class="row" style="gap:4px"><input type="hidden" name="tid" value="{{ t.id }}">
+        <input class="input" type="date" name="inicio" value="{{ t.inicio_plan.isoformat() if t.inicio_plan else '' }}" aria-label="No antes de" title="No antes de" style="height:30px;width:140px">
+        <button class="btn sm ghost" style="height:30px">Fijar</button></form>
+    </div>{% endfor %}
+  </div>
+  <div class="row" style="gap:8px"><button class="btn dark sm" id="cg-guardar" hidden>{{ icon('ok', 14) }}Guardar orden</button><span class="small muted" id="cg-msg"></span></div>
+  {% endif %}
+</section>
+
+{% if c.tarde %}
+<form class="card pad" method="post" action="/tickets-cargas/fechas"><input type="hidden" name="persona" value="{{ c.ing.id }}">
+  <h2>{{ icon('alert', 18) }} {{ c.tarde|length }} ticket(s) ya no llegan a su fecha de entrega</h2>
+  <span class="small muted">Con la carga actual terminarían después de lo comprometido. Marca los que quieras reprogramar a la fecha proyectada; queda el motivo en el historial de estimación de cada ticket. Sin confirmar, no cambia nada.</span>
+  {% for tr in c.tarde %}<label class="check"><input type="checkbox" name="fecha_{{ tr.ticket.id }}" value="{{ tr.fin.isoformat() }}" checked>
+    <span><b>{{ tr.ticket.folio }}</b> {{ tr.ticket.titulo }} · entrega {{ tr.ticket.fecha_entrega.strftime('%d/%m') }} → <b>{{ tr.fin.strftime('%d/%m') }}</b></span></label>{% endfor %}
+  <div class="row" style="gap:8px"><input class="input" name="motivo" required minlength="5" maxlength="300" placeholder="Motivo (ej. entró un P1 de SAFE)" style="min-width:320px"><button class="btn yellow">Reprogramar entregas</button></div>
+</form>
+{% endif %}
+{% endif %}
+{% endblock %}
+{% block scripts %}<script>
+(function () {
+  var cola = document.getElementById("cola");
+  if (!cola) return;
+  var arr = null, btn = document.getElementById("cg-guardar"), msg = document.getElementById("cg-msg");
+  cola.addEventListener("dragstart", function (e) { arr = e.target.closest(".cg-item"); if (arr) { arr.classList.add("arr"); e.dataTransfer.effectAllowed = "move"; } });
+  cola.addEventListener("dragend", function () { if (arr) arr.classList.remove("arr"); arr = null; });
+  cola.addEventListener("dragover", function (e) {
+    if (!arr) return;
+    e.preventDefault();
+    var sobre = e.target.closest(".cg-item");
+    if (!sobre || sobre === arr) return;
+    var r = sobre.getBoundingClientRect();
+    cola.insertBefore(arr, e.clientY > r.top + r.height / 2 ? sobre.nextSibling : sobre);
+    btn.hidden = false; msg.textContent = "Orden cambiado: guarda para recalcular fechas.";
+  });
+  btn.addEventListener("click", function () {
+    var fd = new FormData();
+    fd.append("persona", cola.dataset.persona);
+    fd.append("ids", Array.prototype.map.call(cola.querySelectorAll(".cg-item"), function (x) { return x.dataset.id; }).join(","));
+    btn.disabled = true;
+    fetch("/tickets-cargas/orden", { method: "POST", body: fd, headers: { Accept: "application/json" } })
+      .then(function (r) { return r.json(); }).then(function () { location.reload(); })
+      .catch(function () { btn.disabled = false; msg.textContent = "No se pudo guardar."; });
+  });
+})();
+</script>{% endblock %}

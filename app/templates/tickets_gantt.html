@@ -1,0 +1,33 @@
+{% extends "base.html" %}{% from "_ui.html" import icon with context %}
+{% block title %}Gantt de soporte{% endblock %}
+{% block content %}
+<div class="top">
+  <div class="col" style="gap:4px"><span class="muted small">Soporte · Guard<span class="gia">IA</span> Ticket</span><h1>Tablero de desarrollo</h1></div>
+  <div class="row">
+    <form method="get" class="row" style="gap:8px"><input type="hidden" name="vista" value="gantt"><select class="input" name="persona" onchange="this.form.submit()" style="min-width:200px" aria-label="Filtrar por ingeniero">
+      <option value="">Todo el equipo</option>{% for x in gente %}<option value="{{ x.id }}" {{ 'selected' if persona == x.id }}>{{ x.nombre }}</option>{% endfor %}</select></form>
+    <a class="btn yellow" href="/tickets/nuevo">{{ icon('plus') }}Levantar ticket</a>
+  </div>
+</div>
+{% include "_tablero_vistas.html" %}
+<span class="muted small">Proyección automática de los tickets planeados y en curso: cada ingeniero avanza su cola a ≈{{ '%g'|format(4) }} h hábiles por día (sin fines de semana ni festivos), en orden de prioridad o en el orden que fijes en <a href="/tickets-tablero?vista=cargas">Cargas por día</a>. La marca ◆ es la fecha de entrega comprometida; en rojo, lo que ya no llega.</span>
+{% if not g.filas %}<section class="card pad"><span class="muted">No hay tickets planeados con horas y fecha.</span></section>{% else %}
+{% set n = g.eje|length %}
+<section class="card gnt" style="--n:{{ n }}">
+  <div class="gnt-row gnt-head"><div class="gnt-lbl">Ticket</div><div class="gnt-grid">
+    {% for d in g.eje %}<div class="gnt-d {{ 'hoy' if d == hoy }} {{ 'lun' if d.weekday() == 0 }}" title="{{ d.strftime('%d/%m/%Y') }}"><span>{{ ['L','M','M','J','V','S','D'][d.weekday()] }}</span><b>{{ d.day }}</b></div>{% endfor %}</div></div>
+  {% for f in g.filas %}
+  <div class="gnt-row gnt-ing"><div class="gnt-lbl"><b>{{ f.ing.nombre }}</b> <span class="muted small">{{ '%g'|format(f.capacidad) }} h/día</span></div>
+    <div class="gnt-grid">{% for h in f.carga %}<div class="gnt-c {{ 'full' if h >= f.capacidad - 0.01 else ('mid' if h > 0 else '') }}" title="{{ '%g'|format(h) }} de {{ '%g'|format(f.capacidad) }} h"></div>{% endfor %}</div></div>
+  {% for b in f.barras %}{% set t = b.t %}
+  <div class="gnt-row"><div class="gnt-lbl"><a href="/tickets/{{ t.id }}"><span class="prio {{ t.prioridad }}">{{ t.prioridad or '—' }}</span> <b>{{ t.folio }}</b> {{ t.titulo }}</a></div>
+    <div class="gnt-grid">
+      <a class="gnt-bar {{ 'tarde' if b.tarde }} {{ 'curso' if t.estado == 'en_curso' }} p-{{ t.prioridad or 'x' }}" href="/tickets/{{ t.id }}"
+         style="grid-column:{{ b.i0 + 1 }} / {{ b.i1 + 2 }}" title="{{ t.folio }} · {{ '%g'|format(b.horas) }} h · {{ 'En curso' if t.estado == 'en_curso' else 'Planeado' }}{{ ' · entrega %s'|format(t.fecha_entrega.strftime('%d/%m')) if t.fecha_entrega }}{{ ' · NO LLEGA a su entrega' if b.tarde }}">{{ '%g'|format(b.horas) }} h{{ '…' if b.corta }}{% if b.entrega_i == -1 %} · vencía {{ t.fecha_entrega.strftime('%d/%m') }}{% endif %}</a>
+      {% if b.entrega_i is not none and b.entrega_i >= 0 %}<span class="gnt-ent {{ 'tarde' if b.tarde }}" style="grid-column:{{ b.entrega_i + 1 }}" title="Entrega comprometida {{ t.fecha_entrega.strftime('%d/%m/%Y') }}">◆</span>{% endif %}
+    </div></div>
+  {% endfor %}{% endfor %}
+</section>
+<div class="row small muted" style="gap:14px;flex-wrap:wrap"><span><i class="gnt-k curso"></i>En curso</span><span><i class="gnt-k"></i>Planeado</span><span><i class="gnt-k tarde"></i>No llega a su entrega</span><span>◆ Entrega comprometida</span><span><i class="gnt-k full"></i>Día lleno</span></div>
+{% endif %}
+{% endblock %}

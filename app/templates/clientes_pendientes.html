@@ -57,7 +57,7 @@
 {% endblock %}
 
 {% block modals %}
-<div class="overlay" id="nuevo"><form class="modal" method="post" action="/clientes/pendientes" role="dialog" aria-modal="true" aria-labelledby="t-nuevo" style="max-width:720px">
+<div class="overlay" id="nuevo"><form class="modal" method="post" action="/clientes/pendientes" enctype="multipart/form-data" role="dialog" aria-modal="true" aria-labelledby="t-nuevo" style="max-width:720px">
   <div class="mh"><h2 id="t-nuevo">Nuevo pendiente de cliente</h2><button class="btn ghost" type="button" data-close aria-label="Cerrar" style="width:42px;padding:0">{{ icon('x') }}</button></div>
   <div class="sec" style="border-top:0">
     <div class="grid2">
@@ -67,7 +67,9 @@
     <div class="field"><label for="np-ti">¿Qué hay que resolver?</label><input class="input" id="np-ti" name="titulo" required minlength="5" maxlength="200" placeholder="Ej. Corregir el reporte de descargos de octubre"></div>
     <div class="grid2"><div class="field"><label for="np-pr">Módulo</label><select class="input" id="np-pr" name="producto"><option value="">Sin módulo</option>{% for x in productos %}<option value="{{ x }}">{{ x }}</option>{% endfor %}</select></div>
       <div class="field"><label for="np-me">Menú (opcional)</label><input class="input" id="np-me" name="menu" maxlength="120"></div></div>
-    <div class="field"><label for="np-d">Detalle</label><textarea class="input" id="np-d" name="detalle" rows="3" maxlength="2000"></textarea></div>
+    <div class="field"><label for="np-d">Detalle</label><textarea class="input" id="np-d" name="detalle" rows="4" maxlength="2000" data-imagenes="pendiente:" placeholder="Describe el pendiente. Puedes pegar capturas (Ctrl+V) y quedan dentro del texto."></textarea></div>
+    <div class="field"><label for="np-an">Anexos (opcional)</label><div class="drop"><input type="file" id="np-an" name="anexos" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.txt,.csv,.md,.eml,.docx,.xlsx,.pptx"></div>
+      <span class="muted small">Contexto del pendiente (correo del cliente, layout, PDF). No cuentan como evidencia de que se resolvió.</span></div>
     <div class="grid2">
       {% if agendas %}<div class="field"><label for="np-a">Sesión de origen (opcional)</label><select class="input" id="np-a" name="agenda_id"><option value="">Ninguna</option>{% for a in agendas %}<option value="{{ a.id }}">{{ a.fecha.strftime('%d/%m') }} · {{ nombre_cliente(u, a) }}</option>{% endfor %}</select></div>{% endif %}
       {% if catalogo %}<div class="field"><label for="np-c">Cliente {{ icon('lock', 13) }}</label><select class="input" id="np-c" name="cliente"><option value="">Elige el cliente</option>{% for rfc, n in catalogo %}<option value="{{ rfc }}|{{ n }}">{{ n }}</option>{% endfor %}</select></div>{% endif %}
