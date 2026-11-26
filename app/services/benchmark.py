@@ -278,9 +278,11 @@ def svg_lienzo(lienzo: dict, ancho: int = 980, alto: int = 300) -> dict:
     fs = lienzo["claves"]
     if not fs:
         return {}
-    izq, der, arr, aba = 40, 20, 16, 70
+    izq, der = 40, 20
+    paso = (ancho - izq - der) / max(len(fs) - 1, 1)
+    numerado = paso < 120  # con muchos factores los nombres no caben: número en el eje y la lista abajo
+    arr, aba = 16, (34 if numerado else 70)
     w, h = ancho - izq - der, alto - arr - aba
-    paso = w / max(len(fs) - 1, 1)
 
     def xy(i, v):
         return round(izq + i * paso if len(fs) > 1 else izq + w / 2, 1), round(arr + h - (v - 1) / 4 * h, 1)
@@ -291,6 +293,15 @@ def svg_lienzo(lienzo: dict, ancho: int = 980, alto: int = 300) -> dict:
         lineas.append({"nombre": sr["nombre"], "color": sr["color"], "pts": pts, "punteada": True})
     pts = [xy(i, lienzo["onecore"][k]) for i, k in enumerate(fs) if k in lienzo["onecore"]]
     lineas.append({"nombre": "OneCore", "color": "#0F766E", "pts": pts, "punteada": False})
+    detalle = []
+    for i, k in enumerate(fs):
+        vals = [(sr["valores"][k], sr["nombre"], sr["color"]) for sr in lienzo["series"] if k in sr["valores"]]
+        mejor = max(vals, key=lambda x: x[0]) if vals else None
+        oc = lienzo["onecore"].get(k)
+        detalle.append({"n": i + 1, "nombre": lienzo["factores"][i], "onecore": oc,
+                        "mejor": {"valor": mejor[0], "nombre": mejor[1], "color": mejor[2]} if mejor else None,
+                        "brecha": (oc - mejor[0]) if (mejor and oc is not None) else None})
     return {"ancho": ancho, "alto": alto, "lineas": lineas, "ejes": [xy(i, 1)[0] for i in range(len(fs))],
+            "numerado": numerado, "detalle": detalle,
             "niveles": [(v, xy(0, v)[1]) for v in range(1, 6)], "etiquetas": lienzo["factores"], "base": arr + h, "izq": izq,
             "der": ancho - der}

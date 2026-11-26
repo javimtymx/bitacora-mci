@@ -885,3 +885,11 @@ textarea.tkimg-drop{outline:2px dashed var(--blue,#2563eb);outline-offset:2px}
 .oc-tag.si{background:#E2F5E9;color:#14613A}.oc-tag.parcial{background:#FFF0C7;color:#7A4600}
 .oc-kx{display:flex;flex-direction:column;gap:4px;padding:10px 12px;border-radius:10px;border:1px solid var(--line2);background:#fff;font-size:13.5px;line-height:1.5}
 .oc-kx.si{border-left:4px solid #1E9E5A}.oc-kx.parcial{border-left:4px solid #E5A100}
+/* lienzo estratégico: factores numerados cuando no caben los nombres */
+.bm-xn circle{fill:#0B3A53}.bm-xn text{fill:#fff;font:700 11px Manrope,sans-serif;text-anchor:middle}
+.bm-fact{list-style:none;margin:4px 0 8px;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:4px 18px}
+.bm-fact li{display:grid;grid-template-columns:22px 1fr auto;gap:8px;align-items:center;font-size:12.5px;padding:4px 0;border-bottom:1px solid #EEF2F5}
+.bm-fn{width:20px;height:20px;border-radius:50%;background:#0B3A53;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.bm-fnom{color:#1F2D3A;line-height:1.3}
+.bm-fval{font-size:11.5px;color:#475569;white-space:nowrap}
+.bm-gap{color:#B42318;font-weight:700}

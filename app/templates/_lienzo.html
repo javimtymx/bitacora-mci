@@ -4,12 +4,15 @@
   <svg viewBox="0 0 {{ svg.ancho }} {{ svg.alto }}" role="img" aria-label="Lienzo estratégico: calificación de 1 a 5 por factor">
     {% for v, y in svg.niveles %}<line x1="{{ svg.izq }}" x2="{{ svg.der }}" y1="{{ y }}" y2="{{ y }}" class="bm-grid"/><text x="{{ svg.izq - 10 }}" y="{{ y + 4 }}" class="bm-y">{{ v }}</text>{% endfor %}
     {% for x in svg.ejes %}<line x1="{{ x }}" x2="{{ x }}" y1="{{ svg.niveles[-1][1] }}" y2="{{ svg.base }}" class="bm-eje"/>
-      <foreignObject x="{{ x - 55 }}" y="{{ svg.base + 6 }}" width="110" height="60"><div xmlns="http://www.w3.org/1999/xhtml" class="bm-x">{{ svg.etiquetas[loop.index0] }}</div></foreignObject>{% endfor %}
+      {% if svg.numerado %}<g class="bm-xn"><title>{{ loop.index }}. {{ svg.etiquetas[loop.index0] }}</title><circle cx="{{ x }}" cy="{{ svg.base + 16 }}" r="10"/><text x="{{ x }}" y="{{ svg.base + 20 }}">{{ loop.index }}</text></g>
+      {% else %}<foreignObject x="{{ x - 55 }}" y="{{ svg.base + 6 }}" width="110" height="60"><div xmlns="http://www.w3.org/1999/xhtml" class="bm-x">{{ svg.etiquetas[loop.index0] }}</div></foreignObject>{% endif %}{% endfor %}
     {% for l in svg.lineas %}
       <polyline points="{% for x, y in l.pts %}{{ x }},{{ y }} {% endfor %}" fill="none" stroke="{{ l.color }}" stroke-width="{{ 2 if l.punteada else 3.5 }}" {% if l.punteada %}stroke-dasharray="6 4"{% endif %} stroke-linejoin="round"/>
       {% for x, y in l.pts %}<circle cx="{{ x }}" cy="{{ y }}" r="{{ 3.5 if l.punteada else 5 }}" fill="{{ l.color }}"/>{% endfor %}
     {% endfor %}
   </svg>
+  {% if svg.numerado %}<ol class="bm-fact">{% for d in svg.detalle %}<li><span class="bm-fn">{{ d.n }}</span><span class="bm-fnom">{{ d.nombre }}</span>
+    <span class="bm-fval" title="OneCore contra el mejor competidor en este factor">{% if d.onecore is not none %}<b style="color:#0F766E">OneCore {{ '%g'|format(d.onecore) }}</b>{% endif %}{% if d.mejor %} · {{ d.mejor.nombre }} {{ '%g'|format(d.mejor.valor) }}{% endif %}{% if d.brecha is not none and d.brecha < 0 %} <span class="bm-gap">−{{ '%g'|format(-d.brecha) }}</span>{% endif %}</span></li>{% endfor %}</ol>{% endif %}
   <figcaption class="bm-ley">{% for l in svg.lineas|reverse %}<span><i style="background:{{ l.color }}{{ ';opacity:.85' if l.punteada }}"></i>{{ l.nombre }}</span>{% endfor %}<span class="muted">1 = débil · 5 = fuerte</span></figcaption>
 </figure>
 {% else %}<span class="small muted">Aún no hay factores calificados.</span>{% endif %}{% endmacro %}

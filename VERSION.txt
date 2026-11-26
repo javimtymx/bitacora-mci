@@ -1,3 +1,3 @@
-bitacora-mci v20261126-1135_92e3122
-commit 92e3122
-migración head: e8b4f2c6a713 (nueva: kardex de OneCore)
+bitacora-mci v20261126-1621_11dc96f
+commit 11dc96f
+migración head: e8b4f2c6a713 (sin cambios)
