@@ -323,10 +323,10 @@ def test_menus_de_clientes_por_rol(db):
     db.commit()
     beto = login(TestClient(app), "beto@onecore.mx")
     assert beto.post(f"/clientes/pendientes/{p.id}/no-pasar", data={"motivo": "no aplica nada"}).status_code == 403
-    # el nombre del cliente es confidencial: quien no lo atiende ve una etiqueta
+    # el nombre del cliente lo ve todo el equipo, aunque no atienda el pendiente
     p.creado_por = None
     db.commit()
-    assert "ACME" not in ana.get("/clientes/pendientes").text
+    assert "ACME" in ana.get("/clientes/pendientes").text
 
 
 def test_avisos_internos_de_agenda_invitacion_recordatorio_y_escalacion(admin, db, monkeypatch):

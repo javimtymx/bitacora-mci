@@ -45,7 +45,7 @@ def test_fechas_de_serie_con_dias_habiles_y_festivos():
 def test_vista_previa_y_reprogramar_no_habil(admin, db):
     d = admin.get("/api/clientes/serie", params={"fecha": "2027-01-01", "recurrencia": "mensual", "fecha_fin": "2027-03-31",
                                                  "modo_mes": "dia", "dia_mes": 10}).json()
-    assert d["ok"] and len(d["fechas"]) == 3 and d["fechas"][0]["nota"] and "cada día 10" in d["regla"]
+    assert d["ok"] and len(d["fechas"]) == 3 and d["fechas"][0]["nota"] and "día 10" in d["regla"]
     assert not admin.get("/api/clientes/serie", params={"fecha": "2027-01-01", "recurrencia": "mensual"}).json()["ok"]
     admin.post("/clientes/agenda", data=_datos(db))
     a = db.scalar(select(AgendaCliente))
@@ -102,8 +102,16 @@ def test_pendiente_delegado_a_soporte_avanza_con_el_ticket(admin, db):
     db.expire_all()
     p = db.get(PendienteCliente, p.id)
     t = p.ticket
-    assert t and p.estado == "en_curso"  # soporte aún no lo acepta: sigue en pendientes
-    assert "espera que lo acepten" in admin.get(f"/clientes/pendientes/{p.id}").text
+    assert t and p.estado == "delegado"  # se mueve en el kanban en cuanto se envía, aunque siga en triage
+    assert "Está en triage de soporte" in admin.get(f"/clientes/pendientes/{p.id}").text
+    # el triage automático de GuardIA (u otro proceso) también lo sincroniza, sin pasar por la pantalla
+    t.estado = "info"
+    db.commit()
+    db.expire_all()
+    assert any("Esperando información" in h["texto"] for h in db.get(PendienteCliente, p.id).historial)
+    t = db.get(PendienteCliente, p.id).ticket
+    t.estado = "nuevo"
+    db.commit()
     # triage = soporte lo acepta → delegado
     admin.post(f"/tickets-triage/{t.id}", data={"prioridad": "P2", "asignado_id": jm.id})
     db.expire_all()

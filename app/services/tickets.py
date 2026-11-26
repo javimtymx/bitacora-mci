@@ -1206,22 +1206,43 @@ def _horas(h: float) -> str:
 
 # ---------------------------------------------------------------- pendientes de clientes delegados a soporte
 
-def sincronizar_pendiente(db: Session, t: Ticket, u: Usuario | None = None) -> None:
-    """El pendiente de cliente avanza solo con su ticket. Queda «Delegado a soporte» cuando soporte lo acepta
-    (sale de triage); al cerrarse el ticket regresa a «En revisión» para que Operaciones lo confirme con el cliente."""
+def sincronizar_pendiente(db: Session, t: Ticket, u: Usuario | None = None, p=None) -> None:
+    """El pendiente de cliente avanza solo con su ticket. Pasa a «Delegado a soporte» en cuanto se envía (el ticket
+    abierto, aunque siga en triage); al cerrarse el ticket regresa a «En revisión» para que Operaciones lo confirme
+    con el cliente. Se llama sola en cada cambio de estatus del ticket (ver _sincronizar_al_guardar)."""
     from ..models import TICKET_ESTADOS, PendienteCliente
     from .clientes import evento
-    p = db.scalar(select(PendienteCliente).where(PendienteCliente.ticket_id == t.id))
+    if p is None:
+        p = db.scalar(select(PendienteCliente).where(PendienteCliente.ticket_id == t.id))
     if not p or p.estado in ("historico", "no_vigente"):
         return
     ultimo = next((h.get("ticket") for h in reversed(p.historial or []) if h.get("ticket")), None)
     if t.estado != ultimo:
         evento(p, u, f"Soporte: {t.folio} está en «{TICKET_ESTADOS.get(t.estado, t.estado)}».", ticket=t.estado)
-    if t.estado in ("pendiente", "planeado", "en_curso", "info", "revision", "vobo") and p.estado not in ("delegado", "resuelto"):
+    if t.estado in ("nuevo", "pendiente", "planeado", "en_curso", "info", "revision", "vobo") and p.estado not in ("delegado", "resuelto"):
         p.estado = "delegado"
-        evento(p, u, f"Soporte aceptó {t.folio}: el pendiente queda delegado y avanza con el ticket.")
+        evento(p, u, f"Delegado a soporte como {t.folio}: avanza solo con el ticket.")
     elif t.estado == "cerrado" and p.estado == "delegado":
         r = t.resolucion or {}
         p.estado = "revision"
         p.resolucion = p.resolucion or f"Soporte ({t.folio}): {r.get('solucion', '')}"[:3000]
         evento(p, u, f"Soporte cerró {t.folio}. Regresa a revisión: confírmalo con el cliente y resuélvelo.")
+
+
+# El pendiente de cliente se mueve en el kanban con cualquier cambio de estatus de su ticket, venga de una pantalla,
+# del triage automático de GuardIA o de un proceso en segundo plano.
+from sqlalchemy import event as _sa_event  # noqa: E402
+from sqlalchemy import inspect as _sa_inspect  # noqa: E402
+
+
+@_sa_event.listens_for(Session, "before_flush")
+def _sincronizar_al_guardar(session, _ctx, _instancias):
+    cambiados = [o for o in session.dirty if isinstance(o, Ticket) and _sa_inspect(o).attrs.estado.history.has_changes()]
+    if not cambiados:
+        return
+    with session.no_autoflush:
+        for t in cambiados:
+            try:
+                sincronizar_pendiente(session, t)
+            except Exception:  # noqa: BLE001  (nunca impedir que se guarde el ticket)
+                log.exception("No se pudo sincronizar el pendiente del ticket %s", t.id)

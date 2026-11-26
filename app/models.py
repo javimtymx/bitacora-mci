@@ -834,7 +834,7 @@ class AgendaCliente(Base):
     invitados: Mapped[list] = mapped_column(JSON, default=list)       # [{"nombre","email","lado","asistio"}]
     estado: Mapped[str] = mapped_column(String(16), default="programada", index=True)
     serie_id: Mapped[str | None] = mapped_column(String(36), index=True)   # citas recurrentes: misma serie
-    recurrencia: Mapped[str | None] = mapped_column(String(10))           # semanal | mensual
+    recurrencia: Mapped[str | None] = mapped_column(String(10))           # semanal | quincenal | mensual | trimestral
     sesion_id: Mapped[int | None] = mapped_column(ForeignKey("sesiones_cliente.id"))
     ejecucion: Mapped[dict] = mapped_column(JSON, default=dict)      # lectura de GuardIA: puntos cubiertos, asistentes
     historial: Mapped[list] = mapped_column(JSON, default=list)      # reprogramaciones y cancelaciones con motivo

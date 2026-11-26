@@ -69,7 +69,7 @@
     <form method="post" action="/clientes/agenda/{{ a.id }}/transcripcion" enctype="multipart/form-data" data-subidas="transcripcion" class="col" style="gap:8px;border-top:1px solid var(--line);padding-top:12px">
       <label for="ag-tr"><b>{{ 'Cargar otra transcripción (reemplaza la anterior y se vuelve a revisar)' if s else 'Cargar la transcripción (obligatoria): de ella sale la minuta' }}</b></label>
       <div class="drop"><input type="file" id="ag-tr" name="archivo" accept=".txt,.vtt,.srt,.md,text/plain" required></div>
-      {% if sin_cliente %}<div class="field"><label><b>¿Con qué cliente fue la sesión?</b> {{ icon('lock', 13) }}</label>
+      {% if sin_cliente %}<div class="field"><label><b>¿Con qué cliente fue la sesión?</b></label>
         <div class="row" style="gap:8px;flex-wrap:wrap">{% if catalogo %}<select class="input" name="cliente" aria-label="Cliente del catálogo" style="min-width:240px"><option value="">Del catálogo…</option>{% for rfc, n in catalogo %}<option value="{{ rfc }}|{{ n }}">{{ n }}</option>{% endfor %}</select>{% endif %}
           <input class="input" name="cliente_nombre" maxlength="255" placeholder="{{ 'O escribe el nombre' if catalogo else 'Nombre del cliente' }}" aria-label="Nombre del cliente" style="min-width:240px"></div>
         <span class="small muted">La sesión se registró sin cliente; indícalo para ligar la minuta y los pendientes.</span></div>{% endif %}

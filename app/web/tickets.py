@@ -181,8 +181,8 @@ async def api_nuevo(request: Request, bg: BackgroundTasks, descripcion: str = Fo
             from ..services import clientes as cl
             pc = db.get(PendienteCliente, pendiente_id)
             pc.ticket_id = t.id
-            cl.evento(pc, u, f"Enviado a soporte como {t.folio}. Sigue aquí hasta que soporte lo acepte en triage; "
-                             "después queda «Delegado a soporte» y avanza con el ticket.", ticket=t.estado)
+            cl.evento(pc, u, f"Enviado a soporte como {t.folio}.", ticket=t.estado)
+            tk.sincronizar_pendiente(db, t, u, p=pc)  # pasa a «Delegado a soporte» en el kanban desde ya
             db.add(TicketComentario(ticket_id=t.id, autor_id=u.id, tipo="sistema",
                                     texto=f"Viene del pendiente de cliente {pc.folio}: avanza junto con este ticket."))
         db.commit()

@@ -131,7 +131,7 @@ def crear_agenda(request: Request, fondo: BackgroundTasks, tipo: str = Form(...)
     fechas = [(fecha, "")]
     serie = None
     regla = ""
-    if recurrencia in ("semanal", "mensual"):
+    if recurrencia in cl.RECURRENCIAS:
         try:
             fechas = cl.fechas_serie(fecha, recurrencia, fecha_fin, modo=modo_mes, dia_semana=dia_semana, dia_mes=dia_mes,
                                      nesimo=nesimo)

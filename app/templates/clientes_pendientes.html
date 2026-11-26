@@ -72,8 +72,8 @@
       <span class="muted small">Contexto del pendiente (correo del cliente, layout, PDF). No cuentan como evidencia de que se resolvió.</span></div>
     <div class="grid2">
       {% if agendas %}<div class="field"><label for="np-a">Sesión de origen (opcional)</label><select class="input" id="np-a" name="agenda_id"><option value="">Ninguna</option>{% for a in agendas %}<option value="{{ a.id }}">{{ a.fecha.strftime('%d/%m') }} · {{ nombre_cliente(u, a) }}</option>{% endfor %}</select></div>{% endif %}
-      {% if catalogo %}<div class="field"><label for="np-c">Cliente {{ icon('lock', 13) }}</label><select class="input" id="np-c" name="cliente"><option value="">Elige el cliente</option>{% for rfc, n in catalogo %}<option value="{{ rfc }}|{{ n }}">{{ n }}</option>{% endfor %}</select></div>{% endif %}
-      <div class="field"><label for="np-cn">{{ 'Cliente que no está en el catálogo' if catalogo else 'Cliente' }} {{ icon('lock', 13) }}</label><input class="input" id="np-cn" name="cliente_nombre" maxlength="255"></div>
+      {% if catalogo %}<div class="field"><label for="np-c">Cliente</label><select class="input" id="np-c" name="cliente"><option value="">Elige el cliente</option>{% for rfc, n in catalogo %}<option value="{{ rfc }}|{{ n }}">{{ n }}</option>{% endfor %}</select></div>{% endif %}
+      <div class="field"><label for="np-cn">{{ 'Cliente que no está en el catálogo' if catalogo else 'Cliente' }}</label><input class="input" id="np-cn" name="cliente_nombre" maxlength="255"></div>
     </div>
     {% if lider %}<div class="grid2">
       <div class="field"><label for="np-as">Asignar a</label><select class="input" id="np-as" name="asignado_id"><option value="">Dejar por decidir</option>{% for g in gente %}<option value="{{ g.id }}">{{ g.nombre }}{% if g.area %} · {{ g.area.nombre }}{% endif %}</option>{% endfor %}</select></div>

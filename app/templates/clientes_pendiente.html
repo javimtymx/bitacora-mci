@@ -16,9 +16,9 @@
 
 {% if p.ticket %}{% set tt = p.ticket %}
 <section class="card pad deleg {{ 'acept' if p.estado == 'delegado' else '' }}">
-  <div class="row between"><h3>{{ icon('send', 17) }} {% if tt.estado == 'nuevo' %}Enviado a soporte · espera que lo acepten{% elif p.estado == 'delegado' %}Delegado a soporte{% else %}Atendido por soporte{% endif %}</h3>
+  <div class="row between"><h3>{{ icon('send', 17) }} {% if p.estado == 'delegado' %}Delegado a soporte{% else %}Atendido por soporte{% endif %}</h3>
     <a class="btn sm soft" href="/tickets/{{ tt.id }}">{{ tt.folio }} · {{ estados_ticket.get(tt.estado, tt.estado) }}</a></div>
-  <span class="small">{% if tt.estado == 'nuevo' %}Soporte aún no lo acepta en triage: el pendiente sigue en su columna y lo sigues atendiendo.
+  <span class="small">{% if p.estado == 'delegado' and tt.estado == 'nuevo' %}Está en triage de soporte (prioridad e ingeniero). El pendiente ya está en «Delegado a soporte» y avanza solo con el ticket.
     {% elif p.estado == 'delegado' %}Soporte lo aceptó: este pendiente avanza solo con el ticket{% if tt.asignado %} (ingeniero {{ tt.asignado.nombre }}{% if tt.fecha_entrega %}, entrega {{ tt.fecha_entrega.strftime('%d/%m/%Y') }}{% endif %}){% endif %}. Cuando soporte lo cierre, regresa a «En revisión» para confirmarlo con el cliente.
     {% elif tt.estado == 'cerrado' %}Soporte lo cerró{% if (tt.resolucion or {}).solucion %}: {{ tt.resolucion.solucion }}{% endif %}. Confírmalo con el cliente y resuélvelo.{% endif %}</span>
 </section>{% endif %}

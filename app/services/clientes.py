@@ -57,22 +57,10 @@ def mes_mover(mes: str, delta: int) -> str:
 
 # ---------------------------------------------------------------- visibilidad del nombre del cliente
 
-def _invitado_onecore(u: Usuario, a) -> bool:
-    correo = (u.email or "").strip().lower()
-    return bool(a and correo and any((i.get("email") or "").strip().lower() == correo and i.get("lado") == "onecore"
-                                     for i in (a.invitados or [])))
-
-
 def ve_cliente(u: Usuario, obj) -> bool:
-    """El nombre del cliente es confidencial: lo ven quien tiene ese permiso, Dirección, quien atiende el asunto y los
-    asistentes de OneCore invitados a la sesión (o a la sesión de la que salió el pendiente)."""
-    if u.puede_confidencial or u.es_direccion:
-        return True
-    ids = {getattr(obj, "responsable_id", None), getattr(obj, "asignado_id", None), getattr(obj, "creado_por", None)}
-    if u.id in ids:
-        return True
-    agenda = obj if isinstance(obj, AgendaCliente) else getattr(obj, "agenda", None)
-    return _invitado_onecore(u, agenda) or bool(agenda is not obj and agenda and u.id in (agenda.responsable_id, agenda.creado_por))
+    """El nombre del cliente lo ve todo el que entra a la sección Clientes (agenda, pendientes, histórico), para que
+    todo el equipo sepa con quién fue cada sesión. Lo confidencial sigue siendo montos y ventas, no el nombre."""
+    return True
 
 
 def sin_cliente(a) -> bool:
@@ -130,6 +118,7 @@ def limpiar_invitados(nombres: list[str], emails: list[str], lados: list[str], a
 # ---------------------------------------------------------------- agenda del mes
 
 MAX_SERIE_DIAS = 366
+RECURRENCIAS = {"semanal": "Semanal", "quincenal": "Quincenal", "mensual": "Mensual", "trimestral": "Trimestral"}
 DIAS_SEMANA = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
 ORDINALES = {1: "primer", 2: "segundo", 3: "tercer", 4: "cuarto", -1: "último"}
 
@@ -169,15 +158,19 @@ def describir_serie(recurrencia: str, modo: str = "", dia_semana: int | None = N
                     nesimo: int | None = None) -> str:
     if recurrencia == "semanal":
         return f"cada {DIAS_SEMANA[dia_semana or 0]}"
+    if recurrencia == "quincenal":
+        return f"un {DIAS_SEMANA[dia_semana or 0]} sí y uno no (cada 2 semanas)"
+    cada = "cada 3 meses" if recurrencia == "trimestral" else "cada mes"
     if modo == "nesimo":
-        return f"el {ORDINALES.get(nesimo, '')} {DIAS_SEMANA[dia_semana or 0]} de cada mes"
-    return f"cada día {dia_mes} del mes (si no es hábil, el siguiente día hábil)"
+        return f"el {ORDINALES.get(nesimo, '')} {DIAS_SEMANA[dia_semana or 0]} de {'cada trimestre' if recurrencia == 'trimestral' else 'cada mes'}"
+    return f"día {dia_mes}, {cada} (si no es hábil, el día hábil más cercano dentro del mes)"
 
 
 def fechas_serie(inicio: date, recurrencia: str, fin: date | None, *, modo: str = "dia", dia_semana: int | None = None,
                  dia_mes: int | None = None, nesimo: int | None = None) -> list[tuple[date, str]]:
     """Fechas de una serie, desde «inicio» hasta «fin» (máx. 12 meses). Regresa [(fecha, nota)].
-    - semanal: cada «dia_semana» (0 = lunes).
+    - semanal: cada «dia_semana» (0 = lunes). quincenal: igual, cada 2 semanas.
+    - trimestral: como mensual, cada 3 meses a partir del mes de la primera cita.
     - mensual modo «dia»: cada «dia_mes» (si el mes es más corto, el último día).
     - mensual modo «nesimo»: el n-ésimo «dia_semana» del mes (1..4 o -1 = último).
     Si una fecha cae en fin de semana o festivo oficial se recorre al siguiente día hábil y se anota por qué;
@@ -190,15 +183,18 @@ def fechas_serie(inicio: date, recurrencia: str, fin: date | None, *, modo: str 
     if (fin - inicio).days > MAX_SERIE_DIAS:
         raise ValueError("Una serie puede durar hasta 12 meses; al terminar se programa otra.")
     base: list[date] = []
-    if recurrencia == "semanal":
+    if recurrencia not in RECURRENCIAS:
+        raise ValueError("Elige cada cuánto se repite la cita.")
+    if recurrencia in ("semanal", "quincenal"):
         ds = inicio.weekday() if dia_semana is None else dia_semana
         if not 0 <= ds <= 6:
             raise ValueError("Elige el día de la semana.")
         f = inicio + timedelta(days=(ds - inicio.weekday()) % 7)
         while f <= fin:
             base.append(f)
-            f += timedelta(weeks=1)
+            f += timedelta(weeks=2 if recurrencia == "quincenal" else 1)
     else:
+        paso = 3 if recurrencia == "trimestral" else 1
         y, m = inicio.year, inicio.month
         while date(y, m, 1) <= fin:
             if modo == "nesimo":
@@ -212,13 +208,14 @@ def fechas_serie(inicio: date, recurrencia: str, fin: date | None, *, modo: str 
                 f = date(y, m, min(dm, calendar.monthrange(y, m)[1]))
             if inicio <= f <= fin:
                 base.append(f)
-            y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+            m += paso
+            y, m = y + (m - 1) // 12, (m - 1) % 12 + 1
     out, vistos = [], set()
     for f in base:
         motivo = inhabil(f)
         g = siguiente_habil(f) if motivo else f
         atras = False
-        if motivo and recurrencia != "semanal" and g.month != f.month:  # mensual: no se sale del mes
+        if motivo and recurrencia in ("mensual", "trimestral") and g.month != f.month:  # no se sale del mes
             g, atras = f - timedelta(days=1), True
             while inhabil(g):
                 g -= timedelta(days=1)

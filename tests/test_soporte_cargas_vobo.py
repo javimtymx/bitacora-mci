@@ -158,8 +158,7 @@ def test_cliente_de_la_sesion(admin, db):
                       historial=[])
     db.add(a)
     db.commit()
-    assert cl.ve_cliente(eg, a)  # asistente de OneCore
-    assert not cl.ve_cliente(_u(db, "gtrevino@onecore.mx"), a)
+    assert cl.ve_cliente(eg, a) and cl.ve_cliente(_u(db, "gtrevino@onecore.mx"), a)  # el nombre lo ve todo el equipo
     # al subir la transcripción sin cliente, se pide
     r = admin.post(f"/clientes/agenda/{a.id}/transcripcion", data={"consentimiento": "true"},
                    files={"archivo": ("t.txt", b"hola " * 50, "text/plain")})
@@ -168,3 +167,21 @@ def test_cliente_de_la_sesion(admin, db):
     admin.post(f"/clientes/agenda/{a.id}/cliente", data={"cliente_nombre": "Manufacturas del Norte"})
     db.refresh(a)
     assert a.cliente_nombre == "Manufacturas del Norte" and "sin cliente" in a.historial[-1]["texto"]
+    # un usuario sin permiso de confidencial ni relación con la sesión ve el nombre, no «Cliente · Sesión #…»
+    erick = login(TestClient(app), "egarza@onecore.mx")
+    lista = erick.get(f"/clientes/agenda?mes={a.mes}").text
+    assert "Manufacturas del Norte" in lista and f"Sesión #{a.id:04d}</b>" not in lista
+
+
+def test_series_quincenal_y_trimestral():
+    ini = date(2026, 12, 7)  # lunes
+    q = cl.fechas_serie(ini, "quincenal", date(2027, 2, 28), dia_semana=0)
+    assert [f for f, _ in q][:3] == [date(2026, 12, 7), date(2026, 12, 21), date(2027, 1, 4)]
+    assert all(f.weekday() == 0 or nota for f, nota in q)  # lunes, salvo los recorridos por festivo (con nota)
+    assert any("festivo" in nota for _, nota in q)  # 1 feb 2027 (Constitución) se recorre
+    tr = cl.fechas_serie(date(2026, 12, 1), "trimestral", date(2027, 11, 30), modo="nesimo", dia_semana=0, nesimo=1)
+    assert [f.month for f, _ in tr] == [12, 3, 6, 9]  # primer lunes de dic, mar, jun, sep
+    tr2 = cl.fechas_serie(date(2026, 12, 1), "trimestral", date(2027, 11, 30), modo="dia", dia_mes=27)
+    assert [f.month for f, _ in tr2] == [12, 3, 6, 9] and all(not cl.inhabil(f) for f, _ in tr2)
+    assert "cada 2 semanas" in cl.describir_serie("quincenal", dia_semana=0)
+    assert "cada 3 meses" in cl.describir_serie("trimestral", "dia", dia_mes=27)
