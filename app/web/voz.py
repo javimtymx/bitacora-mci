@@ -33,9 +33,9 @@ def _puede_ver(u: Usuario, s: SesionCliente) -> bool:
 
 
 def etiqueta_cliente(u: Usuario, s: SesionCliente) -> str:
-    if u.puede_confidencial:
-        return s.cliente_nombre or s.cliente_rfc or ("Prospecto sin nombre" if s.tipo == "venta_nueva" else "Cliente sin nombre")
-    return f"{'Prospecto' if s.tipo == 'venta_nueva' else 'Cliente'} #{s.id:04d}"
+    """El nombre del cliente lo ve todo el equipo (igual que en la agenda de clientes); las personas y la
+    transcripción siguen restringidas."""
+    return s.cliente_nombre or s.cliente_rfc or ("Prospecto sin nombre" if s.tipo == "venta_nueva" else "Cliente sin nombre")
 
 
 @router.get("/sesiones/nueva")
@@ -224,4 +224,4 @@ def voz_cliente(request: Request, tipo: str = "", semanas: int = 12, db: Session
             d[0] += 1 if s.evidencia_verificada else 0
     nombres = {x.id: x for x in db.scalars(select(Usuario))}
     return render(request, "voz_cliente.html", u, "voz", r=r, tipo=tipo, semanas=semanas, evid=evid, nombres=nombres,
-                  cuadrantes=CUADRANTES)
+                  cuadrantes=CUADRANTES, etiqueta_cliente=etiqueta_cliente)

@@ -812,3 +812,4 @@ textarea.tkimg-drop{outline:2px dashed var(--blue,#2563eb);outline-offset:2px}
 .arr-aviso{display:block;color:var(--red,#C0392B);margin-top:4px}
 .verif-preg{display:block;padding:8px 10px;border-radius:8px;background:#fff;border:1px solid #F0D3A0}
 .ev-ret[open]>summary{align-self:flex-start}
+.vc-cli{display:block;max-width:520px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

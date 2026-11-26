@@ -45,5 +45,5 @@
 </div>
 <section class="card pad"><h2>Sesiones del periodo</h2><div class="tbl"><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Cliente</th><th>Riesgo</th><th>Evidencia</th><th></th></tr></thead><tbody>
   {% for s in r.sesiones|sort(attribute='fecha', reverse=true) %}<tr><td>{{ fmt_fecha(s.fecha) }}</td><td>{{ 'Venta nueva' if s.tipo=='venta_nueva' else 'Objeciones' if s.tipo=='objeciones' else '1:1 retención' }}</td>
-    <td>{{ (s.cliente_nombre or s.cliente_rfc or '—') if u.puede_confidencial else 'Cliente #%04d' % s.id }}</td><td>{{ s.riesgo_baja or '—' }}</td><td>{{ 'Verificada' if s.evidencia_verificada else '—' }}</td><td><a class="lnk" href="/sesiones/{{ s.id }}">Abrir</a></td></tr>{% endfor %}</tbody></table></div></section>
+    {% set cn = etiqueta_cliente(u, s) %}<td><span class="vc-cli" title="{{ cn }}">{{ cn }}</span></td><td>{{ s.riesgo_baja or '—' }}</td><td>{{ 'Verificada' if s.evidencia_verificada else '—' }}</td><td><a class="lnk" href="/sesiones/{{ s.id }}">Abrir</a></td></tr>{% endfor %}</tbody></table></div></section>
 {% endblock %}

@@ -66,8 +66,11 @@ def test_prospecto_oculto_sin_permiso(mario, manuel, db, fake):
                                    "consentimiento": "true"}, files={"archivo": ("v.txt", TX.encode("utf-8"), "text/plain")})
     s = db.scalar(select(SesionCliente).where(SesionCliente.tipo == "venta_nueva"))
     t = mario.get(f"/sesiones/{s.id}")
-    if t.status_code == 200:  # si su rol le permite ver la sesión, no ve el nombre del prospecto ni correos
-        assert "Prospecto Secreto" not in t.text and "pruiz@cliente.com" not in t.text and f"Prospecto #{s.id:04d}" in t.text
+    if t.status_code == 200:  # si su rol le permite ver la sesión, ve el nombre del prospecto pero no los correos
+        assert "Prospecto Secreto" in t.text and "pruiz@cliente.com" not in t.text
+    v = mario.get("/voz-cliente")
+    if v.status_code == 200:  # en «Sesiones del periodo» aparece el nombre, no «Cliente #0001»
+        assert f"#{s.id:04d}" not in v.text
 
 
 def test_idea_desde_voz_del_cliente_con_texto_completo_y_enlace(manuel, db, fake):

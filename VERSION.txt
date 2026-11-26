@@ -1,3 +1,3 @@
-bitacora-mci v20261126-0937_82810f1
-commit 82810f1
-migración head: c9d2a4e7f310 (solo datos: pone al día pendientes ya enviados a soporte)
+bitacora-mci v20261126-1015_ddba716
+commit ddba716
+migración head: c9d2a4e7f310 (sin cambios)
