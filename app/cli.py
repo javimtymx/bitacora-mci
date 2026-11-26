@@ -83,6 +83,12 @@ def init_db() -> None:
 def seed() -> None:
     desde = date(date.today().year, 1, 1)
     with SessionLocal() as db:
+        from .models import ModuloOneCore
+        from .services.vozcliente import PORTAFOLIO
+        if not db.scalar(select(ModuloOneCore.id).limit(1)):  # base de «lo que hace OneCore» para el benchmark
+            for k, (n, d) in enumerate(PORTAFOLIO, 1):
+                db.add(ModuloOneCore(nombre=n, resumen=d, orden=k, historial=[]))
+            db.flush()
         admin = db.scalar(select(Usuario).where(Usuario.rol.in_(("admin", "direccion"))).limit(1))
         for clave, nombre, lider, mcis in CATALOGO:
             area = db.scalar(select(Area).where(Area.clave == clave))

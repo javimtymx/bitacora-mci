@@ -1,6 +1,7 @@
 {% extends "base.html" %}{% from "_ui.html" import icon, ai_badge with context %}{% from "_lienzo.html" import lienzo with context %}
 {% block title %}Benchmark de competidores{% endblock %}
 {% set ins = con.insights %}
+{% macro g_idea(g) %}{% if g.idea_id %}<span class="bm-idea hecha">{{ icon('ok', 12) }}En Ideas</span>{% else %}<form method="post" action="/clientes/benchmark/insights/{{ g.ids[0] }}/idea" style="display:inline"><input type="hidden" name="volver" value="/clientes/benchmark"><button class="bm-idea" title="Pasar a Ideas a evaluar">{{ icon('idea', 12) }}A Ideas</button></form>{% endif %}{% endmacro %}
 {% block content %}
 <div class="top">
   <div class="col" style="gap:4px"><span class="muted small">Clientes · Inteligencia competitiva</span><h1>Benchmark</h1>
@@ -8,6 +9,7 @@
   <div class="row">{{ ai_badge() }}<button class="btn yellow" type="button" data-open="nueva">{{ icon('upload') }}Cargar junta con competidor</button></div>
 </div>
 
+{% include "_onecore_zona.html" %}
 <div class="tb-pulso card"><div class="tb-pulso-fila">
   <span class="tb-mini"><b>{{ con.competidores|length }}</b> competidores</span>
   <span class="tb-mini"><b>{{ con.sesiones|length }}</b> juntas analizadas o en proceso</span>
@@ -29,7 +31,7 @@
   {% for k, t, c in (('eliminar','Eliminar','r'),('reducir','Reducir','o'),('incrementar','Incrementar','b'),('crear','Crear','g')) %}
     <div class="bm-eric-c {{ c }}"><h3>{{ t }}</h3>
       {% for i in ins[k][:6] %}<div class="bm-it"><b>{{ i.titulo }}</b>{% if i.detalle %}<span class="small">{{ i.detalle }}</span>{% endif %}
-        <span class="bm-fuentes">{% for s in i.fuentes %}<a class="small muted" href="/clientes/benchmark/sesiones/{{ s.id }}">{{ s.competidor.nombre }} · {{ fmt_fecha(s.fecha) }}</a>{% endfor %}</span></div>
+        <span class="bm-fuentes">{% for s in i.fuentes %}<a class="small muted" href="/clientes/benchmark/sesiones/{{ s.id }}">{{ s.competidor.nombre }} · {{ fmt_fecha(s.fecha) }}</a>{% endfor %}</span>{{ g_idea(i) }}</div>
       {% else %}<span class="small muted">Sin propuestas.</span>{% endfor %}</div>
   {% endfor %}
   </div>
@@ -41,7 +43,7 @@
     {% for i in ins[k][:8] %}<div class="bm-it"><div class="row between" style="gap:6px"><b>{{ i.titulo }}</b><span class="prio {{ i.impacto }}">{{ i.impacto }}</span></div>
       {% if i.detalle %}<span class="small">{{ i.detalle }}</span>{% endif %}
       {% if i.cita %}<span class="quote small">«{{ i.cita }}»</span>{% endif %}
-      <span class="bm-fuentes">{% if i.fuentes|length > 1 %}<span class="tag n">{{ i.fuentes|length }} competidores</span>{% endif %}{% for s in i.fuentes %}<a class="small muted" href="/clientes/benchmark/sesiones/{{ s.id }}">{{ s.competidor.nombre }} · {{ fmt_fecha(s.fecha) }}</a>{% endfor %}</span></div>
+      <span class="bm-fuentes">{% if i.fuentes|length > 1 %}<span class="tag n">{{ i.fuentes|length }} competidores</span>{% endif %}{% for s in i.fuentes %}<a class="small muted" href="/clientes/benchmark/sesiones/{{ s.id }}">{{ s.competidor.nombre }} · {{ fmt_fecha(s.fecha) }}</a>{% endfor %}</span>{% if k != 'nuestro' %}{{ g_idea(i) }}{% endif %}</div>
     {% else %}<span class="small muted">Aún no hay.</span>{% endfor %}
   </section>
 {% endfor %}

@@ -50,6 +50,52 @@ def fuentes(db: Session) -> dict:
             "aprobadas": sum(1 for i in ideas if i.estado in ("validada", "en_curso"))}
 
 
+CONSOLIDANDO_MAX = 15 * 60  # segundos: si no terminó en este tiempo, el proceso se cayó y se puede volver a lanzar
+
+
+def consolidando(c: CirculoInnovacion) -> bool:
+    from datetime import datetime
+    pr = (c.analisis or {}).get("proceso") or {}
+    if pr.get("estado") != "corriendo":
+        return False
+    try:
+        inicio = datetime.fromisoformat(pr.get("inicio", ""))
+    except ValueError:
+        return False
+    from ..models import utcnow
+    return (utcnow() - inicio).total_seconds() < CONSOLIDANDO_MAX
+
+
+def marcar_consolidando(c: CirculoInnovacion) -> None:
+    from ..models import utcnow
+    c.analisis = {**(c.analisis or {}), "proceso": {"estado": "corriendo", "inicio": utcnow().isoformat(timespec="seconds")}}
+
+
+def consolidar_en_fondo(cid: int, uid: int) -> None:
+    """La consolidación en segundo plano, con un reintento si la IA falla de forma pasajera."""
+    import logging
+    import time as _t
+    from ..db import SessionLocal
+    log = logging.getLogger("bitacora.circulo")
+    for intento in (1, 2):
+        with SessionLocal() as db:
+            c, u = db.get(CirculoInnovacion, cid), db.get(Usuario, uid)
+            try:
+                consolidar(db, c, u)
+                return
+            except Exception as e:  # noqa: BLE001
+                db.rollback()
+                log.warning("Consolidación del círculo %s, intento %s: %s: %s", cid, intento, type(e).__name__, e)
+                if intento == 1 and not isinstance(e, ia.IANoDisponible):
+                    _t.sleep(10)
+                    continue
+                c = db.get(CirculoInnovacion, cid)
+                msg = str(e)[:200] if isinstance(e, (ia.IANoDisponible, ValueError)) else "Ocurrió un error inesperado."
+                c.analisis = {**(c.analisis or {}), "proceso": {"estado": "error", "error": msg}}
+                db.commit()
+                return
+
+
 def consolidar(db: Session, c: CirculoInnovacion, usuario: Usuario) -> CirculoInnovacion:
     f = fuentes(db)
     mcis = list(db.scalars(select(Mci).where(Mci.activo.is_(True))))

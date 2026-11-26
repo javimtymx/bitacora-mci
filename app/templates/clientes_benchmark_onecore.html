@@ -1,0 +1,51 @@
+{% extends "base.html" %}{% from "_ui.html" import icon, ai_badge with context %}
+{% block title %}Lo que hace OneCore{% endblock %}
+{% block content %}
+<div class="top">
+  <div class="col" style="gap:4px"><span class="muted small"><a href="/clientes/benchmark">Benchmark</a> · Base de comparación</span><h1>Lo que hace OneCore</h1>
+    <span class="muted">Describe con detalle cada módulo: qué hace, cómo funciona y qué NO hace. GuardIA lo usa para calificar a OneCore frente a cada competidor, para el encaje en venta nueva y para diseñar propuestas de valor en el Círculo.</span></div>
+  {{ ai_badge() }}
+</div>
+<div class="oc-grid">
+  <aside class="card pad oc-lista">
+    {% for m in modulos %}{% set pc = completitud(m) %}
+    <a class="oc-mod {{ 'on' if sel and sel.id == m.id }} {{ 'inactivo' if not m.activo }}" href="?m={{ m.id }}">
+      <span class="row between"><b>{{ m.nombre }}</b><span class="small {{ 'oc-ok' if pc >= 60 else 'oc-falta' }}">{{ pc }}%</span></span>
+      <span class="small muted">{{ m.resumen or 'Sin descripción' }}{% if not m.activo %} · no se usa{% endif %}</span>
+      <span class="oc-barra"><span style="width:{{ pc }}%"></span></span></a>
+    {% endfor %}
+    <form method="post" action="/clientes/benchmark/onecore" class="row" style="gap:6px;margin-top:6px">
+      <input class="input" name="nombre" required maxlength="80" placeholder="Agregar módulo o servicio" aria-label="Nombre del módulo" style="flex:1;height:36px">
+      <button class="btn sm dark">{{ icon('plus', 14) }}</button></form>
+  </aside>
+
+  <section class="col" style="gap:14px">
+  {% if not sel %}
+    <div class="card pad"><h2>Elige un módulo</h2>
+      <span class="small muted">Entre más claro esté qué hace cada módulo (y qué no), mejor sale el comparativo: GuardIA deja de adivinar con una sola línea por módulo.</span>
+      <ol class="small" style="line-height:1.7;margin:6px 0 0;padding-left:20px"><li>Abre el módulo a la izquierda.</li><li>Pega su manual, ficha comercial o guion de demo y pide a Guard<span class="gia">IA</span> que lo ordene, o escribe directo.</li><li>Revisa y guarda. Para una junta ya analizada, usa «Analizar de nuevo» y el comparativo se actualiza.</li></ol></div>
+  {% else %}
+    {% set datos = propuesta or {} %}
+    <details class="card pad oc-pegar" {{ 'open' if not propuesta and completitud(sel) < 30 }}>
+      <summary><b>{{ icon('ia', 16) }} Completar con Guard<span class="gia">IA</span> a partir de un texto</b> <span class="small muted">· manual, ficha técnica, propuesta comercial o notas de la demo</span></summary>
+      <form method="post" action="/clientes/benchmark/onecore/{{ sel.id }}/extraer" class="col" style="gap:8px;margin-top:8px">
+        <textarea class="input" name="texto" rows="7" maxlength="30000" required minlength="80" placeholder="Pega aquí el texto del módulo {{ sel.nombre }}…" style="padding:10px 12px"></textarea>
+        <div class="row" style="gap:8px"><button class="btn aibtn">{{ icon('ia', 15) }}Ordenar en los campos</button><span class="small muted">No se guarda solo: revisas y luego guardas.</span></div>
+      </form></details>
+
+    <form class="card pad col" method="post" action="/clientes/benchmark/onecore/{{ sel.id }}" style="gap:12px">
+      <div class="row between"><h2>{{ sel.nombre }}</h2>
+        <span class="small muted">{% if sel.actualizado_por %}Actualizó {{ sel.autor.nombre if sel.autor else '' }} · {{ sel.actualizado.strftime('%d/%m/%Y %H:%M') }}{% endif %}{% if sel.historial %} · {{ sel.historial|length }} versión(es) anterior(es) guardada(s){% endif %}</span></div>
+      {% if propuesta %}<div class="cint" style="margin:0"><span class="ic">{{ icon('ia') }}</span><span><b>Propuesta de Guard<span class="gia">IA</span>.</b> Revisa cada campo, corrige lo que no sea exacto y guarda. Lo que diga «(inferido)» confírmalo.</span></div>{% endif %}
+      {% for c, etiqueta, ayuda, filas in campos %}
+      <div class="field"><label for="oc-{{ c }}">{{ etiqueta }}</label>
+        {% if filas == 1 %}<input class="input" id="oc-{{ c }}" name="{{ c }}" maxlength="300" value="{{ datos.get(c, sel[c]) or '' }}" placeholder="{{ ayuda }}">
+        {% else %}<textarea class="input" id="oc-{{ c }}" name="{{ c }}" rows="{{ filas }}" placeholder="{{ ayuda }}" style="padding:10px 12px">{{ datos.get(c, sel[c]) or '' }}</textarea>{% endif %}</div>
+      {% endfor %}
+      <div class="row between"><button class="btn yellow">{{ icon('ok', 15) }}Guardar</button>
+        <button class="btn sm ghost" name="accion" value="activo" formnovalidate>{{ 'Dejar de usar en comparativos' if sel.activo else 'Volver a usar en comparativos' }}</button></div>
+    </form>
+  {% endif %}
+  </section>
+</div>
+{% endblock %}

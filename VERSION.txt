@@ -1,3 +1,3 @@
-bitacora-mci v20261126-1015_ddba716
-commit ddba716
-migración head: c9d2a4e7f310 (sin cambios)
+bitacora-mci v20261126-1113_195f18b
+commit 195f18b
+migración head: d5a7c3e9b142 (nueva: propuestas_valor, modulos_onecore, insights_benchmark.idea_id)

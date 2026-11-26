@@ -1,0 +1,157 @@
+{% extends "base.html" %}{% from "_ui.html" import icon with context %}
+{% block title %}Propuesta de valor · {{ ini.titulo }}{% endblock %}
+{% macro evs(codigos) %}{% for c in codigos %}{% set it = ev.get(c) %}<a class="pv-ev" href="{{ it.url if it and it.url else '#evidencia' }}" title="{{ (it.origen ~ ' · ' ~ it.fecha ~ (' — «' ~ it.cita[:180] ~ '»' if it.cita else ' — ' ~ it.texto[:180])) if it else c }}" target="_blank" rel="noopener">{{ c }}</a>{% endfor %}{% endmacro %}
+{% macro res(x) %}<span class="pv-res {{ x.resuelto }}">{{ {'no':'No resuelto','parcial':'Parcial','si':'Resuelto'}[x.resuelto] }}</span>{% if x.hipotesis %}<span class="pv-hip" title="Sin evidencia directa: validar">hipótesis</span>{% endif %}{% endmacro %}
+{% block content %}
+<div class="top">
+  <div class="col" style="gap:4px"><span class="muted small"><a href="/circulo">Círculo de Innovación</a> · <a href="/circulo/{{ c.id }}#ini-{{ ini.id }}">{{ c.nombre }}</a></span>
+    <h1>{{ ini.titulo }}</h1>
+    <span class="muted small">Propuesta de valor · perfil del cliente, mapa de valor, épicas, historias y prompt de prototipo{% if pv %} · versión {{ pv.version }}{% endif %}</span></div>
+  <div class="row" style="gap:8px">
+    {% if versiones|length > 1 %}<form method="get"><select class="input" name="v" onchange="this.form.submit()" aria-label="Versión" style="height:40px">{% for x in versiones %}<option value="{{ x.version }}" {{ 'selected' if pv and x.version == pv.version }}>Versión {{ x.version }} · {{ x.creado.strftime('%d/%m %H:%M') }}</option>{% endfor %}</select></form>{% endif %}
+    {% if pv and pv.estado == 'listo' %}<a class="btn soft" href="/circulo/{{ c.id }}/iniciativas/{{ ini.id }}/propuesta/{{ pv.id }}.md">{{ icon('down') }}Descargar .md</a>{% endif %}
+    {% if u.es_lider and (not pv or pv.estado in ('listo', 'error')) %}<form method="post" action="/circulo/{{ c.id }}/iniciativas/{{ ini.id }}/propuesta"><button class="btn aibtn">{{ icon('ia') }}{{ 'Regenerar (nueva versión)' if pv else 'Generar propuesta de valor' }}</button></form>{% endif %}
+  </div>
+</div>
+
+{% if not pv %}
+<section class="card pad pv-intro">
+  <h2>Qué va a hacer Guard<span class="gia">IA</span></h2>
+  <ol class="small" style="margin:0;padding-left:20px;line-height:1.7">
+    <li><b>Evidencia de todas las fuentes:</b> lo que ya sostiene a la iniciativa y todo lo relacionado en voz del cliente (retención, venta nueva, objeciones, agenda de clientes), ideas, pendientes, benchmark de competidores y fragmentos de las transcripciones de clientes y competidores.</li>
+    <li><b>Perfil del cliente:</b> trabajos (funcionales, sociales y emocionales), frustraciones y alegrías, con su evidencia y si hoy están resueltos.</li>
+    <li><b>Mapa de valor:</b> productos y servicios, aliviadores de frustraciones y creadores de alegrías; encaje, huecos, enunciado de la propuesta, diferenciador e hipótesis con experimento.</li>
+    <li><b>Funciones y épicas</b> priorizadas, y <b>historias de usuario</b> con criterios de aceptación por épica.</li>
+    <li><b>Prompt para Claude</b> listo para pedir un prototipo navegable de las pantallas.</li>
+  </ol>
+  <span class="small muted">Corre por etapas en segundo plano (3 a 8 minutos). Cada etapa se guarda; si algo se interrumpe por tiempo agotado o reinicio, continúa donde se quedó.</span>
+</section>
+{% else %}
+
+{% if pv.estado != 'listo' %}
+<section class="card pad pv-prog" id="prog" data-avance="/circulo/propuestas/{{ pv.id }}/avance" data-estado="{{ pv.estado }}">
+  <div class="row between"><h2>{% if pv.estado == 'error' %}{{ icon('alert', 18) }} Se detuvo en una etapa{% else %}{{ icon('ia', 18) }} Guard<span class="gia">IA</span> está trabajando{% endif %}</h2>
+    <span class="small muted" id="prog-txt">{{ avance.hechas }} de {{ avance.total }} etapas{% if avance.detalle %} · {{ avance.detalle }}{% endif %}</span></div>
+  <div class="pv-pasos" id="prog-pasos">
+    {% for e in avance.etapas %}<div class="pv-paso {{ e.estado or 'pendiente' }}"><span class="pv-dot"></span><b>{{ e.nombre }}</b><span class="small muted">{{ {'listo':'Lista','corriendo':'En curso…','reintentando':'Reintentando (' ~ (e.intentos or 1) ~ ')','error':'Falló','pendiente':'En espera'}.get(e.estado or 'pendiente', e.estado) }}</span></div>{% endfor %}
+  </div>
+  {% if pv.estado == 'error' %}<div class="small" style="color:var(--red)">{{ pv.error }}</div>
+    {% if u.es_lider %}<form method="post" action="/circulo/{{ c.id }}/iniciativas/{{ ini.id }}/propuesta/{{ pv.id }}/reintentar"><button class="btn dark">{{ icon('refresh', 15) }}Reintentar desde esa etapa</button> <span class="small muted">Lo ya generado se conserva.</span></form>{% endif %}
+  {% else %}<span class="small muted">Puedes salir de esta página: el proceso sigue y se reanuda solo si se interrumpe. Lo que ya está listo aparece abajo.</span>{% endif %}
+</section>
+{% endif %}
+
+{% set p = pv.perfil or {} %}{% set m = pv.mapa or {} %}{% set e = pv.epicas or {} %}
+{% if m.propuesta %}
+<section class="pv-hero">
+  <div class="pv-hero-txt"><span class="small" style="opacity:.8">Propuesta de valor</span><p>{{ m.propuesta }}</p>
+    {% if m.diferenciador %}<span class="small" style="opacity:.85"><b>Diferenciador:</b> {{ m.diferenciador }}</span>{% endif %}</div>
+  {% set enc = m.encaje or {} %}
+  <div class="pv-encaje"><b>{{ enc.puntaje or 0 }}%</b><span class="small">encaje</span>
+    <span class="small" style="opacity:.85">{% if enc.huecos %}Sin atender: {{ enc.huecos|join(', ') }}{% else %}Todo el perfil está atendido{% endif %}</span></div>
+</section>
+{% endif %}
+
+{% if p.trabajos or m.productos %}
+<section class="card pad">
+  <div class="row between"><h2>Lienzo de propuesta de valor</h2><span class="small muted">{% if p.segmento %}Segmento: {{ p.segmento }}{% endif %}</span></div>
+  <div class="pv-lienzo">
+    <div class="pv-lado mapa"><h3>{{ icon('briefcase', 17) }} Mapa de valor <span class="small muted">· cómo lo resolvemos</span></h3>
+      {% if m.productos %}
+      <div class="pv-bloque"><h4>Productos y servicios</h4>{% for x in m.productos %}<div class="pv-it"><span class="pv-id">{{ x.id }}</span><div><b>{{ x.nombre }}</b> <span class="tag n">{{ x.tipo }}</span> <span class="tag b">{{ x.modulo }}</span><div class="small">{{ x.descripcion }}</div></div></div>{% endfor %}</div>
+      <div class="pv-bloque"><h4>Aliviadores de frustraciones</h4>{% for x in m.aliviadores %}<div class="pv-it"><span class="pv-id">{{ x.id }}</span><div>{{ x.texto }}{% if x.como %}<div class="small muted">{{ x.como }}</div>{% endif %}<div class="small">{% for r in x.alivia %}<span class="pv-ref f">{{ r }}</span>{% endfor %}{% if x.producto %}<span class="pv-ref">{{ x.producto }}</span>{% endif %}</div></div></div>{% endfor %}</div>
+      <div class="pv-bloque"><h4>Creadores de alegrías</h4>{% for x in m.creadores %}<div class="pv-it"><span class="pv-id">{{ x.id }}</span><div>{{ x.texto }}<div class="small">{% for r in x.crea %}<span class="pv-ref a">{{ r }}</span>{% endfor %}{% if x.producto %}<span class="pv-ref">{{ x.producto }}</span>{% endif %}</div></div></div>{% endfor %}</div>
+      {% else %}<span class="small muted">En espera del perfil del cliente…</span>{% endif %}
+    </div>
+    <div class="pv-lado perfil"><h3>{{ icon('users', 17) }} Perfil del cliente <span class="small muted">· lo que detectamos</span></h3>
+      <div class="pv-bloque"><h4>Trabajos (lo que intenta lograr)</h4>{% for x in p.trabajos or [] %}<div class="pv-it"><span class="pv-id">{{ x.id }}</span><div>{{ x.texto }}<div class="small"><span class="tag n">{{ x.tipo }}</span> importancia {{ x.importancia }}/5 {{ res(x) }} {{ evs(x.evidencia) }}</div></div></div>{% endfor %}</div>
+      <div class="pv-bloque"><h4>Frustraciones (necesidades y dolores)</h4>{% for x in (p.frustraciones or [])|sort(attribute='severidad', reverse=true) %}<div class="pv-it"><span class="pv-id f">{{ x.id }}</span><div>{{ x.texto }}{% if x.hoy %}<div class="small muted">Hoy: {{ x.hoy }}</div>{% endif %}{% if x.cita %}<div class="small pv-cita">«{{ x.cita }}»</div>{% endif %}<div class="small">severidad {{ x.severidad }}/5 · {{ x.frecuencia }} {{ res(x) }} {{ evs(x.evidencia) }}</div></div></div>{% endfor %}</div>
+      <div class="pv-bloque"><h4>Alegrías (expectativas y deseos)</h4>{% for x in p.alegrias or [] %}<div class="pv-it"><span class="pv-id a">{{ x.id }}</span><div>{{ x.texto }}<div class="small"><span class="tag n">{{ x.tipo }}</span> {{ res(x) }} {{ evs(x.evidencia) }}</div></div></div>{% endfor %}</div>
+      {% if p.competencia %}<div class="small" style="padding-top:6px"><b>Cómo lo atiende la competencia:</b> {{ p.competencia }}</div>{% endif %}
+    </div>
+  </div>
+</section>
+{% endif %}
+
+{% if m.hipotesis %}
+<section class="card pad"><h2>Hipótesis a validar</h2>
+  <div class="tbl"><table><thead><tr><th>Supuesto</th><th>Experimento</th><th>Métrica</th><th>Criterio de éxito</th></tr></thead><tbody>
+  {% for h in m.hipotesis %}<tr><td>{{ h.supuesto }}</td><td>{{ h.experimento }}</td><td class="small">{{ h.metrica }}</td><td class="small">{{ h.criterio }}</td></tr>{% endfor %}</tbody></table></div></section>
+{% endif %}
+
+{% if e.epicas %}
+<section class="card pad">
+  <div class="row between"><h2>Funciones, épicas e historias de usuario</h2><button class="btn sm soft" type="button" data-copiar="#md-historias">{{ icon('doc', 14) }}Copiar historias</button></div>
+  {% if e.funciones %}<div class="pv-funcs">{% for f in e.funciones %}<span class="pv-func" title="{{ f.descripcion }}"><b>{{ f.id }}</b> {{ f.nombre }}</span>{% endfor %}</div>{% endif %}
+  {% for ep in e.epicas %}
+  <details class="pv-epica" {{ 'open' if loop.first }}><summary><span class="pv-pr {{ ep.prioridad }}">{{ prioridad_txt[ep.prioridad] }}</span><b>{{ ep.id }} · {{ ep.nombre }}</b>
+    <span class="small muted">{{ (ep.historias or [])|length }} historias{% if ep.historias is none %} · en espera{% endif %}</span></summary>
+    <div class="small">{{ ep.objetivo }}</div>
+    <div class="small muted">Atiende {{ ep.atiende|join(', ') or '—' }} · funciones {{ ep.funciones|join(', ') or '—' }} · usuarios {{ ep.usuarios|join(', ') or '—' }} · métrica: {{ ep.metrica or '—' }}</div>
+    {% for h in ep.historias or [] %}
+    <div class="pv-hist"><div class="row between" style="gap:8px"><span><b>{{ h.id }}</b> Como <b>{{ h.como }}</b>, quiero {{ h.quiero }}, para {{ h.para }}.</span>
+      <span class="row" style="gap:6px;flex-wrap:nowrap"><span class="pv-pr {{ h.prioridad }}">{{ prioridad_txt[h.prioridad] }}</span><span class="tag n">{{ h.estimacion }}</span></span></div>
+      <ul class="small">{% for cr in h.criterios %}<li>{{ cr }}</li>{% endfor %}</ul>
+      <div class="small muted">Pantalla: {{ h.pantalla }}{% if h.datos %} · datos: {{ h.datos|join(', ') }}{% endif %}</div></div>
+    {% endfor %}
+  </details>{% endfor %}
+  <textarea hidden id="md-historias">{% for ep in e.epicas %}## {{ ep.id }} · {{ ep.nombre }} ({{ prioridad_txt[ep.prioridad] }})
+{{ ep.objetivo }}
+{% for h in ep.historias or [] %}- {{ h.id }}: Como {{ h.como }}, quiero {{ h.quiero }}, para {{ h.para }}. [{{ h.prioridad }}, {{ h.estimacion }}, {{ h.pantalla }}]
+{% for cr in h.criterios %}  - {{ cr }}
+{% endfor %}{% endfor %}
+{% endfor %}</textarea>
+</section>
+{% endif %}
+
+{% if pantallas %}
+<section class="card pad"><h2>Pantallas que salen de las historias</h2>
+  <div class="pv-pants">{% for pa in pantallas %}<div class="pv-pant"><div class="row between"><b>{{ pa.nombre }}</b><span class="pv-pr {{ pa.prioridad }}">{{ prioridad_txt[pa.prioridad] }}</span></div>
+    <span class="small muted">{{ pa.historias|length }} historias · {{ pa.epicas|join(', ') }}</span>{% if pa.datos %}<span class="small">{{ pa.datos[:8]|join(' · ') }}</span>{% endif %}</div>{% endfor %}</div></section>
+{% endif %}
+
+{% if pv.prompt_prototipo %}
+<section class="card pad pv-prompt">
+  <div class="row between"><h2>{{ icon('ia', 18) }} Prompt para prototipar en Claude</h2>
+    <div class="row" style="gap:8px"><button class="btn yellow" type="button" data-copiar="#prompt-proto">{{ icon('doc', 15) }}Copiar prompt</button>
+      <a class="btn soft" href="/circulo/{{ c.id }}/iniciativas/{{ ini.id }}/propuesta/{{ pv.id }}.md?prompt=1">{{ icon('down', 15) }}Descargar</a></div></div>
+  <span class="small muted">Pégalo en Claude para obtener un prototipo navegable de las pantallas, con datos de ejemplo y los criterios de aceptación de cada historia.</span>
+  <textarea class="input" id="prompt-proto" readonly rows="14" style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px;line-height:1.5;padding:12px">{{ pv.prompt_prototipo }}</textarea>
+</section>
+{% endif %}
+
+{% if pv.evidencia %}
+<details class="card pad" id="evidencia"><summary><h2 style="display:inline">Evidencia usada ({{ pv.evidencia|length }})</h2> <span class="small muted">· {{ pv.evidencia|selectattr('ligada')|list|length }} ligadas a la iniciativa, el resto encontradas en todas las fuentes</span></summary>
+  <div class="tbl"><table><thead><tr><th>Código</th><th>Fuente</th><th>Fecha</th><th>Qué dice</th></tr></thead><tbody>
+  {% for it in pv.evidencia %}<tr><td><a href="{{ it.url or '#' }}" target="_blank" rel="noopener"><b>{{ it.c }}</b></a>{% if it.ligada %} <span class="tag g">ligada</span>{% endif %}</td><td class="small">{{ it.origen }}</td><td class="small">{{ it.fecha }}</td>
+    <td class="small">{{ it.texto }}{% if it.cita %}<div class="pv-cita">«{{ it.cita }}»</div>{% endif %}</td></tr>{% endfor %}</tbody></table></div></details>
+{% endif %}
+{% endif %}
+{% endblock %}
+{% block scripts %}<script>
+document.querySelectorAll("[data-copiar]").forEach(function (b) {
+  b.addEventListener("click", function () {
+    var t = document.querySelector(b.dataset.copiar), txt = t.value || t.textContent, orig = b.innerHTML;
+    (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).catch(function () { t.hidden = false; t.select(); document.execCommand("copy"); })
+      .finally(function () { b.textContent = "¡Copiado!"; setTimeout(function () { b.innerHTML = orig; }, 1800); });
+  });
+});
+(function () {
+  var box = document.getElementById("prog");
+  if (!box || box.dataset.estado === "error") return;
+  var NOM = { listo: "Lista", corriendo: "En curso…", reintentando: "Reintentando", error: "Falló", pendiente: "En espera" };
+  function tick() {
+    fetch(box.dataset.avance, { headers: { Accept: "application/json" } }).then(function (r) { return r.json(); }).then(function (d) {
+      if (d.estado === "listo" || d.estado === "error") { location.reload(); return; }
+      document.getElementById("prog-txt").textContent = d.hechas + " de " + d.total + " etapas" + (d.detalle ? " · " + d.detalle : "");
+      document.getElementById("prog-pasos").innerHTML = d.etapas.map(function (e) {
+        var st = e.estado || "pendiente";
+        return '<div class="pv-paso ' + st + '"><span class="pv-dot"></span><b>' + e.nombre + '</b><span class="small muted">' + (NOM[st] || st) + "</span></div>";
+      }).join("");
+      if (d.hechas > (window._hechas || {{ avance.hechas if avance else 0 }})) { location.reload(); return; }  // muestra lo que ya quedó listo
+      setTimeout(tick, 4000);
+    }).catch(function () { setTimeout(tick, 8000); });
+  }
+  setTimeout(tick, 3000);
+})();
+</script>{% endblock %}

@@ -21,13 +21,15 @@ from ..models import (
     Area,
     ArchivoCliente,
     Competidor,
+    Idea,
+    InsightBenchmark,
     PendienteCliente,
     SesionCliente,
     SesionCompetidor,
     Usuario,
     utcnow,
 )
-from ..services import agenda_avisos, almacen, benchmark, clientes as cl, ia, tickets as tk, vozcliente
+from ..services import agenda_avisos, almacen, benchmark, clientes as cl, ia, onecore, tickets as tk, vozcliente
 from ..services.evidencias import PERMITIDOS, EvidenciaInvalida
 from ..services.util import auditar, hoy
 from .base import OptDate, OptInt, flash, ir, render, requiere_lider, usuario_actual
@@ -839,7 +841,7 @@ def _puede_ver_trans(u: Usuario, s: SesionCompetidor) -> bool:
 def panel_benchmark(request: Request, db: Session = Depends(get_db), u: Usuario = Depends(requiere_lider)):
     con = benchmark.consolidado(db)
     return render(request, "clientes_benchmark.html", u, "clientes-benchmark", con=con, svg=benchmark.svg_lienzo(con["lienzo"]),
-                  tipos=INSIGHT_TIPOS)
+                  tipos=INSIGHT_TIPOS, base_oc=onecore.resumen_global(db))
 
 
 @router.post("/clientes/benchmark/sesiones")
@@ -890,6 +892,145 @@ def _sesion_comp(db: Session, sid: int) -> SesionCompetidor:
     return s
 
 
+# ---------------------------------------------------------------- lo que hace OneCore (base de comparación)
+
+@router.get("/clientes/benchmark/onecore")
+def onecore_base(request: Request, m: OptInt = None, db: Session = Depends(get_db), u: Usuario = Depends(requiere_lider)):
+    ms = onecore.modulos(db, activos=False)
+    sel = next((x for x in ms if x.id == m), None)
+    return render(request, "clientes_benchmark_onecore.html", u, "clientes-benchmark", modulos=ms, sel=sel, campos=onecore.CAMPOS,
+                  completitud=onecore.completitud, base_oc=onecore.resumen_global(db), propuesta=None)
+
+
+@router.post("/clientes/benchmark/onecore")
+def onecore_nuevo(request: Request, nombre: str = Form(...), db: Session = Depends(get_db), u: Usuario = Depends(requiere_lider)):
+    from ..models import ModuloOneCore
+    nombre = nombre.strip()[:80]
+    if not nombre:
+        return ir("/clientes/benchmark/onecore")
+    ex = db.scalar(select(ModuloOneCore).where(ModuloOneCore.nombre == nombre))
+    if ex:
+        return ir(f"/clientes/benchmark/onecore?m={ex.id}")
+    mx = max((x.orden for x in onecore.modulos(db, activos=False)), default=0)
+    x = ModuloOneCore(nombre=nombre, orden=mx + 1, historial=[], actualizado_por=u.id)
+    db.add(x)
+    db.flush()
+    auditar(db, "crear", "modulo_onecore", x.id, u.id)
+    db.commit()
+    return ir(f"/clientes/benchmark/onecore?m={x.id}")
+
+
+@router.post("/clientes/benchmark/onecore/{mid}")
+async def onecore_guardar(mid: int, request: Request, db: Session = Depends(get_db), u: Usuario = Depends(requiere_lider)):
+    from ..models import ModuloOneCore
+    x = db.get(ModuloOneCore, mid)
+    if not x:
+        raise HTTPException(404)
+    form = await request.form()
+    if form.get("accion") == "activo":
+        x.activo = not x.activo
+        auditar(db, "activo" if x.activo else "inactivo", "modulo_onecore", x.id, u.id)
+        db.commit()
+        return ir(f"/clientes/benchmark/onecore?m={x.id}")
+    cambio = onecore.guardar(db, x, u, {c: str(form.get(c) or "") for c, *_ in onecore.CAMPOS})
+    db.commit()
+    flash(request, f"«{x.nombre}» actualizado. Los próximos análisis de competidores, de venta nueva y de propuestas de valor "
+                   "ya usan esta información; para una junta ya analizada usa «Analizar de nuevo»." if cambio else "Sin cambios.")
+    return ir(f"/clientes/benchmark/onecore?m={x.id}")
+
+
+@router.post("/clientes/benchmark/onecore/{mid}/extraer")
+def onecore_extraer(mid: int, request: Request, texto: str = Form(""), db: Session = Depends(get_db),
+                    u: Usuario = Depends(requiere_lider)):
+    """GuardIA ordena un texto pegado en los campos del módulo; la persona lo revisa antes de guardar."""
+    from ..models import ModuloOneCore
+    x = db.get(ModuloOneCore, mid)
+    if not x:
+        raise HTTPException(404)
+    try:
+        propuesta = onecore.extraer(db, x, texto)
+    except (ia.IANoDisponible, ValueError) as e:
+        flash(request, str(e)[:200], "error")
+        return ir(f"/clientes/benchmark/onecore?m={x.id}")
+    ms = onecore.modulos(db, activos=False)
+    return render(request, "clientes_benchmark_onecore.html", u, "clientes-benchmark", modulos=ms, sel=x, campos=onecore.CAMPOS,
+                  completitud=onecore.completitud, base_oc=onecore.resumen_global(db), propuesta=propuesta)
+
+
+# ---------------------------------------------------------------- del benchmark a Ideas a evaluar
+
+def _idea_benchmark(db: Session, u: Usuario, titulo: str, problema: str, beneficio: str) -> Idea:
+    innov = db.scalar(select(Area).where(Area.clave == "innovacion"))
+    i = Idea(autor_id=u.id, area_id=innov.id if innov else u.area_id, titulo=titulo[:200], problema=problema[:3000],
+             beneficio=beneficio[:3000], origen="benchmark")
+    db.add(i)
+    db.flush()
+    return i
+
+
+@router.post("/clientes/benchmark/insights/{iid}/idea")
+def insight_a_idea(iid: int, request: Request, volver: str = Form(""), db: Session = Depends(get_db),
+                   u: Usuario = Depends(requiere_lider)):
+    ins = db.get(InsightBenchmark, iid)
+    if not ins:
+        raise HTTPException(404)
+    destino = volver if volver.startswith("/clientes/benchmark") else f"/clientes/benchmark/sesiones/{ins.sesion_id}"
+    if ins.idea_id and db.get(Idea, ins.idea_id):
+        flash(request, "Ya se había enviado a Ideas.")
+        return ir(destino)
+    comp = ins.sesion.competidor.nombre
+    pref = {"suyo": f"{comp} lo hace mejor o nosotros no lo tenemos", "oportunidad": "Oportunidad de servicio detectada",
+            "crear": "ERIC · Crear", "incrementar": "ERIC · Incrementar", "reducir": "ERIC · Reducir",
+            "eliminar": "ERIC · Eliminar"}.get(ins.tipo, INSIGHT_TIPOS.get(ins.tipo, ins.tipo))
+    problema = f"Benchmark con {comp} ({ins.sesion.fecha:%d/%m/%Y}) · {pref}: {ins.detalle or ins.titulo}"
+    if ins.cita:
+        problema += f"\nCita: «{ins.cita}»"
+    i = _idea_benchmark(db, u, ins.titulo, problema, "Mejorar nuestra posición frente a la competencia en este punto.")
+    ins.idea_id = i.id
+    auditar(db, "insight_a_idea", "insight_benchmark", ins.id, u.id)
+    db.commit()
+    flash(request, "Enviado a Ideas a evaluar. Complétala y pásala por la evaluación de la IA.")
+    return ir(destino)
+
+
+@router.post("/clientes/benchmark/sesiones/{sid}/idea")
+def lienzo_a_idea(sid: int, request: Request, clave: str = Form(...), db: Session = Depends(get_db),
+                  u: Usuario = Depends(requiere_lider)):
+    """Un elemento del lienzo (que OneCore no cubre o cubre en parte) o la recomendación, a Ideas a evaluar."""
+    s = _sesion_comp(db, sid)
+    r = dict(s.resultado or {})
+    ideas = dict(r.get("ideas") or {})
+    if clave in ideas and db.get(Idea, ideas[clave]):
+        flash(request, "Ya se había enviado a Ideas.")
+        return ir(f"/clientes/benchmark/sesiones/{sid}")
+    comp = s.competidor.nombre
+    if clave == "recomendacion":
+        rec = r.get("recomendacion") or {}
+        if not rec.get("que"):
+            raise HTTPException(404)
+        i = _idea_benchmark(db, u, f"Ajustar propuesta de valor frente a {comp}"[:200],
+                            f"Benchmark con {comp}: {rec.get('que')}\nPor qué: {rec.get('porque', '')}", "")
+    else:
+        try:
+            bloque, k, idx = clave.split(".")
+            x = (r.get(bloque) or {}).get(k, [])[int(idx)]
+        except (ValueError, IndexError, AttributeError):
+            raise HTTPException(404)
+        nombres = {"trabajos": "Trabajo del cliente", "dolores": "Dolor del cliente", "ganancias": "Ganancia esperada",
+                   "productos": f"Producto/servicio de {comp}", "aliviadores": f"Aliviador de {comp}",
+                   "creadores": f"Creador de ganancia de {comp}"}
+        cub = {"no": "OneCore no lo cubre hoy", "parcial": "OneCore lo cubre en parte"}.get(x.get("onecore"), "")
+        i = _idea_benchmark(db, u, x["texto"][:200], f"Benchmark con {comp} · {nombres.get(k, k)}: {x['texto']}. {cub}.",
+                            "Cerrar la brecha frente a la competencia.")
+    ideas[clave] = i.id
+    r["ideas"] = ideas
+    s.resultado = r
+    auditar(db, "lienzo_a_idea", "sesion_competidor", s.id, u.id, clave=clave)
+    db.commit()
+    flash(request, "Enviado a Ideas a evaluar.")
+    return ir(f"/clientes/benchmark/sesiones/{sid}")
+
+
 @router.get("/clientes/benchmark/sesiones/{sid}")
 def ver_sesion_competidor(sid: int, request: Request, db: Session = Depends(get_db), u: Usuario = Depends(requiere_lider)):
     s = _sesion_comp(db, sid)
@@ -899,7 +1040,8 @@ def ver_sesion_competidor(sid: int, request: Request, db: Session = Depends(get_
               "series": [{"nombre": s.competidor.nombre, "color": benchmark.COLORES[0],
                           "valores": {f["factor"]: f["competidor"] for f in (s.resultado or {}).get("factores", [])}}]}
     return render(request, "clientes_benchmark_sesion.html", u, "clientes-benchmark", s=s, svg=benchmark.svg_lienzo(lienzo, 900, 280),
-                  tipos=INSIGHT_TIPOS, ve_trans=_puede_ver_trans(u, s), atorado=vozcliente.analisis_atorado(s))
+                  tipos=INSIGHT_TIPOS, ve_trans=_puede_ver_trans(u, s), atorado=vozcliente.analisis_atorado(s),
+                  base_oc=onecore.resumen_global(db), ideas_lienzo=(s.resultado or {}).get("ideas", {}))
 
 
 @router.post("/clientes/benchmark/sesiones/{sid}/analizar")

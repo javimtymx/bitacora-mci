@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from ..models import INSIGHT_TIPOS, Competidor, InsightBenchmark, SesionCompetidor
 from . import almacen, ia
 from .util import auditar, hoy
-from .vozcliente import PORTAFOLIO, _norm, cita_valida, leer_texto
+from .vozcliente import _norm, cita_valida, leer_texto
 
 log = logging.getLogger("bitacora.benchmark")
 
@@ -65,7 +65,8 @@ def _bloques_pantallas(s: SesionCompetidor) -> tuple[list[dict], list[str]]:
 
 
 def prompt(db: Session, s: SesionCompetidor, texto: str, lista_pantallas: list[str]) -> str:
-    port = "\n".join(f"- {n}: {d}" for n, d in PORTAFOLIO)
+    from .onecore import texto_portafolio
+    port = texto_portafolio(db)
     fac = "\n".join(f"- {f}" for f in factores_existentes(db)) or "- (aún no hay; propón 6 a 10)"
     return f"""Eres analista de estrategia competitiva de OneCore (software de cumplimiento aduanero y comercio exterior en
 México: clientes IMMEX, importadores, agentes aduanales). Analiza la junta con el competidor «{s.competidor.nombre}» usando
@@ -73,7 +74,8 @@ tres herramientas y solo con lo que se dice en la transcripción (y las pantalla
 
 1. LIENZO DE PROPUESTA DE VALOR. Perfil del cliente que el competidor atiende: trabajos (jobs), dolores y ganancias.
    Mapa de valor del competidor: productos y servicios, aliviadores de dolor y creadores de ganancia. Para cada elemento
-   di cómo lo cubre OneCore hoy (si|parcial|no) según nuestro portafolio.
+   di cómo lo cubre OneCore hoy (si|parcial|no) según la descripción detallada de nuestros módulos (qué hacen,
+   cómo funcionan y qué NO hacen). Si un módulo no está descrito con detalle, sé conservador.
 2. LIENZO ESTRATÉGICO (OCÉANO AZUL). Factores con los que se compite. Reutiliza los factores existentes cuando sea el
    mismo concepto; agrega los nuevos que aparezcan (máx. 10 en total). Califica de 1 a 5 al competidor y a OneCore, con
    una justificación breve; la calificación del competidor debe venir de la transcripción.
@@ -83,7 +85,7 @@ nosotros no tenemos) y OPORTUNIDADES de servicio nuevo. Cada insight con cita te
 Cierra con una recomendación: ¿debemos modificar nuestra propuesta de valor o servicios? Qué y por qué.
 
 <datos>
-Portafolio OneCore:
+Lo que hace OneCore (por módulo):
 {port}
 Factores existentes del lienzo estratégico:
 {fac}
@@ -249,9 +251,10 @@ def agrupar(ins: list[InsightBenchmark]) -> list[dict]:
     peso = {"alta": 3, "media": 2, "baja": 1}
     for i in ins:
         g = grupos.setdefault(_norm(i.titulo), {"titulo": i.titulo, "detalle": i.detalle, "cita": i.cita, "impacto": i.impacto,
-                                                "fuentes": [], "ids": []})
+                                                "fuentes": [], "ids": [], "idea_id": None})
         g["fuentes"].append(i.sesion)
         g["ids"].append(i.id)
+        g["idea_id"] = g["idea_id"] or i.idea_id
         if not g["cita"] and i.cita:
             g["cita"] = i.cita
         if peso.get(i.impacto, 2) > peso.get(g["impacto"], 2):

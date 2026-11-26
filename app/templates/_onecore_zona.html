@@ -1,0 +1,9 @@
+{# Zona «Lo que hace OneCore» en todo el benchmark: la base con la que GuardIA compara a los competidores. #}
+<div class="oc-zona card">
+  <span class="oc-ic">{{ icon('shield', 18) }}</span>
+  <div class="oc-txt"><b>Base de comparación: lo que hace OneCore</b>
+    <span class="small">{{ base_oc.n }} módulos · {{ base_oc.completitud }}% descrito{% if base_oc.actualizado %} · actualizado {{ base_oc.actualizado.strftime('%d/%m/%Y') }}{% endif %}.
+      {% if base_oc.incompletos %}Con poco detalle: {{ base_oc.incompletos|join(', ') }} — ahí GuardIA califica a OneCore de forma conservadora.{% else %}GuardIA compara contra el detalle de cada módulo.{% endif %}</span>
+    <span class="oc-barra"><span style="width:{{ base_oc.completitud }}%"></span></span></div>
+  <a class="btn sm {{ 'yellow' if base_oc.completitud < 60 else 'soft' }}" href="/clientes/benchmark/onecore">{{ icon('edit', 14) }}{{ 'Completar' if base_oc.completitud < 60 else 'Actualizar' }} lo que hace OneCore</a>
+</div>

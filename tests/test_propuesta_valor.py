@@ -1,0 +1,220 @@
+"""Propuesta de valor por iniciativa (por etapas, resiliente a tiempos agotados) y base «lo que hace OneCore» del benchmark."""
+from datetime import timedelta
+
+from fastapi.testclient import TestClient
+from sqlalchemy import select
+
+from app.main import app
+from app.models import (CirculoInnovacion, Hallazgo, Idea, Iniciativa, InsightBenchmark, ModuloOneCore, PropuestaValor,
+                        SesionCliente, SesionCompetidor, Usuario, utcnow)
+from app.services import ia
+from app.services import propuesta_valor as pvs
+from app.services.util import hoy
+from conftest import login
+
+TX = ("Cliente: cada mes el reporte de faltantes de expediente no cuadra con lo que la agencia dice que ya mandó. "
+      "Perdemos dos días conciliando faltantes con la agencia aduanal y nadie sabe quién debe entregar cada documento. "
+      "Nos gustaría que el sistema nos avise solo qué documento falta y a quién pedírselo. ") * 6
+
+
+def _u(db, email="jmartinez@onecore.mx"):
+    return db.scalar(select(Usuario).where(Usuario.email == email))
+
+
+def _iniciativa(db):
+    jm = _u(db)
+    s = SesionCliente(tipo="retencion", area_id=jm.area_id, cliente_nombre="Toter de México", fecha=hoy() - timedelta(days=5),
+                      transcripcion=TX, cifrada=False, palabras=300, estado="analizada", autor_id=jm.id, resultado={})
+    otra = SesionCliente(tipo="venta_nueva", area_id=jm.area_id, cliente_nombre="Supply Solutions", fecha=hoy() - timedelta(days=9),
+                         transcripcion="Prospecto: hablamos de precios y de capacitación general. " * 10, cifrada=False,
+                         palabras=80, estado="analizada", autor_id=jm.id, resultado={})
+    db.add_all([s, otra])
+    db.flush()
+    h1 = Hallazgo(sesion_id=s.id, cuadrante="frustracion", tema="Faltantes de expediente no confiables",
+                  cita="el reporte de faltantes de expediente no cuadra", sentimiento="negativo", tipo="queja")
+    h2 = Hallazgo(sesion_id=s.id, cuadrante="frustracion", tema="Conciliar faltantes con la agencia aduanal",
+                  cita="Perdemos dos días conciliando faltantes con la agencia aduanal", sentimiento="negativo", tipo="queja")
+    db.add_all([h1, h2])
+    c = CirculoInnovacion(mes=hoy().strftime("%Y-%m"), nombre="Círculo prueba", estado="votacion")
+    db.add(c)
+    db.flush()
+    ini = Iniciativa(circulo_id=c.id, orden=1, titulo="Faltantes confiables y agencias corresponsables",
+                     descripcion="Reporte de faltantes de expediente confiable con responsable por documento",
+                     impacto=5, esfuerzo=4, cuadrante="Proyecto", fuentes={"ideas": [], "hallazgos": [h1.id], "objeciones": []},
+                     cita=h1.cita)
+    db.add(ini)
+    db.commit()
+    return c, ini, h1, h2
+
+
+PERFIL = {"segmento": "Gerente de comercio exterior IMMEX", "competencia": "GlobalMVE no lo cubre",
+          "trabajos": [{"texto": "Cuando cierro el mes, quiero saber qué documento falta, para no tener observaciones",
+                        "tipo": "funcional", "importancia": 5, "resuelto": "parcial", "evidencia": ["H{h1}", "T1"]}],
+          "frustraciones": [{"texto": "El reporte de faltantes no es confiable", "severidad": 5, "frecuencia": "alta",
+                             "hoy": "Concilian a mano con la agencia", "resuelto": "no", "evidencia": ["H{h2}", "X99"]},
+                            {"texto": "Nadie sabe quién entrega cada documento", "severidad": 4, "resuelto": "no", "evidencia": []}],
+          "alegrias": [{"texto": "Que el sistema avise solo a quién pedirlo", "tipo": "deseada", "resuelto": "no", "evidencia": ["T1"]}]}
+MAPA = {"propuesta": "Nuestro Smart Files ayuda al gerente IMMEX…", "diferenciador": "Responsable por documento",
+        "productos": [{"nombre": "Tablero de faltantes con responsable", "tipo": "funcion", "descripcion": "…", "modulo": "Smart Files"}],
+        "aliviadores": [{"texto": "Conciliación automática", "alivia": ["F1", "F9"], "producto": 1, "como": "Cruza con la agencia"}],
+        "creadores": [{"texto": "Aviso por documento", "crea": ["A1", "J1"], "producto": "P1"}],
+        "hipotesis": [{"supuesto": "Las agencias responderán", "experimento": "Piloto con 2 agencias", "metrica": "% respuesta",
+                       "criterio": ">70%"}]}
+EPICAS = {"funciones": [{"nombre": "Conciliación de faltantes", "descripcion": "…", "producto": "P1"},
+                        {"nombre": "Avisos a agencias", "descripcion": "…", "producto": "P1"}],
+          "epicas": [{"nombre": "Avisos a la agencia", "objetivo": "…", "funciones": [2], "atiende": ["F2", "A1"], "prioridad": "should",
+                      "usuarios": ["Agente aduanal"], "metrica": "tiempo de respuesta"},
+                     {"nombre": "Faltantes confiables", "objetivo": "…", "funciones": ["FN1"], "atiende": ["F1", "J1", "ZZ"],
+                      "prioridad": "must", "usuarios": ["Analista"], "metrica": "faltantes falsos"}]}
+
+
+def _hist(pantalla):
+    return {"historias": [{"como": "analista", "quiero": f"ver {pantalla}", "para": "actuar", "criterios": ["Dado…, cuando…, entonces…"],
+                           "prioridad": "must", "estimacion": "m", "pantalla": pantalla, "datos": ["Pedimento", "Documento"]}]}
+
+
+def _respuestas(h1, h2):
+    import json
+    p = json.loads(json.dumps(PERFIL).replace("{h1}", str(h1.id)).replace("{h2}", str(h2.id)))
+    return [p, MAPA, EPICAS, _hist("Tablero de faltantes"), _hist("Avisos a agencias")]
+
+
+def test_propuesta_de_valor_completa_por_etapas(admin, db, fake, monkeypatch):
+    c, ini, h1, h2 = _iniciativa(db)
+    assert "Propuesta de valor" in admin.get(f"/circulo/{c.id}").text
+    assert "Qué va a hacer" in admin.get(f"/circulo/{c.id}/iniciativas/{ini.id}/propuesta").text
+    fake.respuestas = _respuestas(h1, h2)
+    admin.post(f"/circulo/{c.id}/iniciativas/{ini.id}/propuesta")  # corre en segundo plano (en pruebas, al terminar la petición)
+    pv = db.scalar(select(PropuestaValor))
+    db.refresh(pv)
+    assert pv.estado == "listo", pv.error
+    codigos = {e["c"] for e in pv.evidencia}
+    assert f"H{h1.id}" in codigos and f"H{h2.id}" in codigos  # ligada y encontrada en otras fuentes
+    assert any(e["tipo"] == "transcripcion" and "faltantes" in e["cita"] for e in pv.evidencia)  # fragmento de transcripción
+    assert "Supply Solutions" not in str(pv.evidencia)  # la sesión que no trata el tema no entra
+    perfil_prompt = fake.prompts[0]
+    assert "Perdemos dos días conciliando" in perfil_prompt and "Smart Files" in perfil_prompt
+    f = pv.perfil["frustraciones"]
+    assert f[0]["evidencia"] == [f"H{h2.id}"] and not f[0]["hipotesis"] and f[1]["hipotesis"]  # sin evidencia = hipótesis
+    m = pv.mapa
+    assert m["aliviadores"][0]["alivia"] == ["F1"] and m["creadores"][0]["crea"] == ["A1", "J1"]
+    assert m["encaje"]["huecos"] == ["F2"] and 0 < m["encaje"]["puntaje"] < 100
+    eps = pv.epicas["epicas"]
+    assert [e["prioridad"] for e in eps] == ["must", "should"] and eps[0]["id"] == "E1" and eps[0]["atiende"] == ["F1", "J1"]
+    assert all(e["historias"] for e in eps)
+    assert "Prototipo navegable" in pv.prompt_prototipo and "Tablero de faltantes" in pv.prompt_prototipo
+    assert "Que el sistema avise solo a quién pedirlo" in pv.prompt_prototipo
+    html = admin.get(f"/circulo/{c.id}/iniciativas/{ini.id}/propuesta").text
+    for x in ("Lienzo de propuesta de valor", "Aliviadores de frustraciones", "No resuelto", "Prompt para prototipar en Claude",
+              "Faltantes confiables", "Hipótesis a validar"):
+        assert x in html, x
+    md = admin.get(f"/circulo/{c.id}/iniciativas/{ini.id}/propuesta/{pv.id}.md").text
+    assert "## Épicas e historias de usuario" in md and "E1-H1" in md
+    assert admin.get(f"/circulo/{c.id}/iniciativas/{ini.id}/propuesta/{pv.id}.md?prompt=1").text == pv.prompt_prototipo
+    # regenerar crea otra versión; la anterior se conserva
+    fake.respuestas = _respuestas(h1, h2)
+    admin.post(f"/circulo/{c.id}/iniciativas/{ini.id}/propuesta")
+    assert [x.version for x in db.scalars(select(PropuestaValor).order_by(PropuestaValor.version))] == [1, 2]
+
+
+def test_tiempo_agotado_reintenta_y_reanuda_donde_se_quedo(admin, db, fake, monkeypatch):
+    c, ini, h1, h2 = _iniciativa(db)
+    monkeypatch.setattr(pvs, "ESPERAS", (0, 0, 0))
+    respuestas = _respuestas(h1, h2)
+    llamadas = {"n": 0}
+    original = fake.pedir_json
+
+    def falla_en_segunda_epica(prompt, **kw):
+        llamadas["n"] += 1
+        if "Épica E2" in str(prompt):
+            raise ia.IANoDisponible("No hubo conexión estable con el servicio de IA. Se reintentó varias veces.")
+        return original(prompt, **kw)
+    monkeypatch.setattr(fake, "pedir_json", falla_en_segunda_epica)
+    fake.respuestas = respuestas[:4]
+    admin.post(f"/circulo/{c.id}/iniciativas/{ini.id}/propuesta")
+    pv = db.scalar(select(PropuestaValor))
+    db.refresh(pv)
+    assert pv.estado == "error" and "Historias de usuario" in pv.error
+    assert pv.etapas["historias"]["intentos"] == pvs.INTENTOS_ETAPA and pv.etapas["epicas"]["estado"] == "listo"
+    assert pv.epicas["epicas"][0]["historias"] and pv.epicas["epicas"][1]["historias"] is None  # E1 quedó guardada
+    assert "Reintentar desde esa etapa" in admin.get(f"/circulo/{c.id}/iniciativas/{ini.id}/propuesta").text
+    # se arregla la conexión y se reintenta: solo se pide la épica que faltaba
+    monkeypatch.setattr(fake, "pedir_json", original)
+    fake.respuestas = [respuestas[4]]
+    antes = len(fake.prompts)
+    admin.post(f"/circulo/{c.id}/iniciativas/{ini.id}/propuesta/{pv.id}/reintentar")
+    db.refresh(pv)
+    assert pv.estado == "listo" and len(fake.prompts) == antes + 1 and "Épica E2" in fake.prompts[-1]
+
+
+def test_proceso_caido_se_reanuda_solo(admin, db, fake):
+    c, ini, h1, h2 = _iniciativa(db)
+    pv = pvs.iniciar(db, ini, _u(db))
+    pv.estado, pv.latido = "corriendo", utcnow()  # alguien la está trabajando: nadie más la toma
+    db.commit()
+    assert pvs.correr(pv.id) == "ocupada"
+    pv.latido = utcnow() - timedelta(seconds=pvs.LATIDO_VENCIDO + 60)  # el proceso murió (reinicio, tiempo agotado)
+    db.commit()
+    fake.respuestas = _respuestas(h1, h2)
+    r = admin.get(f"/circulo/propuestas/{pv.id}/avance").json()  # la pantalla la consulta y la reanuda
+    assert r["etapas"][0]["clave"] == "evidencia"
+    db.refresh(pv)
+    assert pv.estado == "listo"
+    # el job periódico también las reanuda
+    pv2 = pvs.iniciar(db, ini, _u(db))
+    pv2.estado, pv2.latido = "corriendo", utcnow() - timedelta(hours=1)
+    db.commit()
+    fake.respuestas = _respuestas(h1, h2)
+    from app import jobs
+    assert "1 propuestas de valor reanudadas" in jobs.TAREAS["ejecutar-acciones"](db)
+    db.refresh(pv2)
+    assert pv2.estado == "listo"
+
+
+def test_base_onecore_alimenta_benchmark_e_ideas(admin, db, fake):
+    safe = db.scalar(select(ModuloOneCore).where(ModuloOneCore.nombre == "SAFE"))
+    assert safe and "Base de comparación" in admin.get("/clientes/benchmark").text
+    assert "Lo que hace OneCore" in admin.get(f"/clientes/benchmark/onecore?m={safe.id}").text
+    # GuardIA ordena un texto pegado; no guarda hasta que la persona revisa
+    fake.respuestas = [{"resumen": "Validación previa de pedimentos", "proceso": "1. Llega el pedimento\n2. Se valida",
+                        "funciones": "Validación de fracción contra TIGIE", "no_hace": "No valida documentos por Incoterm"}]
+    html = admin.post(f"/clientes/benchmark/onecore/{safe.id}/extraer", data={"texto": "Manual de SAFE. " * 20}).text
+    assert "Propuesta de Guard" in html and "No valida documentos por Incoterm" in html
+    db.refresh(safe)
+    assert safe.no_hace == ""
+    admin.post(f"/clientes/benchmark/onecore/{safe.id}", data={"resumen": "Validación previa de pedimentos",
+                                                               "proceso": "1. Llega el pedimento del agente\n2. SAFE valida 120 reglas",
+                                                               "funciones": "Validación de fracción contra TIGIE/NICO\nAlertas por correo",
+                                                               "no_hace": "No valida documentos por Incoterm ni el formato E15"})
+    db.refresh(safe)
+    assert "Incoterm" in safe.no_hace and len(safe.historial) == 1
+    # el análisis de un competidor compara contra ese detalle
+    tx = ("Competidor: validamos documentos por Incoterm y damos el formato E15 listo para ventanilla. ") * 10
+    fake.respuestas = [{"resumen": "r", "propuesta_competidor": "p",
+                        "perfil": {"trabajos": [], "dolores": [{"texto": "Validar documentos por Incoterm", "onecore": "no"}], "ganancias": []},
+                        "mapa": {"productos": [{"texto": "Formato E15", "onecore": "no"}], "aliviadores": [], "creadores": []},
+                        "factores": [], "eric": {"crear": [{"titulo": "Validación por Incoterm", "detalle": "d",
+                                                            "cita": "validamos documentos por Incoterm"}]},
+                        "insights": [{"tipo": "suyo", "titulo": "E15 listo", "impacto": "alta",
+                                      "cita": "damos el formato E15 listo para ventanilla"}],
+                        "recomendacion": {"modificar": True, "que": "Agregar validación por Incoterm", "porque": "La piden"}}]
+    r = admin.post("/clientes/benchmark/sesiones", data={"competidor_nuevo": "GlobalMve", "fecha": hoy().isoformat()},
+                   files=[("archivo", ("t.txt", tx.encode(), "text/plain"))])
+    assert r.status_code == 200, r.text[:300]
+    assert "No valida documentos por Incoterm ni el formato E15" in fake.prompts[-1]
+    s = db.scalar(select(SesionCompetidor))
+    html = admin.get(f"/clientes/benchmark/sesiones/{s.id}").text
+    assert html.count("A Ideas") >= 4 and "Base de comparación" in html
+    # insight, elemento del lienzo y recomendación → Ideas a evaluar (una sola vez cada uno)
+    ins = db.scalar(select(InsightBenchmark).where(InsightBenchmark.tipo == "suyo"))
+    admin.post(f"/clientes/benchmark/insights/{ins.id}/idea")
+    admin.post(f"/clientes/benchmark/insights/{ins.id}/idea")
+    admin.post(f"/clientes/benchmark/sesiones/{s.id}/idea", data={"clave": "mapa.productos.0"})
+    admin.post(f"/clientes/benchmark/sesiones/{s.id}/idea", data={"clave": "recomendacion"})
+    admin.post(f"/clientes/benchmark/sesiones/{s.id}/idea", data={"clave": "recomendacion"})
+    ideas = list(db.scalars(select(Idea).where(Idea.origen == "benchmark")))
+    assert len(ideas) == 3 and {i.estado for i in ideas} == {"propuesta"}
+    assert any("GlobalMve" in i.problema and "damos el formato E15" in i.problema for i in ideas)
+    db.refresh(ins)
+    assert ins.idea_id and "En Ideas" in admin.get(f"/clientes/benchmark/sesiones/{s.id}").text
+    assert admin.post(f"/clientes/benchmark/sesiones/{s.id}/idea", data={"clave": "mapa.productos.9"}).status_code == 404

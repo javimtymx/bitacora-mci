@@ -788,6 +788,34 @@ class Iniciativa(Base):
     votos: Mapped[list["Voto"]] = relationship(back_populates="iniciativa")
 
 
+class PropuestaValor(Base):
+    """Profundización de una iniciativa con el lienzo de propuesta de valor: evidencia de todas las fuentes, perfil
+    del cliente (trabajos, frustraciones, alegrías), mapa de valor (productos y servicios, aliviadores, creadores),
+    funciones, épicas, historias de usuario y el prompt para prototipar en Claude.
+    Corre por etapas: cada etapa se guarda al terminar, así un tiempo agotado o un reinicio solo repite la etapa en
+    curso. Cada corrida es una versión; regenerar crea otra y la anterior se conserva."""
+    __tablename__ = "propuestas_valor"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    iniciativa_id: Mapped[int] = mapped_column(ForeignKey("iniciativas.id"), index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    estado: Mapped[str] = mapped_column(String(12), default="pendiente")  # pendiente | corriendo | listo | error
+    etapa: Mapped[str] = mapped_column(String(20), default="")
+    etapas: Mapped[dict] = mapped_column(JSON, default=dict)      # {etapa: {estado, intentos, inicio, fin, error}}
+    evidencia: Mapped[list] = mapped_column(JSON, default=list)
+    perfil: Mapped[dict] = mapped_column(JSON, default=dict)
+    mapa: Mapped[dict] = mapped_column(JSON, default=dict)
+    epicas: Mapped[dict] = mapped_column(JSON, default=dict)      # {"funciones": [...], "epicas": [... con "historias"]}
+    prompt_prototipo: Mapped[str] = mapped_column(Text().with_variant(Text(length=4294967295), "mysql"), default="")
+    error: Mapped[str] = mapped_column(String(500), default="")
+    latido: Mapped[datetime | None] = mapped_column(DateTime)     # señal de vida mientras corre
+    creado_por: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+    creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    actualizado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    iniciativa: Mapped["Iniciativa"] = relationship()
+    autor: Mapped[Usuario | None] = relationship()
+
+
 class Voto(Base):
     __tablename__ = "votos"
     __table_args__ = (UniqueConstraint("iniciativa_id", "usuario_id"),)
@@ -988,6 +1016,30 @@ INSIGHT_TIPOS = {"nuestro": "Diferenciador nuestro", "suyo": "Diferenciador del 
                  "incrementar": "Incrementar", "crear": "Crear"}
 
 
+class ModuloOneCore(Base):
+    """Lo que SÍ hace OneCore, módulo por módulo, con detalle: es la base contra la que GuardIA compara a los
+    competidores (benchmark), evalúa el encaje con clientes y diseña propuestas de valor. Cada cambio guarda la
+    versión anterior en «historial»."""
+    __tablename__ = "modulos_onecore"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    nombre: Mapped[str] = mapped_column(String(80), unique=True)
+    resumen: Mapped[str] = mapped_column(String(300), default="")
+    para_quien: Mapped[str] = mapped_column(Text, default="")
+    proceso: Mapped[str] = mapped_column(Text, default="")          # cómo funciona, paso a paso
+    funciones: Mapped[str] = mapped_column(Text, default="")        # una por renglón
+    integraciones: Mapped[str] = mapped_column(Text, default="")
+    diferenciadores: Mapped[str] = mapped_column(Text, default="")
+    no_hace: Mapped[str] = mapped_column(Text, default="")          # límites conocidos: evita que la IA nos sobrecalifique
+    en_desarrollo: Mapped[str] = mapped_column(Text, default="")
+    orden: Mapped[int] = mapped_column(Integer, default=0)
+    activo: Mapped[bool] = mapped_column(Boolean, default=True)
+    historial: Mapped[list] = mapped_column(JSON, default=list)
+    actualizado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    actualizado_por: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+
+    autor: Mapped[Usuario | None] = relationship()
+
+
 class InsightBenchmark(Base):
     """Conclusión de una sesión con competidor, con cita textual. Las oportunidades y la matriz ERIC alimentan el Círculo."""
     __tablename__ = "insights_benchmark"
@@ -998,6 +1050,7 @@ class InsightBenchmark(Base):
     detalle: Mapped[str] = mapped_column(Text, default="")
     cita: Mapped[str] = mapped_column(Text, default="")
     impacto: Mapped[str] = mapped_column(String(8), default="media")
+    idea_id: Mapped[int | None] = mapped_column(ForeignKey("ideas.id"))  # ya se envió a Ideas a evaluar
     creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     sesion: Mapped[SesionCompetidor] = relationship(back_populates="insights")

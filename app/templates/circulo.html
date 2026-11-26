@@ -1,5 +1,6 @@
 {% extends "base.html" %}{% from "_ui.html" import icon, ai_badge with context %}
 {% block title %}{{ c.nombre }}{% endblock %}
+{% block head %}{% if consolidando %}<meta http-equiv="refresh" content="8">{% endif %}{% endblock %}
 {% block content %}
 {% set colores = {'Ganancia rápida':'#2E8B3D','Proyecto':'#6A4BC4','Relleno':'#8A949E','Reconsiderar':'#C26A00'} %}
 {% set an = c.analisis or {} %}
@@ -12,7 +13,9 @@
 
 {% if c.estado == 'preparacion' %}
 <section class="card pad"><h2>Consolidar con Guard<span class="gia">IA</span></h2><span class="muted">La IA junta las ideas del equipo (validadas, en curso y propuestas que no sean débiles), los hallazgos de clientes de los últimos 4 meses y las objeciones de ventas, y los agrupa en iniciativas con su evidencia.</span>
-  {% if u.es_lider %}<form method="post" action="/circulo/{{ c.id }}/consolidar"><button class="btn aibtn">{{ icon('ia') }}Consolidar iniciativas</button></form>{% endif %}</section>
+  {% if consolidando %}<div class="cint" style="margin:0"><span class="ic">{{ icon('ia') }}</span><span><b>GuardIA está consolidando…</b> Toma de 1 a 3 minutos; esta página se actualiza sola. Puedes salir y regresar.</span></div>
+  {% else %}{% if (an.proceso or {}).estado == 'error' %}<div class="small" style="color:var(--red)">La consolidación anterior falló: {{ an.proceso.error }} Vuelve a intentarlo.</div>{% endif %}
+  {% if u.es_lider %}<form method="post" action="/circulo/{{ c.id }}/consolidar"><button class="btn aibtn">{{ icon('ia') }}Consolidar iniciativas</button></form>{% endif %}{% endif %}</section>
 {% else %}
 {% if an.fuentes %}<div class="card" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:14px 16px">
   <div class="stat"><span class="ico" style="background:var(--mint);color:var(--teal)">{{ icon('idea') }}</span><span style="font-weight:600">Ideas del equipo</span><b>{{ an.fuentes.ideas }}</b></div>
@@ -33,7 +36,9 @@
     {% if u.es_lider %}<form method="post" action="/circulo/{{ c.id }}/cerrar-votacion"><button class="btn dark" style="width:100%">Cerrar votación y pasar a decisiones</button></form>{% endif %}{% endif %}
 </section></div>
 
-<section class="col" style="gap:12px"><div class="row between"><h2>Iniciativas consolidadas por la IA</h2><span class="small muted">Cada una junta ideas, voz del cliente y objeciones que hablan del mismo problema</span></div>
+<section class="col" style="gap:12px"><div class="row between"><h2>Iniciativas consolidadas por la IA</h2>
+  <div class="row" style="gap:10px"><span class="small muted">Cada una junta ideas, voz del cliente y objeciones que hablan del mismo problema</span>
+  {% if u.es_lider and c.iniciativas %}<form method="post" action="/circulo/{{ c.id }}/propuestas"><button class="btn sm aibtn" title="Lienzo de propuesta de valor, épicas, historias y prompt de prototipo para cada iniciativa">{{ icon('ia', 15) }}Profundizar todas</button></form>{% endif %}</div></div>
 <div class="q4">{% for ini in c.iniciativas %}{% set col = colores.get(ini.cuadrante,'#8A949E') %}
   <article class="card pad" id="ini-{{ ini.id }}">
     <div class="row between" style="flex-wrap:nowrap;align-items:flex-start"><div class="row" style="flex-wrap:nowrap;align-items:flex-start"><span style="width:30px;height:30px;border-radius:50%;background:{{ col }};color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;flex:none">{{ ini.orden }}</span><h3 style="line-height:1.3;margin-top:4px">{{ ini.titulo }}</h3></div>
@@ -47,7 +52,9 @@
       <form method="post" action="/circulo/{{ c.id }}/votar" class="vote"><input type="hidden" name="iniciativa_id" value="{{ ini.id }}"><span class="small" style="font-weight:700">Tus puntos</span>
         {% for k in range(0, c.max_por_iniciativa + 1) %}<button name="puntos" value="{{ k }}" class="{{ 'mine' if k <= mine and k > 0 else '' }}" aria-label="Poner {{ k }} punto(s)" title="{{ k }}">{{ k }}</button>{% endfor %}</form>
       {% elif ini.estrategia_id %}<a class="lnk" href="/estrategias/{{ ini.estrategia_id }}">{{ icon('target', 15) }}Ver estrategia creada</a>{% else %}<span></span>{% endif %}
-      <a class="lnk" href="/circulo/{{ c.id }}/fuentes/{{ ini.id }}">{{ icon('eye', 15) }}Fuentes</a></div>
+      <div class="row" style="gap:14px">{% set pv = props.get(ini.id) %}
+        <a class="lnk" href="/circulo/{{ c.id }}/iniciativas/{{ ini.id }}/propuesta">{{ icon('ia', 15) }}Propuesta de valor{% if pv %} <span class="tag {{ 'g' if pv.estado == 'listo' else ('r' if pv.estado == 'error' else 'b') }}" style="margin-left:4px">{{ {'listo':'lista','error':'error','pendiente':'en proceso','corriendo':'en proceso'}[pv.estado] }}</span>{% endif %}</a>
+        <a class="lnk" href="/circulo/{{ c.id }}/fuentes/{{ ini.id }}">{{ icon('eye', 15) }}Fuentes</a></div></div>
   </article>{% endfor %}</div></section>
 
 {% if c.estado in ('decisiones','cerrado') %}

@@ -234,7 +234,8 @@ def fusionar_participantes(actuales, detectados) -> list[dict]:
 
 
 def _prompt_venta_nueva(s, texto, compromiso_txt, temas):
-    port = "\n".join(f"- {n}: {d}" for n, d in PORTAFOLIO)
+    from .onecore import texto_portafolio_aislado
+    port = texto_portafolio_aislado(9000)
     return f"""Analiza la transcripción de una sesión de venta nueva de OneCore (software de cumplimiento aduanero y comercio exterior en México) con el lienzo de propuesta de valor.
 Lo valioso es lo que dijo el cliente y lo que se le ofreció. Cada elemento lleva una CITA TEXTUAL copiada exacta de la transcripción; sin cita, no se incluye.
 1. Qué valora el cliente (criterios de decisión, resultados que busca).
@@ -471,7 +472,8 @@ def _venta_nueva(res: dict, tn: str) -> tuple[dict, int, list]:
         x = str(x or "").lower()
         return x if x in ("alto", "medio", "bajo") else "medio"
 
-    modulos = {n.lower(): n for n, _ in PORTAFOLIO}
+    from .onecore import nombres_aislado
+    modulos = {n.lower(): n for n in nombres_aislado()}
     valora = [{"texto": str(v.get("texto") or "")[:300], "cita": c} for v in (res.get("valora") or [])[:8]
               if isinstance(v, dict) and (c := ok(v.get("cita")))]
     prods = [{"modulo": modulos.get(str(v.get("modulo") or "").lower(), str(v.get("modulo") or "")[:80]),
