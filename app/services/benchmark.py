@@ -287,12 +287,17 @@ def svg_lienzo(lienzo: dict, ancho: int = 980, alto: int = 300) -> dict:
     def xy(i, v):
         return round(izq + i * paso if len(fs) > 1 else izq + w / 2, 1), round(arr + h - (v - 1) / 4 * h, 1)
 
+    def puntos(valores):  # (x, y) para la línea y el detalle de cada punto para el cursor y el clic
+        return [{"x": xy(i, valores[k])[0], "y": xy(i, valores[k])[1], "k": k, "v": valores[k], "f": lienzo["factores"][i]}
+                for i, k in enumerate(fs) if k in valores]
+
     lineas = []
     for sr in lienzo["series"]:
-        pts = [xy(i, sr["valores"][k]) for i, k in enumerate(fs) if k in sr["valores"]]
-        lineas.append({"nombre": sr["nombre"], "color": sr["color"], "pts": pts, "punteada": True})
-    pts = [xy(i, lienzo["onecore"][k]) for i, k in enumerate(fs) if k in lienzo["onecore"]]
-    lineas.append({"nombre": "OneCore", "color": "#0F766E", "pts": pts, "punteada": False})
+        det = puntos(sr["valores"])
+        lineas.append({"nombre": sr["nombre"], "color": sr["color"], "pts": [(d["x"], d["y"]) for d in det], "det": det,
+                       "punteada": True})
+    det = puntos(lienzo["onecore"])
+    lineas.append({"nombre": "OneCore", "color": "#0F766E", "pts": [(d["x"], d["y"]) for d in det], "det": det, "punteada": False})
     detalle = []
     for i, k in enumerate(fs):
         vals = [(sr["valores"][k], sr["nombre"], sr["color"]) for sr in lienzo["series"] if k in sr["valores"]]
@@ -302,6 +307,117 @@ def svg_lienzo(lienzo: dict, ancho: int = 980, alto: int = 300) -> dict:
                         "mejor": {"valor": mejor[0], "nombre": mejor[1], "color": mejor[2]} if mejor else None,
                         "brecha": (oc - mejor[0]) if (mejor and oc is not None) else None})
     return {"ancho": ancho, "alto": alto, "lineas": lineas, "ejes": [xy(i, 1)[0] for i in range(len(fs))],
-            "numerado": numerado, "detalle": detalle,
+            "numerado": numerado, "detalle": detalle, "claves": list(fs),
             "niveles": [(v, xy(0, v)[1]) for v in range(1, 6)], "etiquetas": lienzo["factores"], "base": arr + h, "izq": izq,
             "der": ancho - der}
+
+
+# ---------------------------------------------------------------- detalle de un factor del lienzo (modal)
+
+def _raices(texto: str) -> set[str]:
+    stop = {"para", "como", "con", "del", "los", "las", "una", "por", "sin", "que", "más", "mas", "the"}
+    return {w[:6] for w in _norm(texto).split() if len(w) >= 4 and w not in stop}
+
+
+def _relacionado(texto: str, raices: set[str]) -> bool:
+    return len(_raices(texto) & raices) >= (1 if len(raices) <= 2 else 2)
+
+
+def detalle_factor(db: Session, clave: str) -> dict | None:
+    """Todo lo que hay de un factor: calificación y nota de cada competidor (su último análisis), los insights de esas
+    juntas que hablan del mismo tema, la calificación de OneCore y lo que el kardex/ficha de OneCore dice al respecto."""
+    from .onecore import modulos, vigentes
+    con = consolidado(db)
+    lz = con["lienzo"]
+    if clave not in lz["claves"]:
+        return None
+    factor = lz["factores"][lz["claves"].index(clave)]
+    raices = _raices(factor)
+    comps = []
+    for sr in lz["series"]:
+        s = sr["sesion"]
+        f = next((x for x in s.resultado.get("factores", []) if _norm(x["factor"]) == clave), None)
+        if not f:
+            continue
+        rel = [i for i in s.insights if i.tipo in ("suyo", "oportunidad", "crear", "incrementar", "nuestro")
+               and _relacionado(f"{i.titulo} {i.detalle}", raices | _raices(f.get("nota", "")))][:5]
+        comps.append({"nombre": sr["nombre"], "color": sr["color"], "valor": f["competidor"], "onecore": f["onecore"],
+                      "nota": f.get("nota", ""), "sesion": s, "insights": rel})
+    comps.sort(key=lambda c: -c["valor"])
+    oc = lz["onecore"].get(clave)
+    ficha = []
+    for m in modulos(db):
+        textos = [(m.funciones or ""), (m.diferenciadores or ""), (m.no_hace or ""), (m.proceso or "")]
+        if any(_relacionado(t, raices) for t in textos):
+            ficha.append({"modulo": m.nombre, "tipo": "ficha", "texto": (m.resumen or "")})
+        for c in vigentes(m):
+            if _relacionado(f"{c.get('dijo', '')} {c['como']}", raices):
+                ficha.append({"modulo": m.nombre, "tipo": c["nivel"], "texto": c["como"], "falta": c.get("falta", "")})
+    mejor = comps[0]["valor"] if comps else None
+    return {"clave": clave, "factor": factor, "onecore": oc, "competidores": comps, "onecore_ficha": ficha[:8],
+            "brecha": (oc - mejor) if (oc is not None and mejor is not None) else None}
+
+
+def _firma_factor(d: dict) -> str:
+    import hashlib
+    base = "|".join(f"{c['nombre']}:{c['valor']}:{c['nota']}:{c['sesion'].id}" for c in d["competidores"])
+    base += f"|oc:{d['onecore']}|" + "|".join(f"{x['modulo']}:{x['texto'][:80]}" for x in d["onecore_ficha"])
+    return hashlib.sha256(base.encode()).hexdigest()[:32]
+
+
+def explicacion_guardada(db: Session, d: dict):
+    from ..models import AnalisisFactor
+    a = db.scalar(select(AnalisisFactor).where(AnalisisFactor.clave == d["clave"]).order_by(AnalisisFactor.id.desc()).limit(1))
+    return a, bool(a and a.firma != _firma_factor(d))
+
+
+def explicar_factor(db: Session, d: dict, u) -> "AnalisisFactor":
+    """GuardIA explica con detalle qué hace mejor cada competidor en el factor y qué puede hacer OneCore para competir."""
+    from ..models import AnalisisFactor
+    from .onecore import texto_portafolio
+    comps = "\n".join(
+        f"- {c['nombre']}: {c['valor']}/5 (OneCore {c['onecore']}/5 en esa junta). Nota del análisis: {c['nota'] or '-'}"
+        + "".join(f"\n  · {i.tipo}: {i.titulo} — {i.detalle[:220]}" + (f" «{i.cita[:160]}»" if i.cita else "") for i in c["insights"])
+        for c in d["competidores"])
+    prompt = f"""Eres analista de estrategia de OneCore (software de cumplimiento de comercio exterior en México). En el lienzo
+estratégico (Océano Azul) el factor «{d['factor']}» tiene estas calificaciones (1 = débil, 5 = fuerte):
+OneCore: {d['onecore']}/5 (promedio de las juntas).
+Competidores, con lo que dijeron en sus juntas:
+{comps}
+
+Lo que OneCore sí hace (ficha por módulo y kardex confirmado por el equipo):
+{texto_portafolio(db, 7000)}
+
+Explica con detalle y sin inventar (usa solo lo de arriba; si algo no consta, dilo):
+1. que_hace_mejor: por cada competidor que califique igual o más que OneCore, QUÉ hace concretamente y POR QUÉ eso le
+   gana al cliente (funcionalidad, modelo comercial, servicio, experiencia). Si ninguno supera a OneCore, dilo en "lectura".
+2. onecore_hoy: qué tiene OneCore hoy en este factor (módulo y función) y qué le falta.
+3. acciones: de 3 a 5 acciones concretas para competir, cada una con plazo corto (≤30 días: mensaje comercial,
+   configuración, demo, servicio) o mediano (1-3 meses: función o integración) o largo, el módulo de OneCore que se
+   toca o «nuevo», esfuerzo bajo|medio|alto e impacto bajo|medio|alto. Empieza por lo que más cierra la brecha con
+   menos esfuerzo. Prefiere extender lo que ya existe antes que construir algo nuevo.
+4. argumento: cómo responder hoy en una venta cuando el cliente compara a OneCore en este factor (2-3 frases honestas).
+
+JSON: {{"lectura":"2-3 frases","que_hace_mejor":[{{"competidor":"...","que":"...","por_que_gana":"..."}}],
+"onecore_hoy":"...","acciones":[{{"accion":"...","plazo":"corto","modulo":"SAFE","esfuerzo":"bajo","impacto":"alto"}}],
+"argumento":"..."}}"""
+    res, meta = ia.cliente().pedir_json(prompt, max_tokens=3000)
+    uno = lambda v, ops, df: v if v in ops else df  # noqa: E731
+    r = {"lectura": str(res.get("lectura") or "")[:800],
+         "que_hace_mejor": [{"competidor": str(x.get("competidor") or "")[:80], "que": str(x.get("que") or "")[:600],
+                             "por_que_gana": str(x.get("por_que_gana") or "")[:400]}
+                            for x in (res.get("que_hace_mejor") or [])[:6] if isinstance(x, dict) and x.get("que")],
+         "onecore_hoy": str(res.get("onecore_hoy") or "")[:800],
+         "acciones": [{"accion": str(x.get("accion") or "")[:400], "plazo": uno(x.get("plazo"), ("corto", "mediano", "largo"), "mediano"),
+                       "modulo": str(x.get("modulo") or "")[:60], "esfuerzo": uno(x.get("esfuerzo"), ("bajo", "medio", "alto"), "medio"),
+                       "impacto": uno(x.get("impacto"), ("bajo", "medio", "alto"), "medio")}
+                      for x in (res.get("acciones") or [])[:5] if isinstance(x, dict) and x.get("accion")],
+         "argumento": str(res.get("argumento") or "")[:800], "modelo": meta.get("modelo")}
+    if not (r["que_hace_mejor"] or r["acciones"] or r["lectura"]):
+        raise ValueError("GuardIA no devolvió la explicación. Intenta de nuevo.")
+    a = AnalisisFactor(clave=d["clave"], factor=d["factor"][:160], firma=_firma_factor(d), resultado=r,
+                       creado_por=getattr(u, "id", None))
+    db.add(a)
+    db.flush()
+    auditar(db, "explicar_factor", "analisis_factor", a.id, getattr(u, "id", None))
+    return a

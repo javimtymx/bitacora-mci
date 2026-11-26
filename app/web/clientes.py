@@ -892,6 +892,37 @@ def _sesion_comp(db: Session, sid: int) -> SesionCompetidor:
     return s
 
 
+# ---------------------------------------------------------------- detalle de un factor del lienzo (modal)
+
+def _fragmento_factor(request: Request, u: Usuario, d: dict, a, cambio: bool, error: str = ""):
+    from .base import TEMPLATES
+    return TEMPLATES.TemplateResponse(request, "_factor_modal.html", {"u": u, "d": d, "a": a, "cambio": cambio, "error": error})
+
+
+@router.get("/clientes/benchmark/factor")
+def factor_detalle(request: Request, k: str = "", db: Session = Depends(get_db), u: Usuario = Depends(requiere_lider)):
+    d = benchmark.detalle_factor(db, k)
+    if not d:
+        raise HTTPException(404, "Factor no encontrado.")
+    a, cambio = benchmark.explicacion_guardada(db, d)
+    return _fragmento_factor(request, u, d, a, cambio)
+
+
+@router.post("/clientes/benchmark/factor/explicar")
+def factor_explicar(request: Request, k: str = Form(""), db: Session = Depends(get_db), u: Usuario = Depends(requiere_lider)):
+    d = benchmark.detalle_factor(db, k)
+    if not d:
+        raise HTTPException(404, "Factor no encontrado.")
+    try:
+        a = benchmark.explicar_factor(db, d, u)
+        db.commit()
+        return _fragmento_factor(request, u, d, a, False)
+    except (ia.IANoDisponible, ValueError) as e:
+        db.rollback()
+        a, cambio = benchmark.explicacion_guardada(db, d)
+        return _fragmento_factor(request, u, d, a, cambio, str(e)[:200])
+
+
 # ---------------------------------------------------------------- lo que hace OneCore (base de comparación)
 
 @router.get("/clientes/benchmark/onecore")

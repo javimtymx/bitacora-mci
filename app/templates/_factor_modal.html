@@ -1,0 +1,41 @@
+{% from "_ui.html" import icon with context %}
+<div class="fx-cab">
+  <div class="col" style="gap:4px"><span class="small muted">Factor del lienzo estratégico</span><h2 id="fx-t" style="margin:0">{{ d.factor }}</h2></div>
+  <div class="fx-score"><span class="small">OneCore</span><b>{{ '%g'|format(d.onecore) if d.onecore is not none else '—' }}</b>
+    {% if d.brecha is not none %}<span class="small {{ 'fx-mal' if d.brecha < 0 else 'fx-bien' }}">{{ 'Abajo del mejor por ' ~ '%g'|format(-d.brecha) if d.brecha < 0 else ('Igual al mejor' if d.brecha == 0 else 'Arriba del mejor por ' ~ '%g'|format(d.brecha)) }}</span>{% endif %}</div>
+</div>
+
+<div class="fx-comps">
+  {% for c in d.competidores %}
+  <div class="fx-comp">
+    <div class="row between"><span class="fx-nom"><i style="background:{{ c.color }}"></i><b>{{ c.nombre }}</b></span>
+      <span class="fx-val {{ 'mas' if d.onecore is not none and c.valor > d.onecore else '' }}">{{ c.valor }}/5</span></div>
+    {% if c.nota %}<span class="small">{{ c.nota }}</span>{% endif %}
+    {% for i in c.insights %}<div class="fx-ins small"><span class="tag {{ {'suyo':'r','nuestro':'g','oportunidad':'o'}.get(i.tipo, 'b') }}">{{ {'suyo':'Lo hace mejor','nuestro':'Nuestro','oportunidad':'Oportunidad','crear':'Crear','incrementar':'Incrementar'}.get(i.tipo, i.tipo) }}</span> <b>{{ i.titulo }}</b>{% if i.detalle %} — {{ i.detalle }}{% endif %}{% if i.cita %}<div class="pv-cita">«{{ i.cita }}»</div>{% endif %}</div>{% endfor %}
+    <a class="small" href="/clientes/benchmark/sesiones/{{ c.sesion.id }}">Ver la junta del {{ c.sesion.fecha.strftime('%d/%m/%Y') }} →</a>
+  </div>
+  {% endfor %}
+</div>
+
+{% if d.onecore_ficha %}
+<div class="fx-oc"><b class="small">Lo que OneCore ya tiene relacionado</b>
+  {% for x in d.onecore_ficha %}<span class="small"><span class="oc-tag {{ 'si' if x.tipo in ('si', 'ficha') else 'parcial' }}">{{ x.modulo }}</span> {{ x.texto }}{% if x.falta %} <span class="muted">· le falta: {{ x.falta }}</span>{% endif %}</span>{% endfor %}</div>
+{% endif %}
+
+<section class="fx-ia">
+  <div class="row between"><h3 style="margin:0">{{ icon('ia', 17) }} Qué hace mejor el competidor y cómo competir</h3>
+    {% if a %}<span class="small muted">Guard<span class="gia">IA</span> · {{ a.creado.strftime('%d/%m/%Y') }}</span>{% endif %}</div>
+  {% if error %}<div class="small" style="color:var(--red)">{{ error }}</div>{% endif %}
+  {% if a %}{% set r = a.resultado %}
+    {% if cambio %}<div class="small fx-aviso">Hay información nueva desde esta explicación (otra junta o el kardex de OneCore). Vuelve a generarla.</div>{% endif %}
+    {% if r.lectura %}<p class="fx-lect">{{ r.lectura }}</p>{% endif %}
+    {% if r.que_hace_mejor %}<div class="col" style="gap:8px">{% for x in r.que_hace_mejor %}<div class="fx-mejor"><b>{{ x.competidor }}</b><span>{{ x.que }}</span>{% if x.por_que_gana %}<span class="small muted">Por qué le gana al cliente: {{ x.por_que_gana }}</span>{% endif %}</div>{% endfor %}</div>{% endif %}
+    {% if r.onecore_hoy %}<div class="small"><b>OneCore hoy:</b> {{ r.onecore_hoy }}</div>{% endif %}
+    {% if r.acciones %}<div class="tbl"><table><thead><tr><th>Qué puede hacer OneCore para competir</th><th>Plazo</th><th>Módulo</th><th>Esfuerzo</th><th>Impacto</th></tr></thead><tbody>
+      {% for x in r.acciones %}<tr><td>{{ x.accion }}</td><td><span class="fx-plazo {{ x.plazo }}">{{ {'corto':'≤ 30 días','mediano':'1-3 meses','largo':'+3 meses'}[x.plazo] }}</span></td><td class="small">{{ x.modulo }}</td><td class="small">{{ x.esfuerzo }}</td><td class="small">{{ x.impacto }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
+    {% if r.argumento %}<div class="fx-arg"><b class="small">Si el cliente nos compara hoy:</b> {{ r.argumento }}</div>{% endif %}
+  {% else %}<span class="small muted">Guard<span class="gia">IA</span> explica con detalle qué hace mejor cada competidor en este factor y qué puede hacer OneCore para competir, con base en las juntas y en lo que OneCore sí hace.</span>{% endif %}
+  <form class="row" data-fx-explicar style="gap:8px"><input type="hidden" name="k" value="{{ d.clave }}">
+    <button class="btn aibtn sm">{{ icon('ia', 14) }}{{ 'Volver a generar' if a else 'Explicar con GuardIA' }}</button>
+    <span class="small muted" data-fx-esp hidden>GuardIA está analizando (30 a 60 segundos)…</span></form>
+</section>

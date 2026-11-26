@@ -289,3 +289,33 @@ def test_onecore_si_lo_hace_alimenta_el_kardex(admin, db, fake):
     db.expire_all()
     nuevo = db.scalar(select(InsightBenchmark).where(InsightBenchmark.tipo == "oportunidad"))
     assert nuevo.onecore == "si"
+
+
+def test_modal_de_factor_del_lienzo(admin, db, fake):
+    from app.models import AnalisisFactor
+    for nombre, val, nota in (("Camtom", 5, "Modelo de créditos sin contrato y reintento automático"), ("AVC", 3, "Paquete anual")):
+        tx = (f"{nombre}: nuestro modelo comercial es flexible con créditos sin contrato y pago por uso para la MVE. ") * 8
+        fake.respuestas = [{"resumen": "r", "factores": [{"factor": "Modelo comercial flexible", "competidor": val, "onecore": 2, "nota": nota}],
+                            "insights": [{"tipo": "suyo", "titulo": "Modelo comercial por créditos", "impacto": "alta",
+                                          "detalle": "Arranca con 50 créditos", "cita": "créditos sin contrato"}]}]
+        admin.post("/clientes/benchmark/sesiones", data={"competidor_nuevo": nombre, "fecha": hoy().isoformat()},
+                   files=[("archivo", ("t.txt", tx.encode(), "text/plain"))])
+    panel = admin.get("/clientes/benchmark").text
+    assert 'data-factor="modelo comercial flexible"' in panel and "Camtom · Modelo comercial flexible: 5/5" in panel
+    frag = admin.get("/clientes/benchmark/factor", params={"k": "modelo comercial flexible"}).text
+    assert "Camtom" in frag and "Modelo de créditos sin contrato" in frag and "Abajo del mejor por 3" in frag
+    assert frag.index("Camtom") < frag.index("AVC") and "Modelo comercial por créditos" in frag and "Explicar con GuardIA" in frag
+    assert admin.get("/clientes/benchmark/factor", params={"k": "no existe"}).status_code == 404
+    fake.respuestas = [{"lectura": "Camtom gana por riesgo de entrada.", "que_hace_mejor": [
+        {"competidor": "Camtom", "que": "Vende 50 créditos sin contrato", "por_que_gana": "El cliente prueba sin compromiso"}],
+        "onecore_hoy": "Contrato anual", "acciones": [{"accion": "Piloto de pago por uso en MVE", "plazo": "corto", "modulo": "Manifestación de Valor",
+                                                      "esfuerzo": "bajo", "impacto": "alto"}], "argumento": "Ofrecemos piloto."}]
+    frag = admin.post("/clientes/benchmark/factor/explicar", data={"k": "modelo comercial flexible"}).text
+    assert "Vende 50 créditos sin contrato" in frag and "Piloto de pago por uso en MVE" in frag and "≤ 30 días" in frag
+    assert "Paquete anual" in fake.prompts[-1] and "créditos sin contrato" in fake.prompts[-1]
+    a = db.scalar(select(AnalisisFactor))
+    assert a and a.factor == "Modelo comercial flexible"
+    # se guarda: al abrir de nuevo no se llama a la IA
+    n = len(fake.prompts)
+    assert "Vende 50 créditos" in admin.get("/clientes/benchmark/factor", params={"k": "modelo comercial flexible"}).text
+    assert len(fake.prompts) == n

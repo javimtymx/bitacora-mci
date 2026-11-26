@@ -1042,6 +1042,20 @@ class ModuloOneCore(Base):
     autor: Mapped[Usuario | None] = relationship()
 
 
+class AnalisisFactor(Base):
+    """Explicación de GuardIA de un factor del lienzo estratégico: qué hace mejor cada competidor y qué puede hacer
+    OneCore para competir. Cada generación es un registro nuevo (se muestra el último); «firma» detecta si cambiaron
+    los datos que la sostienen."""
+    __tablename__ = "analisis_factor"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    clave: Mapped[str] = mapped_column(String(160), index=True)
+    factor: Mapped[str] = mapped_column(String(160))
+    firma: Mapped[str] = mapped_column(String(64), default="")
+    resultado: Mapped[dict] = mapped_column(JSON, default=dict)
+    creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    creado_por: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+
+
 class InsightBenchmark(Base):
     """Conclusión de una sesión con competidor, con cita textual. Las oportunidades y la matriz ERIC alimentan el Círculo."""
     __tablename__ = "insights_benchmark"
