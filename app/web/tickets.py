@@ -447,10 +447,7 @@ def aceptar(tid: int, request: Request, bg: BackgroundTasks, comentario: str = F
 @router.post("/tickets/{tid}/vobo")
 def vobo(tid: int, request: Request, bg: BackgroundTasks, nota: str = Form(""), db: Session = Depends(get_db),
          u: Usuario = Depends(usuario_actual)):
-    t = _ticket(db, tid, u)
-    if not tk.puede_aceptar(u, t):
-        return _resp_revision(request, tid, False, "Lo pasa a V°B° quien levantó el ticket o quien tenga el permiso "
-                                                   "«Revisa tickets de otros» en su perfil.")
+    t = _ticket(db, tid, u)  # cualquiera que vea el ticket puede indicar que depende del cliente (queda quién y por qué)
     try:
         tk.pasar_vobo(db, u, t, nota)
         tk.sincronizar_pendiente(db, t, u)

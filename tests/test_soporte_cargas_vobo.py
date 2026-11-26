@@ -185,3 +185,22 @@ def test_series_quincenal_y_trimestral():
     assert [f.month for f, _ in tr2] == [12, 3, 6, 9] and all(not cl.inhabil(f) for f, _ in tr2)
     assert "cada 2 semanas" in cl.describir_serie("quincenal", dia_semana=0)
     assert "cada 3 meses" in cl.describir_serie("trimestral", "dia", dia_mes=27)
+
+
+def test_cualquiera_puede_pasar_a_vobo(admin, db):
+    manuel = _u(db, "mcoronado@onecore.mx")
+    jm = _u(db, "jmartinez@onecore.mx")
+    t = _ticket(db, manuel, horas=2)
+    tk.resolver(db, jm, t, tipo_cierre="corregido", causa="Certificado vencido del cliente",
+                solucion="Se cargó el certificado vigente y se reintentó")
+    db.commit()
+    erick = login(TestClient(app), "egarza@onecore.mx")  # sin permiso de revisar tickets de otros
+    html = erick.get(f"/tickets/{t.id}").text
+    assert "Depende del cliente: V°B°" in html and "Aceptar y cerrar" not in html
+    erick.post(f"/tickets/{t.id}/aceptar", data={"comentario": "Lo cierro yo, el cliente confirmó"})
+    db.refresh(t)
+    assert t.estado == "revision"  # cerrar sigue con las reglas de siempre
+    r = erick.post(f"/tickets/{t.id}/vobo", data={"nota": "Que el cliente valide el timbrado"}, headers={"Accept": "application/json"})
+    assert r.json()["ok"]
+    db.refresh(t)
+    assert t.estado == "vobo" and t.resolucion["vobo_por"] == _u(db, "egarza@onecore.mx").id

@@ -319,3 +319,40 @@ def test_modal_de_factor_del_lienzo(admin, db, fake):
     n = len(fake.prompts)
     assert "Vende 50 créditos" in admin.get("/clientes/benchmark/factor", params={"k": "modelo comercial flexible"}).text
     assert len(fake.prompts) == n
+
+
+def test_onecore_tambien_lo_hace_desde_el_factor(admin, db, fake):
+    for nombre, val in (("IMAR", 4), ("AVC", 3)):
+        tx = (f"{nombre}: nosotros manejamos licencias por usuario con precio transparente y renovación anual. ") * 8
+        fake.respuestas = [{"resumen": "r", "factores": [{"factor": "Transparencia de precio", "competidor": val, "onecore": 2,
+                                                          "nota": f"{nombre} cotiza por usuario"}],
+                            "eric": {"incrementar": [{"titulo": "Claridad de precio por usuario", "detalle": "Publicar esquema simple",
+                                                      "cita": "manejamos licencias por usuario"}]}}]
+        admin.post("/clientes/benchmark/sesiones", data={"competidor_nuevo": nombre, "fecha": hoy().isoformat()},
+                   files=[("archivo", ("t.txt", tx.encode(), "text/plain"))])
+    k = "transparencia de precio"
+    frag = admin.get("/clientes/benchmark/factor", params={"k": k}).text
+    assert "OneCore también lo hace" in frag and "OneCore sí lo hace" in frag  # corregir el factor y cada insight
+    mvm = db.scalar(select(ModuloOneCore).where(ModuloOneCore.nombre == "Manifestación de Valor"))
+    r = admin.post("/clientes/benchmark/factor/onecore", data={"k": k, "modulo_id": mvm.id, "calificacion": 4, "como": "corto"})
+    assert r.status_code in (200, 303)
+    db.refresh(mvm)
+    assert not mvm.confirmaciones  # sin explicar cómo, no se acepta
+    admin.post("/clientes/benchmark/factor/onecore", data={
+        "k": k, "modulo_id": mvm.id, "calificacion": 4, "nivel": "si",
+        "como": "Publicamos precio por módulo y por volumen de pedimentos en la propuesta, sin costos ocultos de implementación."})
+    db.refresh(mvm)
+    c = mvm.confirmaciones[0]
+    assert c["factor"] == k and c["calificacion"] == 4 and c["calificacion_antes"] == 2 and c["competidor"] == "IMAR"
+    from app.services import benchmark
+    con = benchmark.consolidado(db)
+    assert con["lienzo"]["onecore"][k] == 4.0  # el lienzo se recalcula con la corrección
+    frag = admin.get("/clientes/benchmark/factor", params={"k": k}).text
+    assert "Calificación corregida por el equipo" in frag and "los análisis decían 2" in frag and "Igual al mejor" in frag
+    fake.respuestas = [{"lectura": "ok", "acciones": [{"accion": "x", "plazo": "corto"}]}]
+    admin.post("/clientes/benchmark/factor/explicar", data={"k": k})
+    assert "sin costos ocultos" in fake.prompts[-1] and "corregido por el equipo" in fake.prompts[-1]
+    # si se retira del kardex, vuelve el promedio de los análisis
+    admin.post(f"/clientes/benchmark/onecore/{mvm.id}/kardex/{c['id']}/retirar", data={"motivo": "Precio aún no publicado"})
+    db.expire_all()
+    assert benchmark.consolidado(db)["lienzo"]["onecore"][k] == 2.0

@@ -916,3 +916,4 @@ textarea.tkimg-drop{outline:2px dashed var(--blue,#2563eb);outline-offset:2px}
 .fx-plazo.corto{background:#E2F5E9;color:#14613A}.fx-plazo.mediano{background:#FFF0C7;color:#7A4600}.fx-plazo.largo{background:#F1F4F6;color:#44525E}
 .fx-arg{padding:10px 12px;border-radius:10px;background:#0B3A53;color:#fff;font-size:13.5px;line-height:1.5}
 .fx-aviso{padding:6px 10px;border-radius:8px;background:#FFF6CC}
+.fx-corr{display:flex;flex-direction:column;gap:8px}

@@ -12,6 +12,8 @@
   </div>
 </div>
 
+{% macro vobo_btn() %}<details class="ev-ret"><summary class="btn soft">Depende del cliente: V°B°</summary>
+      <form method="post" action="/tickets/{{ t.id }}/vobo" class="ev-ret-f"><input class="input" name="nota" required minlength="5" placeholder="¿Qué debe validar o aprobar el cliente?" aria-label="Qué se espera del cliente"><button class="btn sm dark">Pasar a V°B° cliente</button></form></details>{% endmacro %}
 {% if t.estado in ('revision', 'vobo') %}{% set r = t.resolucion or {} %}{% set es_vobo = t.estado == 'vobo' %}
 <section class="card pad tkt-rev">
 {% set en_nombre = puede_aceptar and u.id != t.creado_por %}
@@ -28,9 +30,9 @@
       <button class="btn yellow">{{ icon('ok') }}Aceptar y cerrar</button></form>
     <details class="ev-ret"><summary class="btn soft">{{ 'Regresar a En curso' if en_nombre else 'No está resuelto' }}</summary>
       <form method="post" action="/tickets/{{ t.id }}/rechazar" class="ev-ret-f"><input class="input" name="motivo" required minlength="10" placeholder="¿Qué falta o qué sigue sin funcionar?" aria-label="Motivo"><button class="btn sm red">Regresar al ingeniero</button></form></details>
-    {% if not es_vobo %}<details class="ev-ret"><summary class="btn soft">Depende del cliente: V°B°</summary>
-      <form method="post" action="/tickets/{{ t.id }}/vobo" class="ev-ret-f"><input class="input" name="nota" required minlength="5" placeholder="¿Qué debe validar o aprobar el cliente?" aria-label="Qué se espera del cliente"><button class="btn sm dark">Pasar a V°B° cliente</button></form></details>{% endif %}
-  </div>{% else %}<span class="small muted">Lo cierra o lo regresa a «En curso» quien levantó el ticket, o quien tenga el permiso «Revisa tickets de otros» en su perfil.</span>{% endif %}
+    {% if not es_vobo %}{{ vobo_btn() }}{% endif %}
+  </div>{% else %}<div class="row" style="gap:10px;flex-wrap:wrap;align-items:flex-start">{% if not es_vobo %}{{ vobo_btn() }}{% endif %}
+    <span class="small muted" style="align-self:center">Lo cierra o lo regresa a «En curso» quien levantó el ticket, o quien tenga el permiso «Revisa tickets de otros» en su perfil. Cualquiera puede indicar que depende del V°B° del cliente.</span></div>{% endif %}
 </section>
 {% endif %}
 {% if pendiente %}<div class="cint"><span class="ic">{{ icon('users') }}</span><span>Viene del pendiente de cliente <a href="/clientes/pendientes/{{ pendiente.id }}"><b>{{ pendiente.folio }}</b></a>: avanza junto con este ticket.</span></div>{% endif %}

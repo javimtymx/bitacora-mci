@@ -115,6 +115,18 @@ def retirar(db: Session, u: Usuario, m: ModuloOneCore, cid: str, motivo: str) ->
     return None
 
 
+def calificaciones_factor(db: Session) -> dict[str, dict]:
+    """Calificaciones de OneCore corregidas por el equipo en el lienzo («OneCore también lo hace»): la última vigente
+    de cada factor manda sobre el promedio que dieron los análisis."""
+    out: dict[str, dict] = {}
+    for m in modulos(db, activos=False):
+        for c in vigentes(m):
+            if c.get("factor") and c.get("calificacion"):
+                if c["factor"] not in out or c["en"] > out[c["factor"]]["en"]:
+                    out[c["factor"]] = {**c, "modulo": m.nombre}
+    return out
+
+
 def texto_kardex(m: ModuloOneCore) -> str:
     """El kardex en texto, para integrarlo a la ficha con GuardIA."""
     out = []

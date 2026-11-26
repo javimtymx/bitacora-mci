@@ -33,6 +33,9 @@
     var el = e.target.closest && e.target.closest("[data-factor]");
     if (el && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); abrir(el.dataset.factor); }
   });
+  // después de corregir o confirmar algo desde la ventana, se regresa con ?factor=… y se vuelve a abrir
+  var q = new URLSearchParams(location.search).get("factor");
+  if (q) { abrir(q); history.replaceState(null, "", location.pathname); }
   cuerpo.addEventListener("submit", function (e) {
     var f = e.target.closest("[data-fx-explicar]");
     if (!f) return;

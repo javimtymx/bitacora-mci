@@ -1,7 +1,7 @@
-{% from "_ui.html" import icon with context %}
+{% from "_ui.html" import icon with context %}{% from "_oc_si.html" import oc_si, oc_tag with context %}
 <div class="fx-cab">
   <div class="col" style="gap:4px"><span class="small muted">Factor del lienzo estratégico</span><h2 id="fx-t" style="margin:0">{{ d.factor }}</h2></div>
-  <div class="fx-score"><span class="small">OneCore</span><b>{{ '%g'|format(d.onecore) if d.onecore is not none else '—' }}</b>
+  <div class="fx-score"><span class="small">OneCore{% if d.corregido %} · corregida{% endif %}</span><b>{{ '%g'|format(d.onecore) if d.onecore is not none else '—' }}</b>
     {% if d.brecha is not none %}<span class="small {{ 'fx-mal' if d.brecha < 0 else 'fx-bien' }}">{{ 'Abajo del mejor por ' ~ '%g'|format(-d.brecha) if d.brecha < 0 else ('Igual al mejor' if d.brecha == 0 else 'Arriba del mejor por ' ~ '%g'|format(d.brecha)) }}</span>{% endif %}</div>
 </div>
 
@@ -11,11 +11,36 @@
     <div class="row between"><span class="fx-nom"><i style="background:{{ c.color }}"></i><b>{{ c.nombre }}</b></span>
       <span class="fx-val {{ 'mas' if d.onecore is not none and c.valor > d.onecore else '' }}">{{ c.valor }}/5</span></div>
     {% if c.nota %}<span class="small">{{ c.nota }}</span>{% endif %}
-    {% for i in c.insights %}<div class="fx-ins small"><span class="tag {{ {'suyo':'r','nuestro':'g','oportunidad':'o'}.get(i.tipo, 'b') }}">{{ {'suyo':'Lo hace mejor','nuestro':'Nuestro','oportunidad':'Oportunidad','crear':'Crear','incrementar':'Incrementar'}.get(i.tipo, i.tipo) }}</span> <b>{{ i.titulo }}</b>{% if i.detalle %} — {{ i.detalle }}{% endif %}{% if i.cita %}<div class="pv-cita">«{{ i.cita }}»</div>{% endif %}</div>{% endfor %}
+    {% for i in c.insights %}<div class="fx-ins small"><span class="tag {{ {'suyo':'r','nuestro':'g','oportunidad':'o'}.get(i.tipo, 'b') }}">{{ {'suyo':'Lo hace mejor','nuestro':'Nuestro','oportunidad':'Oportunidad','crear':'Crear','incrementar':'Incrementar'}.get(i.tipo, i.tipo) }}</span> <b>{{ i.titulo }}</b>{% if i.detalle %} — {{ i.detalle }}{% endif %}{% if i.cita %}<div class="pv-cita">«{{ i.cita }}»</div>{% endif %}
+      {% if i.tipo != 'nuestro' %}<div style="margin-top:4px">{% if i.onecore %}{{ oc_tag(i.onecore, i.onecore_modulo.nombre if i.onecore_modulo else '') }}{% else %}{{ oc_si('/clientes/benchmark/insights/' ~ i.id ~ '/onecore', i.titulo, modulos_oc, {'volver': '/clientes/benchmark?factor=' ~ (d.clave|urlencode)}) }}{% endif %}</div>{% endif %}</div>{% endfor %}
     <a class="small" href="/clientes/benchmark/sesiones/{{ c.sesion.id }}">Ver la junta del {{ c.sesion.fecha.strftime('%d/%m/%Y') }} →</a>
   </div>
   {% endfor %}
 </div>
+
+<section class="fx-corr">
+  {% if d.corregido %}<div class="small"><span class="oc-tag si">{{ icon('ok', 12) }}Calificación corregida por el equipo</span>
+    {{ d.corregido.por_nombre }} · {{ d.corregido.en[:10] }} · {{ d.corregido.modulo }}: <b>{{ d.corregido.calificacion }}/5</b>{% if d.onecore_analisis is not none %} (los análisis decían {{ '%g'|format(d.onecore_analisis) }}){% endif %}.
+    <span class="muted">Cómo lo hacemos: {{ d.corregido.como }}{% if d.corregido.falta %} · le falta: {{ d.corregido.falta }}{% endif %}</span></div>{% endif %}
+  <details class="oc-si"><summary class="btn sm soft">{{ icon('ok', 13) }}{{ 'Volver a corregir lo que hace OneCore' if d.corregido else 'OneCore también lo hace: corregir su calificación' }}</summary>
+    <form method="post" action="/clientes/benchmark/factor/onecore" class="oc-si-f">
+      <input type="hidden" name="k" value="{{ d.clave }}">
+      <span class="small muted">Si el análisis subestimó a OneCore en «{{ d.factor }}», corrige la calificación y explica cómo lo hacemos. Queda en el kardex del módulo y el lienzo se recalcula.</span>
+      <div class="row" style="gap:10px;flex-wrap:wrap">
+        <select class="input" name="modulo_id" required aria-label="Módulo de OneCore" style="flex:1;min-width:200px"><option value="">¿Qué módulo lo hace?</option>{% for m in modulos_oc %}<option value="{{ m.id }}">{{ m.nombre }}</option>{% endfor %}</select>
+        <label class="small row" style="gap:6px">Calificación real de OneCore
+          <select class="input" name="calificacion" required style="width:80px">{% for v in range(1, 6) %}<option value="{{ v }}" {{ 'selected' if d.onecore is not none and v == (d.onecore|round|int) }}>{{ v }}</option>{% endfor %}</select></label></div>
+      <div class="row" style="gap:12px"><label class="check small"><input type="radio" name="nivel" value="si" checked data-oc-nivel>Lo hace completo</label>
+        <label class="check small"><input type="radio" name="nivel" value="parcial" data-oc-nivel>Lo hace en parte</label></div>
+      <label class="small"><b>¿Cómo lo hace OneCore?</b> En qué pantalla, función o práctica comercial, y qué obtiene el cliente.</label>
+      <textarea class="input" name="como" rows="3" maxlength="1500" required minlength="40" placeholder="Ej. Publicamos precio por módulo y por volumen de pedimentos en la propuesta; sin costos ocultos de implementación y con renovación anual al mismo precio."></textarea>
+      <label class="small"><b>¿En qué es diferente o mejor que {{ d.competidores[0].nombre if d.competidores else 'el competidor' }}?</b> <span class="muted">(opcional)</span></label>
+      <textarea class="input" name="diferencia" rows="2" maxlength="800"></textarea>
+      <div class="oc-falta" hidden><label class="small"><b>¿Qué le falta a OneCore?</b></label><textarea class="input" name="falta" rows="2" maxlength="800"></textarea></div>
+      <input class="input" name="evidencia" maxlength="300" placeholder="Evidencia (opcional): propuesta tipo, lista de precios, liga">
+      <button class="btn sm dark">{{ icon('ok', 13) }}Guardar en el kardex y recalcular</button>
+    </form></details>
+</section>
 
 {% if d.onecore_ficha %}
 <div class="fx-oc"><b class="small">Lo que OneCore ya tiene relacionado</b>

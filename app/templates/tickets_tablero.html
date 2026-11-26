@@ -46,6 +46,8 @@
       <div class="row" style="gap:4px"><button class="btn sm ghost kmov" type="button" data-a="cerrado" style="height:26px;padding:0 8px;font-size:11.5px">✓ Aceptar y cerrar</button>
         <button class="btn sm ghost kmov" type="button" data-a="en_curso" style="height:26px;padding:0 8px;font-size:11.5px">↩ Regresar a En curso</button>
         {% if clave == 'revision' %}<button class="btn sm ghost kmov" type="button" data-a="vobo" style="height:26px;padding:0 8px;font-size:11.5px">→ V°B° cliente</button>{% endif %}</div>
+      {% elif clave == 'revision' %}
+      <div class="row" style="gap:4px"><button class="btn sm ghost kmov" type="button" data-a="vobo" style="height:26px;padding:0 8px;font-size:11.5px">→ V°B° cliente</button></div>
       {% endif %}
     </div>
   {% else %}<span class="muted small vacio" style="padding:4px">Nada aquí.</span>{% endfor %}
@@ -130,6 +132,7 @@
   }
   function mover(card, estado) {
     if (estado === card.dataset.estado) return;
+    if (card.dataset.estado === "revision" && estado === "vobo") return revisar(card, estado);  // cualquiera puede
     if (card.dataset.estado === "revision" || card.dataset.estado === "vobo") {
       if (!card.dataset.revisa) return;
       if (estado === "cerrado" || estado === "en_curso" || (estado === "vobo" && card.dataset.estado === "revision")) return revisar(card, estado);

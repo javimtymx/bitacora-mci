@@ -895,8 +895,40 @@ def _sesion_comp(db: Session, sid: int) -> SesionCompetidor:
 # ---------------------------------------------------------------- detalle de un factor del lienzo (modal)
 
 def _fragmento_factor(request: Request, u: Usuario, d: dict, a, cambio: bool, error: str = ""):
+    from sqlalchemy.orm import object_session
     from .base import TEMPLATES
-    return TEMPLATES.TemplateResponse(request, "_factor_modal.html", {"u": u, "d": d, "a": a, "cambio": cambio, "error": error})
+    return TEMPLATES.TemplateResponse(request, "_factor_modal.html", {
+        "u": u, "d": d, "a": a, "cambio": cambio, "error": error, "modulos_oc": onecore.modulos(object_session(u))})
+
+
+@router.post("/clientes/benchmark/factor/onecore")
+def factor_onecore(request: Request, k: str = Form(""), modulo_id: OptInt = Form(None), nivel: str = Form("si"),
+                   calificacion: OptInt = Form(None), como: str = Form(""), diferencia: str = Form(""), falta: str = Form(""),
+                   evidencia: str = Form(""), db: Session = Depends(get_db), u: Usuario = Depends(requiere_lider)):
+    """«OneCore también lo hace» desde el factor del lienzo: corrige la calificación de OneCore en ese factor y deja en
+    el kardex del módulo cómo lo hacemos (con eso se recalcula el lienzo y los siguientes análisis lo usan)."""
+    from urllib.parse import quote
+    d = benchmark.detalle_factor(db, k)
+    if not d:
+        raise HTTPException(404, "Factor no encontrado.")
+    volver = f"/clientes/benchmark?factor={quote(k)}"
+    if not calificacion or not 1 <= calificacion <= 5:
+        flash(request, "Indica la calificación real de OneCore en este factor (1 a 5).", "error")
+        return ir(volver)
+    mejor = d["competidores"][0] if d["competidores"] else None
+    try:
+        m = _modulo(db, modulo_id)
+        onecore.confirmar(db, u, m, nivel, _datos_kardex(como, diferencia, falta, evidencia), {
+            "factor": k, "factor_nombre": d["factor"], "calificacion": calificacion,
+            "calificacion_antes": d["onecore"], "competidor": mejor["nombre"] if mejor else None,
+            "sesion_id": mejor["sesion"].id if mejor else None, "dijo": (mejor["nota"] if mejor else d["factor"])[:200]})
+    except ValueError as err:
+        flash(request, str(err), "error")
+        return ir(volver)
+    db.commit()
+    flash(request, f"OneCore en «{d['factor']}»: {('%g' % d['onecore']) if d['onecore'] is not None else '—'} → {calificacion}. "
+                   f"Quedó en el kardex de {m.nombre} con cómo lo hacemos; el lienzo y los siguientes análisis ya lo usan.")
+    return ir(volver)
 
 
 @router.get("/clientes/benchmark/factor")

@@ -244,8 +244,11 @@ def consolidado(db: Session) -> dict:
             onecore.setdefault(k, []).append(f["onecore"])
         series.append({"nombre": c.nombre, "color": COLORES[i % len(COLORES)], "valores": val, "sesion": s})
     claves = [_norm(f) for f in factores]
-    lienzo = {"factores": factores, "claves": claves,
-              "onecore": {k: round(sum(v) / len(v), 1) for k, v in onecore.items()}, "series": series}
+    from .onecore import calificaciones_factor
+    corr = {k: v for k, v in calificaciones_factor(db).items() if k in claves}  # corregidas por el equipo en el kardex
+    oc = {k: round(sum(v) / len(v), 1) for k, v in onecore.items()}
+    oc.update({k: float(v["calificacion"]) for k, v in corr.items()})
+    lienzo = {"factores": factores, "claves": claves, "onecore": oc, "corregidos": corr, "series": series}
     desde = hoy() - timedelta(days=180)
     ins = list(db.scalars(select(InsightBenchmark).join(SesionCompetidor).where(SesionCompetidor.fecha >= desde)
                           .order_by(InsightBenchmark.id.desc())))
@@ -355,13 +358,15 @@ def detalle_factor(db: Session, clave: str) -> dict | None:
                 ficha.append({"modulo": m.nombre, "tipo": c["nivel"], "texto": c["como"], "falta": c.get("falta", "")})
     mejor = comps[0]["valor"] if comps else None
     return {"clave": clave, "factor": factor, "onecore": oc, "competidores": comps, "onecore_ficha": ficha[:8],
+            "corregido": lz.get("corregidos", {}).get(clave),
+            "onecore_analisis": round(sum(c["onecore"] for c in comps) / len(comps), 1) if comps else None,
             "brecha": (oc - mejor) if (oc is not None and mejor is not None) else None}
 
 
 def _firma_factor(d: dict) -> str:
     import hashlib
     base = "|".join(f"{c['nombre']}:{c['valor']}:{c['nota']}:{c['sesion'].id}" for c in d["competidores"])
-    base += f"|oc:{d['onecore']}|" + "|".join(f"{x['modulo']}:{x['texto'][:80]}" for x in d["onecore_ficha"])
+    base += f"|oc:{d['onecore']}|" + (d["corregido"]["como"][:80] if d.get("corregido") else "") + "|" + "|".join(f"{x['modulo']}:{x['texto'][:80]}" for x in d["onecore_ficha"])
     return hashlib.sha256(base.encode()).hexdigest()[:32]
 
 
@@ -381,7 +386,7 @@ def explicar_factor(db: Session, d: dict, u) -> "AnalisisFactor":
         for c in d["competidores"])
     prompt = f"""Eres analista de estrategia de OneCore (software de cumplimiento de comercio exterior en México). En el lienzo
 estratégico (Océano Azul) el factor «{d['factor']}» tiene estas calificaciones (1 = débil, 5 = fuerte):
-OneCore: {d['onecore']}/5 (promedio de las juntas).
+OneCore: {d['onecore']}/5{(' (corregido por el equipo; así lo hace OneCore: ' + d['corregido']['como'] + (' · le falta: ' + d['corregido']['falta'] if d['corregido'].get('falta') else '') + ')') if d.get('corregido') else ' (promedio de las juntas)'}.
 Competidores, con lo que dijeron en sus juntas:
 {comps}
 
