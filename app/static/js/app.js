@@ -340,3 +340,13 @@
   const el = document.querySelector("[data-auto-refresh]");
   if (el) setTimeout(() => location.reload(), (parseInt(el.dataset.autoRefresh, 10) || 6) * 1000);
 })();
+
+/* «OneCore sí lo hace»: si lo hace en parte, se pide qué le falta */
+document.addEventListener("change", function (e) {
+  var r = e.target.closest && e.target.closest("[data-oc-nivel]");
+  if (!r) return;
+  var f = r.closest("form"), box = f.querySelector(".oc-falta"), t = box && box.querySelector("textarea");
+  if (!box) return;
+  var parcial = f.querySelector("[data-oc-nivel]:checked").value === "parcial";
+  box.hidden = !parcial; t.required = parcial; t.minLength = parcial ? 10 : 0;
+});

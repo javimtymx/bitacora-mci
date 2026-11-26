@@ -138,6 +138,9 @@ def analizar(db: Session, s: SesionCompetidor) -> SesionCompetidor:
     res, meta = ia.cliente().pedir_json(contenido, max_tokens=8000)
     tn = _norm(texto)
     descartadas = 0
+    # al volver a analizar, lo que ya se envió a Ideas o se confirmó en el kardex se conserva en el insight equivalente
+    previos = {(i.tipo, _norm(i.titulo)): (i.idea_id, i.onecore, i.onecore_modulo_id) for i in s.insights
+               if i.idea_id or i.onecore}
     for i in list(s.insights):
         db.delete(i)
     db.flush()
@@ -164,6 +167,12 @@ def analizar(db: Session, s: SesionCompetidor) -> SesionCompetidor:
         imp = str(it.get("impacto") or "media").lower()
         db.add(InsightBenchmark(sesion_id=s.id, tipo=tp, titulo=str(it["titulo"])[:200], detalle=str(it.get("detalle") or "")[:1500],
                                 cita=cita[:1500], impacto=imp if imp in ("alta", "media", "baja") else "media"))
+    db.flush()
+    if previos:
+        for i in db.scalars(select(InsightBenchmark).where(InsightBenchmark.sesion_id == s.id)):
+            pr = previos.get((i.tipo, _norm(i.titulo)))
+            if pr:
+                i.idea_id, i.onecore, i.onecore_modulo_id = pr
     factores = []
     for f in (res.get("factores") or [])[:10]:
         if isinstance(f, dict) and f.get("factor"):
@@ -251,10 +260,12 @@ def agrupar(ins: list[InsightBenchmark]) -> list[dict]:
     peso = {"alta": 3, "media": 2, "baja": 1}
     for i in ins:
         g = grupos.setdefault(_norm(i.titulo), {"titulo": i.titulo, "detalle": i.detalle, "cita": i.cita, "impacto": i.impacto,
-                                                "fuentes": [], "ids": [], "idea_id": None})
+                                                "fuentes": [], "ids": [], "idea_id": None, "onecore": "", "modulo": None})
         g["fuentes"].append(i.sesion)
         g["ids"].append(i.id)
         g["idea_id"] = g["idea_id"] or i.idea_id
+        if i.onecore and not g["onecore"]:
+            g["onecore"], g["modulo"] = i.onecore, i.onecore_modulo
         if not g["cita"] and i.cita:
             g["cita"] = i.cita
         if peso.get(i.impacto, 2) > peso.get(g["impacto"], 2):

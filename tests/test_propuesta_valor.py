@@ -218,3 +218,74 @@ def test_base_onecore_alimenta_benchmark_e_ideas(admin, db, fake):
     db.refresh(ins)
     assert ins.idea_id and "En Ideas" in admin.get(f"/clientes/benchmark/sesiones/{s.id}").text
     assert admin.post(f"/clientes/benchmark/sesiones/{s.id}/idea", data={"clave": "mapa.productos.9"}).status_code == 404
+
+
+def test_onecore_si_lo_hace_alimenta_el_kardex(admin, db, fake):
+    from app.services import innovacion
+    tx = ("Competidor: tenemos reintento automático ante fallas de VUCEM y validamos documentos por Incoterm. ") * 8
+    fake.respuestas = [{"resumen": "r", "propuesta_competidor": "p",
+                        "perfil": {"trabajos": [], "dolores": [{"texto": "Transmitir aunque VUCEM falle", "onecore": "no"}], "ganancias": []},
+                        "mapa": {"productos": [], "aliviadores": [], "creadores": []}, "factores": [], "eric": {},
+                        "insights": [{"tipo": "suyo", "titulo": "Reintento automático ante fallas de VUCEM", "impacto": "media",
+                                      "cita": "tenemos reintento automático ante fallas de VUCEM"},
+                                     {"tipo": "oportunidad", "titulo": "Validación por Incoterm", "impacto": "alta",
+                                      "cita": "validamos documentos por Incoterm"}],
+                        "recomendacion": {"modificar": False, "que": "", "porque": ""}}]
+    admin.post("/clientes/benchmark/sesiones", data={"competidor_nuevo": "Camtom", "fecha": hoy().isoformat()},
+               files=[("archivo", ("t.txt", tx.encode(), "text/plain"))])
+    s = db.scalar(select(SesionCompetidor))
+    html = admin.get(f"/clientes/benchmark/sesiones/{s.id}").text
+    assert "OneCore sí lo hace" in html and "¿Cómo lo hace OneCore?" in html
+    ins = db.scalar(select(InsightBenchmark).where(InsightBenchmark.tipo == "suyo"))
+    safe = db.scalar(select(ModuloOneCore).where(ModuloOneCore.nombre == "Smart Files"))
+    # no basta con «sí lo hace»: se pide cómo
+    admin.post(f"/clientes/benchmark/insights/{ins.id}/onecore", data={"modulo_id": safe.id, "nivel": "si", "como": "sí"})
+    db.refresh(ins)
+    assert ins.onecore == "" and not safe.confirmaciones
+    # en parte, pide qué le falta
+    admin.post(f"/clientes/benchmark/insights/{ins.id}/onecore", data={
+        "modulo_id": safe.id, "nivel": "parcial", "como": "El robot de Smart Files reintenta la descarga de VUCEM cada hora durante 24 horas."})
+    db.refresh(ins)
+    assert ins.onecore == ""
+    admin.post(f"/clientes/benchmark/insights/{ins.id}/onecore", data={
+        "modulo_id": safe.id, "nivel": "parcial", "como": "El robot de Smart Files reintenta la descarga de VUCEM cada hora durante 24 horas.",
+        "diferencia": "Además avisa por correo al analista", "falta": "No reintenta la transmisión del pedimento, solo la descarga"})
+    db.refresh(ins)
+    db.refresh(safe)
+    assert ins.onecore == "parcial" and ins.onecore_modulo_id == safe.id
+    k = safe.confirmaciones[0]
+    assert k["competidor"] == "Camtom" and "reintenta la descarga" in k["como"] and "transmisión" in k["falta"]
+    op = db.scalar(select(InsightBenchmark).where(InsightBenchmark.tipo == "oportunidad"))
+    admin.post(f"/clientes/benchmark/insights/{op.id}/onecore", data={
+        "modulo_id": safe.id, "nivel": "si", "volver": "/clientes/benchmark",
+        "como": "Smart Files valida el tipo de documento según el Incoterm del pedimento y marca faltantes por operación."})
+    db.refresh(op)
+    assert op.onecore == "si"
+    assert op not in innovacion.fuentes(db)["benchmark"] and ins in innovacion.fuentes(db)["benchmark"]  # «en parte» sigue siendo oportunidad
+    panel = admin.get("/clientes/benchmark").text
+    assert "OneCore lo hace en parte · Smart Files" in panel
+    # lienzo
+    admin.post(f"/clientes/benchmark/sesiones/{s.id}/onecore", data={"clave": "perfil.dolores.0", "modulo_id": safe.id, "nivel": "si",
+                                                                      "como": "El robot sigue intentando la descarga de VUCEM y avisa cuando lo logra."})
+    assert "OneCore sí lo hace · Smart Files" in admin.get(f"/clientes/benchmark/sesiones/{s.id}").text
+    # la ficha del módulo muestra el kardex e integra con GuardIA
+    db.refresh(safe)
+    page = admin.get(f"/clientes/benchmark/onecore?m={safe.id}").text
+    assert "Kardex" in page and "Camtom" in page and "Integrar a la ficha" in page
+    fake.respuestas = [{"funciones": "Reintento de descarga de VUCEM\nValidación por Incoterm", "no_hace": "No reintenta la transmisión"}]
+    page = admin.post(f"/clientes/benchmark/onecore/{safe.id}/integrar").text
+    assert "Propuesta de Guard" in page and "Validación por Incoterm" in page and "Camtom" in fake.prompts[-1]
+    # retirar con motivo: deja de usarse y el insight vuelve a quedar abierto
+    admin.post(f"/clientes/benchmark/onecore/{safe.id}/kardex/{k['id']}/retirar", data={"motivo": "Lo confundimos con otra función"})
+    db.refresh(ins)
+    db.refresh(safe)
+    assert ins.onecore == "" and safe.confirmaciones[0]["retirada"] and len(safe.confirmaciones) == 3
+    # el siguiente análisis ya trae el cómo de lo confirmado (y no lo retirado); lo confirmado se conserva al re-analizar
+    fake.respuestas = [{"resumen": "r", "insights": [{"tipo": "oportunidad", "titulo": "Validación por Incoterm", "impacto": "alta",
+                                                     "cita": "validamos documentos por Incoterm"}]}]
+    admin.post(f"/clientes/benchmark/sesiones/{s.id}/analizar")
+    p = str(fake.prompts[-1])
+    assert "valida el tipo de documento según el Incoterm" in p and "reintenta la descarga de VUCEM cada hora" not in p
+    db.expire_all()
+    nuevo = db.scalar(select(InsightBenchmark).where(InsightBenchmark.tipo == "oportunidad"))
+    assert nuevo.onecore == "si"

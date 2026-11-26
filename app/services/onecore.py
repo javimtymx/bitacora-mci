@@ -32,7 +32,9 @@ def modulos(db: Session, activos: bool = True) -> list[ModuloOneCore]:
 
 def completitud(m: ModuloOneCore) -> int:
     hechos = sum(1 for c in DETALLE if len((getattr(m, c) or "").strip()) >= 20)
-    return round(hechos / len(DETALLE) * 100)
+    if len(vigentes(m)) >= 3 and len((m.funciones or "").strip()) < 20:  # el kardex cuenta como funciones descritas
+        hechos += 1
+    return min(100, round(hechos / len(DETALLE) * 100))
 
 
 def resumen_global(db: Session) -> dict:
@@ -56,10 +58,71 @@ def texto_portafolio(db: Session, max_chars: int = 12000) -> str:
             v = (getattr(m, c) or "").strip()
             if v:
                 partes.append(f"{etiqueta}: {v}")
+        conf = vigentes(m)
+        if conf:
+            partes.append("Confirmado por el equipo al comparar con competidores (cómo lo hacemos):\n" + "\n".join(
+                f"- {'SÍ lo hace' if c['nivel'] == 'si' else 'Lo hace EN PARTE'}: {c['como']}"
+                + (f" | Diferencia: {c['diferencia']}" if c.get("diferencia") else "")
+                + (f" | Le falta: {c['falta']}" if c.get("falta") else "") for c in conf[-25:]))
         bloques.append("\n".join(partes)[:por_modulo])
     aviso = ("(Lo de cada módulo es lo que OneCore SÍ hace hoy; «Lo que NO hace hoy» son límites reales: no califiques "
              "a OneCore como que cubre algo que aparece ahí o que no está descrito.)")
     return (aviso + "\n" + "\n\n".join(bloques))[:max_chars]
+
+
+NIVELES = {"si": "OneCore sí lo hace", "parcial": "OneCore lo hace en parte"}
+MIN_COMO = 40  # una explicación de verdad, no solo «sí lo hace»
+
+
+def vigentes(m: ModuloOneCore) -> list[dict]:
+    return [c for c in (m.confirmaciones or []) if not c.get("retirada")]
+
+
+def confirmar(db: Session, u: Usuario, m: ModuloOneCore, nivel: str, datos: dict, origen: dict) -> dict:
+    """Agrega al kardex del módulo algo que el benchmark creía que OneCore no hace y que sí hace (o en parte),
+    con el detalle de CÓMO lo hace: así la ficha del módulo se vuelve más robusta con cada competidor."""
+    import uuid
+    if nivel not in NIVELES:
+        raise ValueError("Indica si OneCore lo hace completo o en parte.")
+    como = (datos.get("como") or "").strip()
+    if len(como) < MIN_COMO:
+        raise ValueError("Explica cómo lo hace OneCore (al menos una o dos frases: en qué pantalla o función, qué pasos "
+                         "y qué resultado obtiene el cliente). Con eso GuardIA lo compara bien la próxima vez.")
+    falta = (datos.get("falta") or "").strip()
+    if nivel == "parcial" and len(falta) < 10:
+        raise ValueError("Si lo hace en parte, escribe qué le falta a OneCore frente al competidor.")
+    e = {"id": uuid.uuid4().hex[:10], "nivel": nivel, "como": como[:1500], "diferencia": (datos.get("diferencia") or "").strip()[:800],
+         "falta": falta[:800], "evidencia": (datos.get("evidencia") or "").strip()[:300], "por": u.id, "por_nombre": u.nombre,
+         "en": utcnow().isoformat(timespec="seconds"), **{k: v for k, v in origen.items() if v is not None}}
+    m.confirmaciones = list(m.confirmaciones or []) + [e]
+    m.actualizado, m.actualizado_por = utcnow(), u.id
+    auditar(db, "kardex_onecore", "modulo_onecore", m.id, u.id, nivel=nivel, competidor=origen.get("competidor"))
+    return e
+
+
+def retirar(db: Session, u: Usuario, m: ModuloOneCore, cid: str, motivo: str) -> dict | None:
+    """No se borra: queda retirada con motivo y deja de usarse en los análisis."""
+    motivo = (motivo or "").strip()
+    if len(motivo) < 5:
+        raise ValueError("Escribe por qué se retira (ej. «se confundió con otra función»).")
+    lista = [dict(c) for c in (m.confirmaciones or [])]
+    for c in lista:
+        if c.get("id") == cid and not c.get("retirada"):
+            c.update(retirada=True, retirada_por=u.nombre, retirada_en=utcnow().isoformat(timespec="seconds"), motivo=motivo[:300])
+            m.confirmaciones = lista
+            auditar(db, "kardex_retirar", "modulo_onecore", m.id, u.id)
+            return c
+    return None
+
+
+def texto_kardex(m: ModuloOneCore) -> str:
+    """El kardex en texto, para integrarlo a la ficha con GuardIA."""
+    out = []
+    for c in vigentes(m):
+        out.append(f"- [{NIVELES[c['nivel']]}] Frente a {c.get('competidor', 'un competidor')} («{c.get('dijo', '')}»): {c['como']}"
+                   + (f" Diferencia: {c['diferencia']}" if c.get("diferencia") else "")
+                   + (f" Le falta: {c['falta']}" if c.get("falta") else ""))
+    return "\n".join(out)
 
 
 def nombres(db: Session) -> list[str]:

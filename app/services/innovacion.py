@@ -45,7 +45,8 @@ def fuentes(db: Session) -> dict:
     # De las sesiones de la agenda solo llega la propuesta de valor, como hallazgos de Voz del Cliente.
     quejas: list[PendienteCliente] = []
     bench = list(db.scalars(select(InsightBenchmark).join(SesionCompetidor).where(
-        SesionCompetidor.fecha >= desde, InsightBenchmark.tipo.in_(("oportunidad", "suyo", "crear", "incrementar")))))
+        SesionCompetidor.fecha >= desde, InsightBenchmark.tipo.in_(("oportunidad", "suyo", "crear", "incrementar")),
+        InsightBenchmark.onecore != "si")))  # lo que OneCore ya hace (confirmado en el kardex) no es oportunidad
     return {"ideas": ideas, "hallazgos": hall, "objeciones": objs, "quejas": quejas, "benchmark": bench,
             "aprobadas": sum(1 for i in ideas if i.estado in ("validada", "en_curso"))}
 

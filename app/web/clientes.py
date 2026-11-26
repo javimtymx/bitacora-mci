@@ -841,7 +841,7 @@ def _puede_ver_trans(u: Usuario, s: SesionCompetidor) -> bool:
 def panel_benchmark(request: Request, db: Session = Depends(get_db), u: Usuario = Depends(requiere_lider)):
     con = benchmark.consolidado(db)
     return render(request, "clientes_benchmark.html", u, "clientes-benchmark", con=con, svg=benchmark.svg_lienzo(con["lienzo"]),
-                  tipos=INSIGHT_TIPOS, base_oc=onecore.resumen_global(db))
+                  tipos=INSIGHT_TIPOS, base_oc=onecore.resumen_global(db), modulos_oc=onecore.modulos(db))
 
 
 @router.post("/clientes/benchmark/sesiones")
@@ -899,7 +899,8 @@ def onecore_base(request: Request, m: OptInt = None, db: Session = Depends(get_d
     ms = onecore.modulos(db, activos=False)
     sel = next((x for x in ms if x.id == m), None)
     return render(request, "clientes_benchmark_onecore.html", u, "clientes-benchmark", modulos=ms, sel=sel, campos=onecore.CAMPOS,
-                  completitud=onecore.completitud, base_oc=onecore.resumen_global(db), propuesta=None)
+                  completitud=onecore.completitud, base_oc=onecore.resumen_global(db), propuesta=None,
+                  niveles=onecore.NIVELES, vigentes=onecore.vigentes)
 
 
 @router.post("/clientes/benchmark/onecore")
@@ -954,7 +955,119 @@ def onecore_extraer(mid: int, request: Request, texto: str = Form(""), db: Sessi
         return ir(f"/clientes/benchmark/onecore?m={x.id}")
     ms = onecore.modulos(db, activos=False)
     return render(request, "clientes_benchmark_onecore.html", u, "clientes-benchmark", modulos=ms, sel=x, campos=onecore.CAMPOS,
-                  completitud=onecore.completitud, base_oc=onecore.resumen_global(db), propuesta=propuesta)
+                  completitud=onecore.completitud, base_oc=onecore.resumen_global(db), propuesta=propuesta,
+                  niveles=onecore.NIVELES, vigentes=onecore.vigentes)
+
+
+# ---------------------------------------------------------------- «OneCore sí lo hace»: kardex desde el benchmark
+
+def _modulo(db: Session, mid):
+    from ..models import ModuloOneCore
+    m = db.get(ModuloOneCore, mid) if mid else None
+    if not m:
+        raise ValueError("Elige el módulo de OneCore que lo hace.")
+    return m
+
+
+def _datos_kardex(como: str, diferencia: str, falta: str, evidencia: str) -> dict:
+    return {"como": como, "diferencia": diferencia, "falta": falta, "evidencia": evidencia}
+
+
+@router.post("/clientes/benchmark/insights/{iid}/onecore")
+def insight_onecore(iid: int, request: Request, modulo_id: OptInt = Form(None), nivel: str = Form("si"), como: str = Form(""),
+                    diferencia: str = Form(""), falta: str = Form(""), evidencia: str = Form(""), ids: str = Form(""),
+                    volver: str = Form(""), db: Session = Depends(get_db), u: Usuario = Depends(requiere_lider)):
+    """El análisis lo marcó como diferenciador del competidor u oportunidad, pero OneCore sí lo hace: va al kardex
+    del módulo con el detalle de cómo lo hacemos."""
+    ins = db.get(InsightBenchmark, iid)
+    if not ins:
+        raise HTTPException(404)
+    destino = volver if volver.startswith("/clientes/benchmark") else f"/clientes/benchmark/sesiones/{ins.sesion_id}"
+    try:
+        m = _modulo(db, modulo_id)
+        e = onecore.confirmar(db, u, m, nivel, _datos_kardex(como, diferencia, falta, evidencia), {
+            "competidor": ins.sesion.competidor.nombre, "sesion_id": ins.sesion_id, "insight_id": ins.id,
+            "fecha": ins.sesion.fecha.isoformat(), "dijo": ins.titulo[:200]})
+    except ValueError as err:
+        flash(request, str(err), "error")
+        return ir(destino + f"#ins-{ins.id}")
+    grupo = {ins.id} | {int(x) for x in ids.split(",") if x.strip().isdigit()}  # el mismo insight dicho por varios competidores
+    tocados = []
+    for x in db.scalars(select(InsightBenchmark).where(InsightBenchmark.id.in_(grupo))):
+        x.onecore, x.onecore_modulo_id = nivel, m.id
+        tocados.append(x.id)
+    m.confirmaciones = [dict(c, insights=tocados) if c["id"] == e["id"] else c for c in m.confirmaciones]
+    db.commit()
+    flash(request, f"Agregado al kardex de {m.nombre} con el detalle de cómo lo hacemos. Los siguientes análisis de competidores, "
+                   "la venta nueva y las propuestas de valor ya lo toman en cuenta"
+                   + (" y deja de contar como oportunidad en el Círculo." if nivel == "si" else "."))
+    return ir(destino)
+
+
+@router.post("/clientes/benchmark/sesiones/{sid}/onecore")
+def lienzo_onecore(sid: int, request: Request, clave: str = Form(...), modulo_id: OptInt = Form(None), nivel: str = Form("si"),
+                   como: str = Form(""), diferencia: str = Form(""), falta: str = Form(""), evidencia: str = Form(""),
+                   db: Session = Depends(get_db), u: Usuario = Depends(requiere_lider)):
+    """Un elemento del lienzo marcado «OneCore: no/parcial» que en realidad sí hacemos."""
+    s = _sesion_comp(db, sid)
+    r = dict(s.resultado or {})
+    try:
+        bloque, k, idx = clave.split(".")
+        x = (r.get(bloque) or {}).get(k, [])[int(idx)]
+    except (ValueError, IndexError, AttributeError):
+        raise HTTPException(404)
+    try:
+        m = _modulo(db, modulo_id)
+        onecore.confirmar(db, u, m, nivel, _datos_kardex(como, diferencia, falta, evidencia),
+                          {"competidor": s.competidor.nombre, "sesion_id": s.id, "clave": clave, "fecha": s.fecha.isoformat(),
+                           "dijo": x["texto"][:200]})
+    except ValueError as err:
+        flash(request, str(err), "error")
+        return ir(f"/clientes/benchmark/sesiones/{sid}")
+    r["onecore_si"] = {**(r.get("onecore_si") or {}), clave: {"nivel": nivel, "modulo": m.nombre, "modulo_id": m.id}}
+    s.resultado = r
+    db.commit()
+    flash(request, f"Agregado al kardex de {m.nombre}; los siguientes análisis ya lo toman en cuenta.")
+    return ir(f"/clientes/benchmark/sesiones/{sid}")
+
+
+@router.post("/clientes/benchmark/onecore/{mid}/kardex/{cid}/retirar")
+def kardex_retirar(mid: int, cid: str, request: Request, motivo: str = Form(""), db: Session = Depends(get_db),
+                   u: Usuario = Depends(requiere_lider)):
+    try:
+        m = _modulo(db, mid)
+        c = onecore.retirar(db, u, m, cid, motivo)
+    except ValueError as err:
+        flash(request, str(err), "error")
+        return ir(f"/clientes/benchmark/onecore?m={mid}#kardex")
+    if c:
+        for x in db.scalars(select(InsightBenchmark).where(InsightBenchmark.id.in_(c.get("insights") or [c.get("insight_id") or 0]))):
+            x.onecore, x.onecore_modulo_id = "", None
+        if c.get("clave") and c.get("sesion_id"):
+            s = db.get(SesionCompetidor, c["sesion_id"])
+            if s:
+                r = dict(s.resultado or {})
+                r["onecore_si"] = {k: v for k, v in (r.get("onecore_si") or {}).items() if k != c["clave"]}
+                s.resultado = r
+        db.commit()
+        flash(request, "Retirado del kardex (queda en el historial con el motivo).")
+    return ir(f"/clientes/benchmark/onecore?m={mid}#kardex")
+
+
+@router.post("/clientes/benchmark/onecore/{mid}/integrar")
+def kardex_integrar(mid: int, request: Request, db: Session = Depends(get_db), u: Usuario = Depends(requiere_lider)):
+    """GuardIA integra lo confirmado en el kardex a la ficha del módulo (funciones, proceso, diferenciadores, límites).
+    No guarda solo: deja la propuesta en el formulario para revisarla."""
+    try:
+        m = _modulo(db, mid)
+        texto = onecore.texto_kardex(m)
+        propuesta = onecore.extraer(db, m, "Confirmaciones del equipo al compararnos con competidores:\n" + texto)
+    except (ia.IANoDisponible, ValueError) as e:
+        flash(request, str(e)[:200], "error")
+        return ir(f"/clientes/benchmark/onecore?m={mid}")
+    return render(request, "clientes_benchmark_onecore.html", u, "clientes-benchmark", modulos=onecore.modulos(db, activos=False),
+                  sel=m, campos=onecore.CAMPOS, completitud=onecore.completitud, base_oc=onecore.resumen_global(db),
+                  propuesta=propuesta, niveles=onecore.NIVELES, vigentes=onecore.vigentes)
 
 
 # ---------------------------------------------------------------- del benchmark a Ideas a evaluar
@@ -1041,7 +1154,8 @@ def ver_sesion_competidor(sid: int, request: Request, db: Session = Depends(get_
                           "valores": {f["factor"]: f["competidor"] for f in (s.resultado or {}).get("factores", [])}}]}
     return render(request, "clientes_benchmark_sesion.html", u, "clientes-benchmark", s=s, svg=benchmark.svg_lienzo(lienzo, 900, 280),
                   tipos=INSIGHT_TIPOS, ve_trans=_puede_ver_trans(u, s), atorado=vozcliente.analisis_atorado(s),
-                  base_oc=onecore.resumen_global(db), ideas_lienzo=(s.resultado or {}).get("ideas", {}))
+                  base_oc=onecore.resumen_global(db), ideas_lienzo=(s.resultado or {}).get("ideas", {}),
+                  modulos_oc=onecore.modulos(db), oc_lienzo=(s.resultado or {}).get("onecore_si", {}))
 
 
 @router.post("/clientes/benchmark/sesiones/{sid}/analizar")

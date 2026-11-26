@@ -45,6 +45,23 @@
       <div class="row between"><button class="btn yellow">{{ icon('ok', 15) }}Guardar</button>
         <button class="btn sm ghost" name="accion" value="activo" formnovalidate>{{ 'Dejar de usar en comparativos' if sel.activo else 'Volver a usar en comparativos' }}</button></div>
     </form>
+    {% set kx = vigentes(sel) %}
+    <section class="card pad col" id="kardex" style="gap:10px">
+      <div class="row between"><h2>Kardex: confirmado en los benchmarks <span class="small muted">· {{ kx|length }}</span></h2>
+        {% if kx %}<form method="post" action="/clientes/benchmark/onecore/{{ sel.id }}/integrar"><button class="btn sm aibtn" title="GuardIA integra lo confirmado a la ficha (funciones, proceso, diferenciadores, límites) para que la revises">{{ icon('ia', 14) }}Integrar a la ficha</button></form>{% endif %}</div>
+      <span class="small muted">Cada vez que en un benchmark alguien marca «OneCore sí lo hace» y explica cómo, queda aquí con su competidor y fecha. GuardIA ya lo usa en los análisis; «Integrar a la ficha» lo incorpora a la descripción del módulo.</span>
+      {% for c in kx|reverse %}<div class="oc-kx {{ c.nivel }}">
+        <div class="row between" style="gap:8px"><span class="oc-tag {{ c.nivel }}">{{ niveles[c.nivel] }}</span>
+          <span class="small muted">{% if c.sesion_id %}<a href="/clientes/benchmark/sesiones/{{ c.sesion_id }}">{{ c.competidor }}</a>{% else %}{{ c.competidor }}{% endif %} · {{ c.en[:10] }} · {{ c.por_nombre }}</span></div>
+        {% if c.dijo %}<span class="small muted">El competidor: «{{ c.dijo }}»</span>{% endif %}
+        <span><b>Cómo lo hacemos:</b> {{ c.como }}</span>
+        {% if c.diferencia %}<span class="small"><b>Diferencia:</b> {{ c.diferencia }}</span>{% endif %}
+        {% if c.falta %}<span class="small"><b>Le falta a OneCore:</b> {{ c.falta }}</span>{% endif %}
+        {% if c.evidencia %}<span class="small muted">Evidencia: {{ c.evidencia }}</span>{% endif %}
+        <details class="ev-ret"><summary class="small muted" style="cursor:pointer">Retirar</summary>
+          <form method="post" action="/clientes/benchmark/onecore/{{ sel.id }}/kardex/{{ c.id }}/retirar" class="ev-ret-f"><input class="input" name="motivo" required minlength="5" placeholder="¿Por qué se retira?" aria-label="Motivo"><button class="btn sm red">Retirar</button></form></details>
+      </div>{% else %}<span class="small muted">Aún no hay confirmaciones. En el benchmark, usa «OneCore sí lo hace» en los diferenciadores del competidor, las oportunidades o el lienzo.</span>{% endfor %}
+    </section>
   {% endif %}
   </section>
 </div>

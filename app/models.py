@@ -1031,6 +1031,8 @@ class ModuloOneCore(Base):
     diferenciadores: Mapped[str] = mapped_column(Text, default="")
     no_hace: Mapped[str] = mapped_column(Text, default="")          # límites conocidos: evita que la IA nos sobrecalifique
     en_desarrollo: Mapped[str] = mapped_column(Text, default="")
+    # kardex: lo que se confirmó en cada benchmark que OneCore sí hace (o hace en parte), con cómo lo hace y su fuente
+    confirmaciones: Mapped[list] = mapped_column(JSON, default=list)
     orden: Mapped[int] = mapped_column(Integer, default=0)
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
     historial: Mapped[list] = mapped_column(JSON, default=list)
@@ -1051,9 +1053,12 @@ class InsightBenchmark(Base):
     cita: Mapped[str] = mapped_column(Text, default="")
     impacto: Mapped[str] = mapped_column(String(8), default="media")
     idea_id: Mapped[int | None] = mapped_column(ForeignKey("ideas.id"))  # ya se envió a Ideas a evaluar
+    onecore: Mapped[str] = mapped_column(String(8), default="")        # si | parcial: alguien confirmó que OneCore lo hace
+    onecore_modulo_id: Mapped[int | None] = mapped_column(ForeignKey("modulos_onecore.id"))
     creado: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     sesion: Mapped[SesionCompetidor] = relationship(back_populates="insights")
+    onecore_modulo: Mapped["ModuloOneCore | None"] = relationship()
 
 
 # ---------------------------------------------------------------- compromisos archivados

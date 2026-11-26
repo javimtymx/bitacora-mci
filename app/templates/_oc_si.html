@@ -1,0 +1,23 @@
+{# «OneCore sí lo hace»: lo que el análisis creyó que OneCore no hace se agrega al kardex del módulo, con el detalle de
+   CÓMO lo hacemos (no solo un sí), para que cada benchmark deje más robusta la ficha de OneCore. #}
+{% macro oc_si(action, dijo, modulos, extra={}) %}
+<details class="oc-si"><summary class="bm-idea oc-si-btn" title="El análisis cree que OneCore no lo hace. Si sí lo hacemos, explica cómo y se agrega al kardex del módulo.">{{ icon('ok', 12) }}OneCore sí lo hace</summary>
+  <form method="post" action="{{ action }}" class="oc-si-f">
+    {% for k, v in extra.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+    <span class="small muted">El competidor: «{{ dijo }}»</span>
+    <select class="input" name="modulo_id" required aria-label="Módulo de OneCore"><option value="">¿Qué módulo lo hace?</option>
+      {% for m in modulos %}<option value="{{ m.id }}">{{ m.nombre }}</option>{% endfor %}</select>
+    <div class="row" style="gap:12px"><label class="check small"><input type="radio" name="nivel" value="si" checked data-oc-nivel>Lo hace completo</label>
+      <label class="check small"><input type="radio" name="nivel" value="parcial" data-oc-nivel>Lo hace en parte</label></div>
+    <label class="small"><b>¿Cómo lo hace OneCore?</b> En qué pantalla o función, qué pasos sigue el usuario y qué resultado obtiene.</label>
+    <textarea class="input" name="como" rows="3" maxlength="1500" required minlength="40"
+      placeholder="Ej. En SAFE › Validación, al cargar el archivo M se validan 120 reglas contra la TIGIE y el padrón; el analista ve el semáforo por pedimento y descarga el PDF de observaciones antes de pagar."></textarea>
+    <label class="small"><b>¿En qué es diferente o mejor que el competidor?</b> <span class="muted">(opcional)</span></label>
+    <textarea class="input" name="diferencia" rows="2" maxlength="800" placeholder="Ej. Lo hacemos antes del pago y con reglas por cliente; ellos solo después."></textarea>
+    <div class="oc-falta" hidden><label class="small"><b>¿Qué le falta a OneCore?</b></label>
+      <textarea class="input" name="falta" rows="2" maxlength="800" placeholder="Ej. No trae los e-documents automáticamente; se cargan a mano."></textarea></div>
+    <input class="input" name="evidencia" maxlength="300" placeholder="Evidencia (opcional): manual, liga a la pantalla, cliente que lo usa">
+    <button class="btn sm dark">{{ icon('ok', 13) }}Agregar al kardex de OneCore</button>
+  </form></details>
+{% endmacro %}
+{% macro oc_tag(nivel, modulo) %}<span class="oc-tag {{ nivel }}" title="Confirmado en el kardex de lo que hace OneCore">{{ icon('ok', 12) }}{{ 'OneCore sí lo hace' if nivel == 'si' else 'OneCore lo hace en parte' }}{% if modulo %} · {{ modulo }}{% endif %}</span>{% endmacro %}
