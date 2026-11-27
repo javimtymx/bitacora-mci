@@ -329,25 +329,37 @@ def _relacionado(texto: str, raices: set[str]) -> bool:
 def detalle_factor(db: Session, clave: str) -> dict | None:
     """Todo lo que hay de un factor: calificación y nota de cada competidor (su último análisis), los insights de esas
     juntas que hablan del mismo tema, la calificación de OneCore y lo que el kardex/ficha de OneCore dice al respecto."""
-    from .onecore import modulos, vigentes
+    from .onecore import calificaciones_factor, modulos, vigentes
+    clave = _norm(clave or "")
+    if not clave:
+        return None
     con = consolidado(db)
     lz = con["lienzo"]
-    if clave not in lz["claves"]:
+    colores = {sr["nombre"]: sr["color"] for sr in lz["series"]}
+    # por competidor, la junta analizada más reciente que calificó este factor (aunque su última junta no lo traiga,
+    # o el factor se vea desde la página de una junta anterior)
+    fuentes = []
+    for i, c in enumerate(db.scalars(select(Competidor).order_by(Competidor.nombre))):
+        for s in sorted([x for x in c.sesiones if x.estado == "analizada"], key=lambda x: (x.fecha, x.id), reverse=True):
+            f = next((x for x in (s.resultado or {}).get("factores", []) if _norm(x["factor"]) == clave), None)
+            if f:
+                fuentes.append((c, s, f, colores.get(c.nombre, COLORES[i % len(COLORES)])))
+                break
+    if not fuentes:
         return None
-    factor = lz["factores"][lz["claves"].index(clave)]
+    factor = lz["factores"][lz["claves"].index(clave)] if clave in lz["claves"] else fuentes[0][2]["factor"]
     raices = _raices(factor)
+    corr = calificaciones_factor(db).get(clave)
+    oc = lz["onecore"].get(clave)
+    if oc is None:
+        oc = float(corr["calificacion"]) if corr else round(sum(f["onecore"] for _, _, f, _ in fuentes) / len(fuentes), 1)
     comps = []
-    for sr in lz["series"]:
-        s = sr["sesion"]
-        f = next((x for x in s.resultado.get("factores", []) if _norm(x["factor"]) == clave), None)
-        if not f:
-            continue
+    for c, s, f, color in fuentes:
         rel = [i for i in s.insights if i.tipo in ("suyo", "oportunidad", "crear", "incrementar", "nuestro")
                and _relacionado(f"{i.titulo} {i.detalle}", raices | _raices(f.get("nota", "")))][:5]
-        comps.append({"nombre": sr["nombre"], "color": sr["color"], "valor": f["competidor"], "onecore": f["onecore"],
+        comps.append({"nombre": c.nombre, "color": color, "valor": f["competidor"], "onecore": f["onecore"],
                       "nota": f.get("nota", ""), "sesion": s, "insights": rel})
     comps.sort(key=lambda c: -c["valor"])
-    oc = lz["onecore"].get(clave)
     ficha = []
     for m in modulos(db):
         textos = [(m.funciones or ""), (m.diferenciadores or ""), (m.no_hace or ""), (m.proceso or "")]
@@ -358,7 +370,7 @@ def detalle_factor(db: Session, clave: str) -> dict | None:
                 ficha.append({"modulo": m.nombre, "tipo": c["nivel"], "texto": c["como"], "falta": c.get("falta", "")})
     mejor = comps[0]["valor"] if comps else None
     return {"clave": clave, "factor": factor, "onecore": oc, "competidores": comps, "onecore_ficha": ficha[:8],
-            "corregido": lz.get("corregidos", {}).get(clave),
+            "corregido": corr,
             "onecore_analisis": round(sum(c["onecore"] for c in comps) / len(comps), 1) if comps else None,
             "brecha": (oc - mejor) if (oc is not None and mejor is not None) else None}
 

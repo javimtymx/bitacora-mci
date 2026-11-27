@@ -1,3 +1,2 @@
-bitacora-mci v20261126-1742_3ea800a
-commit 3ea800a
-migración head: f4c9a1e7d258 (sin cambios)
+93b8b15 Lienzo de la junta: el clic en un factor abre su detalle (claves normalizadas y búsqueda en juntas anteriores)
+2026-11-26 18:05:42 -0600

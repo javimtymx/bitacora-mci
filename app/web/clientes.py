@@ -894,11 +894,10 @@ def _sesion_comp(db: Session, sid: int) -> SesionCompetidor:
 
 # ---------------------------------------------------------------- detalle de un factor del lienzo (modal)
 
-def _fragmento_factor(request: Request, u: Usuario, d: dict, a, cambio: bool, error: str = ""):
-    from sqlalchemy.orm import object_session
+def _fragmento_factor(request: Request, db: Session, u: Usuario, d: dict, a, cambio: bool, error: str = ""):
     from .base import TEMPLATES
     return TEMPLATES.TemplateResponse(request, "_factor_modal.html", {
-        "u": u, "d": d, "a": a, "cambio": cambio, "error": error, "modulos_oc": onecore.modulos(object_session(u))})
+        "u": u, "d": d, "a": a, "cambio": cambio, "error": error, "modulos_oc": onecore.modulos(db)})
 
 
 @router.post("/clientes/benchmark/factor/onecore")
@@ -911,7 +910,7 @@ def factor_onecore(request: Request, k: str = Form(""), modulo_id: OptInt = Form
     d = benchmark.detalle_factor(db, k)
     if not d:
         raise HTTPException(404, "Factor no encontrado.")
-    volver = f"/clientes/benchmark?factor={quote(k)}"
+    volver = f"/clientes/benchmark?factor={quote(d['clave'])}"
     if not calificacion or not 1 <= calificacion <= 5:
         flash(request, "Indica la calificación real de OneCore en este factor (1 a 5).", "error")
         return ir(volver)
@@ -919,7 +918,7 @@ def factor_onecore(request: Request, k: str = Form(""), modulo_id: OptInt = Form
     try:
         m = _modulo(db, modulo_id)
         onecore.confirmar(db, u, m, nivel, _datos_kardex(como, diferencia, falta, evidencia), {
-            "factor": k, "factor_nombre": d["factor"], "calificacion": calificacion,
+            "factor": d["clave"], "factor_nombre": d["factor"], "calificacion": calificacion,
             "calificacion_antes": d["onecore"], "competidor": mejor["nombre"] if mejor else None,
             "sesion_id": mejor["sesion"].id if mejor else None, "dijo": (mejor["nota"] if mejor else d["factor"])[:200]})
     except ValueError as err:
@@ -937,7 +936,7 @@ def factor_detalle(request: Request, k: str = "", db: Session = Depends(get_db),
     if not d:
         raise HTTPException(404, "Factor no encontrado.")
     a, cambio = benchmark.explicacion_guardada(db, d)
-    return _fragmento_factor(request, u, d, a, cambio)
+    return _fragmento_factor(request, db, u, d, a, cambio)
 
 
 @router.post("/clientes/benchmark/factor/explicar")
@@ -948,11 +947,11 @@ def factor_explicar(request: Request, k: str = Form(""), db: Session = Depends(g
     try:
         a = benchmark.explicar_factor(db, d, u)
         db.commit()
-        return _fragmento_factor(request, u, d, a, False)
+        return _fragmento_factor(request, db, u, d, a, False)
     except (ia.IANoDisponible, ValueError) as e:
         db.rollback()
         a, cambio = benchmark.explicacion_guardada(db, d)
-        return _fragmento_factor(request, u, d, a, cambio, str(e)[:200])
+        return _fragmento_factor(request, db, u, d, a, cambio, str(e)[:200])
 
 
 # ---------------------------------------------------------------- lo que hace OneCore (base de comparación)
@@ -1210,11 +1209,12 @@ def lienzo_a_idea(sid: int, request: Request, clave: str = Form(...), db: Sessio
 @router.get("/clientes/benchmark/sesiones/{sid}")
 def ver_sesion_competidor(sid: int, request: Request, db: Session = Depends(get_db), u: Usuario = Depends(requiere_lider)):
     s = _sesion_comp(db, sid)
-    lienzo = {"factores": [f["factor"] for f in (s.resultado or {}).get("factores", [])],
-              "claves": [f["factor"] for f in (s.resultado or {}).get("factores", [])],
-              "onecore": {f["factor"]: f["onecore"] for f in (s.resultado or {}).get("factores", [])},
+    fs = (s.resultado or {}).get("factores", [])
+    n = vozcliente._norm  # misma clave que el lienzo consolidado: así el clic abre el detalle del factor
+    lienzo = {"factores": [f["factor"] for f in fs], "claves": [n(f["factor"]) for f in fs],
+              "onecore": {n(f["factor"]): f["onecore"] for f in fs},
               "series": [{"nombre": s.competidor.nombre, "color": benchmark.COLORES[0],
-                          "valores": {f["factor"]: f["competidor"] for f in (s.resultado or {}).get("factores", [])}}]}
+                          "valores": {n(f["factor"]): f["competidor"] for f in fs}}]}
     return render(request, "clientes_benchmark_sesion.html", u, "clientes-benchmark", s=s, svg=benchmark.svg_lienzo(lienzo, 900, 280),
                   tipos=INSIGHT_TIPOS, ve_trans=_puede_ver_trans(u, s), atorado=vozcliente.analisis_atorado(s),
                   base_oc=onecore.resumen_global(db), ideas_lienzo=(s.resultado or {}).get("ideas", {}),

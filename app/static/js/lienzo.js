@@ -17,9 +17,16 @@
   fig.addEventListener("mouseleave", function () { tip.hidden = true; });
   function cargar(url, opts) {
     cuerpo.innerHTML = '<div class="small muted" style="padding:20px">Cargando…</div>';
-    return fetch(url, opts || {}).then(function (r) { if (!r.ok) throw new Error(); return r.text(); })
+    return fetch(url, opts || {}).then(function (r) {
+        if (!r.ok) throw new Error(r.status === 404 ? "Ese factor ya no aparece en ninguna junta analizada." :
+                                   r.status === 403 ? "No tienes acceso a este detalle." : "Error " + r.status + " del servidor.");
+        return r.text();
+      })
       .then(function (h) { cuerpo.innerHTML = h; })
-      .catch(function () { cuerpo.innerHTML = '<div class="small" style="padding:20px;color:var(--red)">No se pudo cargar el detalle. Intenta de nuevo.</div>'; });
+      .catch(function (e) {
+        cuerpo.innerHTML = '<div class="small" style="padding:20px;color:var(--red)">No se pudo cargar el detalle. ' +
+          (e && e.message ? e.message : "") + ' Intenta de nuevo.</div>';
+      });
   }
   function abrir(k) {
     document.getElementById("fx-abrir").click();

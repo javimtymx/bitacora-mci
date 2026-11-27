@@ -356,3 +356,30 @@ def test_onecore_tambien_lo_hace_desde_el_factor(admin, db, fake):
     admin.post(f"/clientes/benchmark/onecore/{mvm.id}/kardex/{c['id']}/retirar", data={"motivo": "Precio aún no publicado"})
     db.expire_all()
     assert benchmark.consolidado(db)["lienzo"]["onecore"][k] == 2.0
+
+
+def test_factor_de_una_junta_anterior_abre_su_detalle(admin, db, fake):
+    """En la página de una junta, el lienzo es el de esa junta: un factor que la última junta del competidor ya no trae
+    (o que ningún otro competidor calificó) también abre su detalle."""
+    from app.models import SesionCompetidor
+    for dias, factor, nota in ((10, "Transparencia de precio", "IMAR cotiza por usuario"), (0, "Soporte en sitio", "Visitas mensuales")):
+        tx = ("IMAR: nosotros manejamos licencias por usuario con precio transparente y soporte en sitio cada mes. ") * 8
+        fake.respuestas = [{"resumen": "r", "factores": [{"factor": factor, "competidor": 4, "onecore": 2, "nota": nota}],
+                            "insights": [{"tipo": "suyo", "titulo": "Precio por usuario publicado", "impacto": "media",
+                                          "detalle": "Cotiza sin letras chiquitas", "cita": "manejamos licencias por usuario"}]}]
+        admin.post("/clientes/benchmark/sesiones", data={"competidor_nuevo": "IMAR", "fecha": (hoy() - timedelta(days=dias)).isoformat()},
+                   files=[("archivo", ("t.txt", tx.encode(), "text/plain"))])
+    db.expire_all()
+    vieja = db.scalar(select(SesionCompetidor).order_by(SesionCompetidor.fecha).limit(1))
+    assert 'data-factor="transparencia de precio"' in admin.get(f"/clientes/benchmark/sesiones/{vieja.id}").text
+    r = admin.get("/clientes/benchmark/factor", params={"k": "transparencia de precio"})
+    assert r.status_code == 200 and "IMAR cotiza por usuario" in r.text and "OneCore también lo hace" in r.text
+    # y se puede corregir lo que hace OneCore desde ahí
+    mvm = db.scalar(select(ModuloOneCore).order_by(ModuloOneCore.id).limit(1))
+    admin.post("/clientes/benchmark/factor/onecore", data={
+        "k": "transparencia de precio", "modulo_id": mvm.id, "calificacion": 4, "nivel": "si",
+        "como": "Publicamos precio por módulo y por volumen de pedimentos en la propuesta, sin costos ocultos."})
+    db.expire_all()
+    assert db.get(ModuloOneCore, mvm.id).confirmaciones[0]["calificacion_antes"] == 2
+    t = admin.get("/clientes/benchmark/factor", params={"k": "transparencia de precio"}).text
+    assert "Calificación corregida por el equipo" in t, t[:1500]
