@@ -903,7 +903,8 @@ def _fragmento_factor(request: Request, db: Session, u: Usuario, d: dict, a, cam
 @router.post("/clientes/benchmark/factor/onecore")
 def factor_onecore(request: Request, k: str = Form(""), modulo_id: OptInt = Form(None), nivel: str = Form("si"),
                    calificacion: OptInt = Form(None), como: str = Form(""), diferencia: str = Form(""), falta: str = Form(""),
-                   evidencia: str = Form(""), db: Session = Depends(get_db), u: Usuario = Depends(requiere_lider)):
+                   evidencia: str = Form(""), competidor: str = Form(""), db: Session = Depends(get_db),
+                   u: Usuario = Depends(requiere_lider)):
     """«OneCore también lo hace» desde el factor del lienzo: corrige la calificación de OneCore en ese factor y deja en
     el kardex del módulo cómo lo hacemos (con eso se recalcula el lienzo y los siguientes análisis lo usan)."""
     from urllib.parse import quote
@@ -914,7 +915,7 @@ def factor_onecore(request: Request, k: str = Form(""), modulo_id: OptInt = Form
     if not calificacion or not 1 <= calificacion <= 5:
         flash(request, "Indica la calificación real de OneCore en este factor (1 a 5).", "error")
         return ir(volver)
-    mejor = d["competidores"][0] if d["competidores"] else None
+    mejor = next((c for c in d["competidores"] if c["nombre"] == competidor), None) or (d["competidores"][0] if d["competidores"] else None)
     try:
         m = _modulo(db, modulo_id)
         onecore.confirmar(db, u, m, nivel, _datos_kardex(como, diferencia, falta, evidencia), {

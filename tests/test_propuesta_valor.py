@@ -332,18 +332,20 @@ def test_onecore_tambien_lo_hace_desde_el_factor(admin, db, fake):
                    files=[("archivo", ("t.txt", tx.encode(), "text/plain"))])
     k = "transparencia de precio"
     frag = admin.get("/clientes/benchmark/factor", params={"k": k}).text
-    assert "OneCore también lo hace" in frag and "OneCore sí lo hace" in frag  # corregir el factor y cada insight
+    assert "OneCore sí lo hace: corregir su calificación" in frag  # corregir el factor
+    assert 'data-fx-oc="IMAR"' in frag and 'data-fx-oc="AVC"' in frag  # desde cada competidor que nos gana
+    assert frag.index('id="fx-oc"') < frag.index('class="fx-comps"')  # arriba, sin tener que bajar
     mvm = db.scalar(select(ModuloOneCore).where(ModuloOneCore.nombre == "Manifestación de Valor"))
     r = admin.post("/clientes/benchmark/factor/onecore", data={"k": k, "modulo_id": mvm.id, "calificacion": 4, "como": "corto"})
     assert r.status_code in (200, 303)
     db.refresh(mvm)
     assert not mvm.confirmaciones  # sin explicar cómo, no se acepta
     admin.post("/clientes/benchmark/factor/onecore", data={
-        "k": k, "modulo_id": mvm.id, "calificacion": 4, "nivel": "si",
+        "k": k, "modulo_id": mvm.id, "calificacion": 4, "nivel": "si", "competidor": "AVC",
         "como": "Publicamos precio por módulo y por volumen de pedimentos en la propuesta, sin costos ocultos de implementación."})
     db.refresh(mvm)
     c = mvm.confirmaciones[0]
-    assert c["factor"] == k and c["calificacion"] == 4 and c["calificacion_antes"] == 2 and c["competidor"] == "IMAR"
+    assert c["factor"] == k and c["calificacion"] == 4 and c["calificacion_antes"] == 2 and c["competidor"] == "AVC"
     from app.services import benchmark
     con = benchmark.consolidado(db)
     assert con["lienzo"]["onecore"][k] == 4.0  # el lienzo se recalcula con la corrección
@@ -373,7 +375,7 @@ def test_factor_de_una_junta_anterior_abre_su_detalle(admin, db, fake):
     vieja = db.scalar(select(SesionCompetidor).order_by(SesionCompetidor.fecha).limit(1))
     assert 'data-factor="transparencia de precio"' in admin.get(f"/clientes/benchmark/sesiones/{vieja.id}").text
     r = admin.get("/clientes/benchmark/factor", params={"k": "transparencia de precio"})
-    assert r.status_code == 200 and "IMAR cotiza por usuario" in r.text and "OneCore también lo hace" in r.text
+    assert r.status_code == 200 and "IMAR cotiza por usuario" in r.text and "OneCore sí lo hace: corregir" in r.text
     # y se puede corregir lo que hace OneCore desde ahí
     mvm = db.scalar(select(ModuloOneCore).order_by(ModuloOneCore.id).limit(1))
     admin.post("/clientes/benchmark/factor/onecore", data={

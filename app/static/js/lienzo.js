@@ -43,6 +43,17 @@
   // después de corregir o confirmar algo desde la ventana, se regresa con ?factor=… y se vuelve a abrir
   var q = new URLSearchParams(location.search).get("factor");
   if (q) { abrir(q); history.replaceState(null, "", location.pathname); }
+  // «OneCore sí lo hace» de cada competidor: abre la corrección del factor frente a ese competidor
+  cuerpo.addEventListener("click", function (e) {
+    var b = e.target.closest("[data-fx-oc]"), det = document.getElementById("fx-oc");
+    if (!b || !det) return;
+    var f = det.querySelector("form"), n = b.getAttribute("data-fx-oc");
+    f.querySelector("[name=competidor]").value = n;
+    var et = f.querySelector("[data-fx-comp]"); if (et) et.textContent = n;
+    det.open = true;
+    det.scrollIntoView({ behavior: "smooth", block: "start" });
+    var ta = f.querySelector("[name=como]"); if (ta) setTimeout(function () { ta.focus(); }, 300);
+  });
   cuerpo.addEventListener("submit", function (e) {
     var f = e.target.closest("[data-fx-explicar]");
     if (!f) return;
